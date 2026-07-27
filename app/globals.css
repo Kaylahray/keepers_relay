@@ -1,0 +1,123 @@
+@import "tailwindcss";
+
+:root {
+  --ink: #101010;
+  --paper: #fff8e7;
+  --acid: #d6ff00;
+  --cobalt: #224cff;
+  --pink: #ff4cbd;
+  --orange: #ff6b2d;
+  --sun: #ffe454;
+}
+
+@theme inline {
+  --color-ink: var(--ink);
+  --color-paper: var(--paper);
+  --color-acid: var(--acid);
+  --color-cobalt: var(--cobalt);
+  --color-pink: var(--pink);
+  --color-orange: var(--orange);
+  --color-sun: var(--sun);
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-dm-mono);
+  --font-serif-display: var(--font-instrument-serif);
+  --font-poster: var(--font-archivo-black);
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--acid);
+  color: var(--ink);
+  font-family: var(--font-inter), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.font-serif-display {
+  font-family: var(--font-instrument-serif), Georgia, serif;
+}
+
+.font-mono {
+  font-family: var(--font-dm-mono), ui-monospace, monospace;
+}
+
+.font-poster {
+  font-family: var(--font-archivo-black), Impact, sans-serif;
+  letter-spacing: -0.055em;
+}
+
+.bg-relic {
+  background-color: var(--acid);
+}
+
+.chain-grid {
+  background-image:
+    radial-gradient(circle at 10% 15%, var(--pink) 0 9px, transparent 10px),
+    radial-gradient(circle at 87% 13%, var(--cobalt) 0 16px, transparent 17px),
+    radial-gradient(circle at 90% 76%, var(--orange) 0 10px, transparent 11px);
+  background-size: 260px 220px, 340px 310px, 280px 250px;
+  animation: drift 18s linear infinite;
+}
+
+@keyframes drift {
+  from {
+    background-position: 0 0, 0 0, 0 0;
+  }
+  to {
+    background-position: 180px 100px, -160px 120px, 120px -100px;
+  }
+}
+
+.neo-card {
+  border: 3px solid var(--ink) !important;
+  border-radius: 0 !important;
+  box-shadow: 7px 7px 0 var(--ink);
+}
+
+.neo-card-soft {
+  border: 3px solid var(--ink) !important;
+  border-radius: 0 !important;
+  box-shadow: 5px 5px 0 var(--ink);
+}
+
+.neo-image {
+  border: 3px solid var(--ink);
+  border-radius: 0;
+  box-shadow: 6px 6px 0 var(--pink);
+}
+
+.neo-button {
+  border: 3px solid var(--ink) !important;
+  border-radius: 0 !important;
+  box-shadow: 4px 4px 0 var(--ink);
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+.neo-button:hover:not(:disabled) {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+.neo-button:active:not(:disabled) {
+  transform: translate(4px, 4px);
+  box-shadow: 0 0 0 var(--ink);
+}
+
+::selection {
+  background: var(--pink);
+  color: var(--ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}
