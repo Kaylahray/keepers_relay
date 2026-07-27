@@ -1,6 +1,6 @@
-# Keepers Relay — Chain Letter
+# Keepers Relay — Chain Letter. Still thinking of the best name 
 
-Next.js + TypeScript + Tailwind port of the Chain Letter / Keepers Relay prototype.
+Next.js + TypeScript + Tailwind - Keepers Relay prototype.
 
 A living CKB collectible that survives only if every Keeper passes the Cell on before the deadline.
 
@@ -21,7 +21,7 @@ pnpm install
 pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+
 
 ## Project layout
 
