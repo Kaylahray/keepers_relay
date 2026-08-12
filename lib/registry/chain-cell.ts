@@ -94,7 +94,7 @@ export async function mintChainCell(
   const windowSeconds = windowHours * 3600;
   const ownerLock = await getOwnerLock(signer);
   const chainId = randomChainId();
-  const expiresAtMs = BigInt(Date.now()) + BigInt(windowSeconds) * 1000n;
+  const expiresAtMs = BigInt(Date.now()) + BigInt(windowSeconds) * BigInt(1000);
   const data = encodeChainCellData({
     status: ChainStatusCode.Alive,
     mode: modeToCode(input.mode),
@@ -174,7 +174,7 @@ export async function handoffChainCell(
     throw new Error("Pass it to someone else — you already hold it.");
   }
 
-  const expiresAtMs = current.expiresAtMs + BigInt(current.windowSeconds) * 1000n;
+  const expiresAtMs = current.expiresAtMs + BigInt(current.windowSeconds) * BigInt(1000);
   const data = encodeChainCellData({
     status,
     mode: current.mode,
