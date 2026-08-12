@@ -10,6 +10,7 @@ interface KeeperQueueProps {
   joining: boolean;
   endorsing: boolean;
   error: string | null;
+  defaultName?: string;
   onJoin: (input: { name: string; pledge: string }) => void;
   onEndorse: (entry: QueueEntry) => void;
 }
@@ -20,11 +21,16 @@ export function KeeperQueue({
   joining,
   endorsing,
   error,
+  defaultName = '',
   onJoin,
   onEndorse,
 }: KeeperQueueProps) {
-  const [name, setName] = useState('');
+  const [name, setName] = useState(defaultName);
   const [pledge, setPledge] = useState('');
+
+  React.useEffect(() => {
+    if (defaultName) setName(defaultName);
+  }, [defaultName]);
 
   function submit(event: React.FormEvent) {
     event.preventDefault();

@@ -1,0 +1,13 @@
+[package]
+name = "chain-cell-type"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+description = "Keepers Relay Chain Cell type script — enforces living Cell handoffs"
+
+[dependencies]
+ckb-std.workspace = true
+
+[[bin]]
+name = "chain-cell-type"
+path = "src/main.rs"

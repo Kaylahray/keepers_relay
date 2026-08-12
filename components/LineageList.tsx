@@ -1,9 +1,14 @@
 'use client';
 
+import Link from 'next/link';
 import { AnimatePresence, motion } from 'framer-motion';
 import { formatDistanceToNow } from 'date-fns';
 import { Crown, Lock } from 'lucide-react';
 import type { Owner } from '@/types/chain';
+
+function profileHref(name: string): string {
+  return `/profile/${encodeURIComponent(name.toLowerCase())}`;
+}
 
 interface LineageListProps {
   owners: Owner[];
@@ -39,14 +44,19 @@ export function LineageList({ owners, dead }: LineageListProps) {
               <div className="flex min-w-0 flex-1 items-start justify-between gap-3 border-b-2 border-black pb-2">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-black uppercase">
-                    {owner.name}
+                    <Link href={profileHref(owner.name)} className="underline-offset-2 hover:underline">
+                      {owner.name}
+                    </Link>
                     {current && !dead && (
                       <span className="ml-2 bg-[#ff4cbd] px-1.5 py-0.5 align-middle text-[9px] font-black">
                         HOLDING
                       </span>
                     )}
                   </p>
-                  <code className="font-mono text-[10px] font-bold text-black/50">{owner.cellHash}</code>
+                  <code className="font-mono text-[10px] font-bold text-black/50">
+                    {owner.city ? `${owner.city} · ` : ''}
+                    {owner.cellHash}
+                  </code>
                 </div>
                 <span className="shrink-0 text-right font-mono text-[10px] font-bold text-black/55">
                   {owner.passedAt

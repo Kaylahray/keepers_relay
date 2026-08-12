@@ -33,6 +33,14 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# local durable store when DATABASE_URL is unset
+.data/
+
+# chain cell contract build artifacts / deps
+/scripts/chain-cell/target/
+/scripts/chain-cell/build/
+/scripts/chain-cell/tests/failed_txs/
+
 # vercel
 .vercel
 

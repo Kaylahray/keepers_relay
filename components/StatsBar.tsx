@@ -2,12 +2,16 @@
 
 import { motion } from 'framer-motion';
 import { Trophy } from 'lucide-react';
+import type { ChainMode } from '@/types/chain';
 
 interface StatsBarProps {
   ownerCount: number;
   trophyGoal: number;
   windowHours: number;
   dead: boolean;
+  returned?: boolean;
+  creatureName?: string;
+  mode?: ChainMode;
 }
 
 function Stat({ label, value, color }: { label: string; value: string; color: string }) {
@@ -19,24 +23,34 @@ function Stat({ label, value, color }: { label: string; value: string; color: st
   );
 }
 
-export function StatsBar({ ownerCount, trophyGoal, windowHours, dead }: StatsBarProps) {
+export function StatsBar({
+  ownerCount,
+  trophyGoal,
+  windowHours,
+  dead,
+  returned = false,
+  creatureName = 'Cell',
+  mode = 'open',
+}: StatsBarProps) {
   const progress = Math.min(1, ownerCount / trophyGoal);
   const windowLabel = windowHours >= 24 ? `${Math.round(windowHours / 24)}D` : `${windowHours}H`;
+  const status = dead ? 'DEAD' : returned ? 'HOME' : 'ALIVE';
+  const statusColor = dead ? '#777777' : returned ? '#d6ff00' : '#ffe454';
 
   return (
     <div className="neo-card bg-black p-4 text-[#fff8e7]">
       <div className="flex items-center justify-between">
         <p className="text-[10px] font-black uppercase tracking-[0.16em] text-[#d6ff00]">
-          Chain vital signs
+          {creatureName} · vital signs
         </p>
         <span className="border-2 border-[#fff8e7] px-2 py-1 font-mono text-[9px] font-bold">
-          LIVE CELL
+          {mode === 'return_home' ? 'RETURN HOME' : 'OPEN RELAY'}
         </span>
       </div>
       <div className="mt-4 grid grid-cols-3 gap-2">
         <Stat label="Keepers" value={String(ownerCount)} color="#d6ff00" />
         <Stat label="Pass window" value={windowLabel} color="#ff4cbd" />
-        <Stat label="Status" value={dead ? 'DEAD' : 'ALIVE'} color={dead ? '#777777' : '#ffe454'} />
+        <Stat label="Status" value={status} color={statusColor} />
       </div>
       <div className="mt-5">
         <div className="mb-2 flex items-center justify-between text-[10px] font-black uppercase tracking-wider">

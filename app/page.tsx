@@ -1,5 +1,5 @@
-import { ChainLetter } from '@/components/ChainLetter';
+import { HomeView } from '@/components/views/HomeView';
 
 export default function Home() {
-  return <ChainLetter />;
+  return <HomeView />;
 }

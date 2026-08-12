@@ -1,0 +1,11 @@
+[[cells]]
+name = "chain-cell-type"
+enable_type_id = true
+
+  [cells.location]
+  file = "C:/Users/chiom/Desktop/spore/keepers_relay/keepers_relay/scripts/chain-cell/build/release/chain-cell-type"
+
+[lock]
+code_hash = "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8"
+args = "0x51f46ec3662029b87cb65b058e72dc6a81b3e683"
+hash_type = "type"

@@ -1,23 +1,16 @@
 'use client';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { Lock, RotateCcw } from 'lucide-react';
+import Link from 'next/link';
+import { Lock } from 'lucide-react';
 
 interface DeadOverlayProps {
   open: boolean;
   ownerCount: number;
   lastOwner: string;
-  onReset: () => void;
-  resetting: boolean;
 }
 
-export function DeadOverlay({
-  open,
-  ownerCount,
-  lastOwner,
-  onReset,
-  resetting,
-}: DeadOverlayProps) {
+export function DeadOverlay({ open, ownerCount, lastOwner }: DeadOverlayProps) {
   return (
     <AnimatePresence>
       {open && (
@@ -50,19 +43,16 @@ export function DeadOverlay({
               dead.
             </h2>
             <p className="mt-5 text-sm font-semibold leading-relaxed">
-              <span className="font-black">{lastOwner}</span> ran out of time. This Cell is locked
-              forever. It survived{' '}
+              <span className="font-black">{lastOwner}</span> ran out of time. This Cell is locked.
+              It survived{' '}
               <span className="bg-[#d6ff00] px-1 font-black">{ownerCount} KEEPERS</span>.
             </p>
-            <button
-              type="button"
-              onClick={onReset}
-              disabled={resetting}
-              className="neo-button mx-auto mt-7 flex items-center gap-2 bg-[#224cff] px-5 py-3 text-sm font-black uppercase text-[#fff8e7] disabled:opacity-50"
+            <Link
+              href="/streaks"
+              className="neo-button mx-auto mt-7 inline-flex items-center gap-2 bg-[#224cff] px-5 py-3 text-sm font-black uppercase text-[#fff8e7]"
             >
-              <RotateCcw className={`h-4 w-4 stroke-[3] ${resetting ? 'animate-spin' : ''}`} />
-              Start another
-            </button>
+              See other streaks
+            </Link>
           </motion.div>
         </motion.div>
       )}
