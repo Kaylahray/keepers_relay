@@ -836,4 +836,3 @@ Even though the current backend is mocked, using typed APIs, queries and mutatio
 - Neo-brutalist product design
 
 ---
-

@@ -86,6 +86,19 @@ export function ArtifactArchiveView({ chainId }: { chainId: string }) {
                   </span>
                 </div>
                 <p className="mt-3 font-serif-display text-2xl leading-tight">“{entry.body}”</p>
+                {entry.imageUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={entry.imageUrl}
+                    alt=""
+                    className="mt-3 max-h-64 w-full border-[3px] border-black object-cover"
+                  />
+                )}
+                {entry.contentHash && (
+                  <p className="mt-2 break-all font-mono text-[9px] font-bold text-black/55">
+                    commitment {entry.contentHash}
+                  </p>
+                )}
                 <p className="mt-3 font-mono text-[10px] font-bold uppercase">
                   — {entry.author}, Keeper
                 </p>
@@ -96,9 +109,8 @@ export function ArtifactArchiveView({ chainId }: { chainId: string }) {
       </ol>
 
       <p className="mt-8 border-[3px] border-black bg-black p-4 text-xs font-bold leading-relaxed text-[#fff8e7]">
-        In production, each mark gets a content hash committed to the Chain Cell, with the full text
-        and any media stored on durable off-chain storage. That keeps transactions small while making
-        the record verifiable.
+        Each mark gets a content hash chained into the Cell&rsquo;s artifact_root. Full text and
+        images live in the Living Artifact; the Cell carries the proof.
       </p>
     </PageShell>
   );

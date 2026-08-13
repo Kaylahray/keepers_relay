@@ -121,14 +121,14 @@ The intention is to make a Chain Letter feel like a living internet artifact—p
 
 A Chain Letter should have one unambiguous current holder. CKB’s Cell model naturally supports that:
 
-| Product requirement | CKB primitive |
-| --- | --- |
-| Only one current Keeper | One live Cell can be spent by one valid transaction |
-| Handoff changes ownership | Consume old Cell, create new Cell with new lock owner |
-| Deadline enforcement | Type script validates the expiry and permitted transition |
-| Permanent death | No valid replacement Cell can be created after expiry |
-| Immutable lineage | Each transaction can reference lineage data or emitted events |
-| Evolving artifact state | Cell data / companion Cells can reference the latest artifact state |
+| Product requirement       | CKB primitive                                                       |
+| ------------------------- | ------------------------------------------------------------------- |
+| Only one current Keeper   | One live Cell can be spent by one valid transaction                 |
+| Handoff changes ownership | Consume old Cell, create new Cell with new lock owner               |
+| Deadline enforcement      | Type script validates the expiry and permitted transition           |
+| Permanent death           | No valid replacement Cell can be created after expiry               |
+| Immutable lineage         | Each transaction can reference lineage data or emitted events       |
+| Evolving artifact state   | Cell data / companion Cells can reference the latest artifact state |
 
 ### Proposed on-chain state
 
@@ -175,40 +175,40 @@ If time has passed, the type script should reject a live successor transition. T
 
 ### Front end
 
-| Concern | Recommendation |
-| --- | --- |
-| Application | React + TypeScript |
-| Server state | TanStack Query / React Query |
-| Routing | React Router |
-| UI and animation | Tailwind CSS + Framer Motion + Lucide icons |
-| Form handling | React Hook Form + Zod |
-| Wallet interaction | CKB wallet adapter/provider chosen with the wallet ecosystem |
-| Transaction composition | Lumos or the current supported CKB SDK stack |
-| Error monitoring | Sentry or equivalent |
-| Product analytics | PostHog, Amplitude, or privacy-respecting equivalent |
+| Concern                 | Recommendation                                               |
+| ----------------------- | ------------------------------------------------------------ |
+| Application             | React + TypeScript                                           |
+| Server state            | TanStack Query / React Query                                 |
+| Routing                 | React Router                                                 |
+| UI and animation        | Tailwind CSS + Framer Motion + Lucide icons                  |
+| Form handling           | React Hook Form + Zod                                        |
+| Wallet interaction      | CKB wallet adapter/provider chosen with the wallet ecosystem |
+| Transaction composition | Lumos or the current supported CKB SDK stack                 |
+| Error monitoring        | Sentry or equivalent                                         |
+| Product analytics       | PostHog, Amplitude, or privacy-respecting equivalent         |
 
 ### CKB / blockchain layer
 
-| Concern | Recommendation |
-| --- | --- |
-| Cell collection and transaction assembly | Lumos / official current CKB SDK tooling |
-| Node access | Hosted CKB RPC provider initially; redundant RPC endpoints for production |
-| Indexing | CKB Indexer or hosted indexer; custom indexer for social/feed projections |
-| Smart contract | CKB Script in Rust, with a tested Type Script for the Chain Cell transition rules |
-| Testing | Unit tests, property tests for expiry rules, integration tests on testnet, transaction simulation before signing |
-| Event indexing | Index consumed/created Chain Cells and transaction metadata into a read model |
+| Concern                                  | Recommendation                                                                                                   |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Cell collection and transaction assembly | Lumos / official current CKB SDK tooling                                                                         |
+| Node access                              | Hosted CKB RPC provider initially; redundant RPC endpoints for production                                        |
+| Indexing                                 | CKB Indexer or hosted indexer; custom indexer for social/feed projections                                        |
+| Smart contract                           | CKB Script in Rust, with a tested Type Script for the Chain Cell transition rules                                |
+| Testing                                  | Unit tests, property tests for expiry rules, integration tests on testnet, transaction simulation before signing |
+| Event indexing                           | Index consumed/created Chain Cells and transaction metadata into a read model                                    |
 
 ### Off-chain product services
 
-| Concern | Recommendation |
-| --- | --- |
-| Application API | TypeScript service (for example, Hono, Fastify, or NestJS) |
-| Database | PostgreSQL for profiles, queue entries, Relay metadata, moderation, and indexed read models |
-| Cache / queues | Redis plus a job queue for notifications, index syncing, and moderation workflows |
+| Concern                    | Recommendation                                                                              |
+| -------------------------- | ------------------------------------------------------------------------------------------- |
+| Application API            | TypeScript service (for example, Hono, Fastify, or NestJS)                                  |
+| Database                   | PostgreSQL for profiles, queue entries, Relay metadata, moderation, and indexed read models |
+| Cache / queues             | Redis plus a job queue for notifications, index syncing, and moderation workflows           |
 | Media and artifact content | IPFS / decentralized storage for permanent media; object storage/CDN for optimized delivery |
-| Authentication | Wallet signature-based sign-in (SIWE-style pattern adapted to CKB) |
-| Notifications | Web push, email, and optionally Telegram / Discord integrations |
-| Search and discovery | PostgreSQL search initially; dedicated search only after product-market fit |
+| Authentication             | Wallet signature-based sign-in (SIWE-style pattern adapted to CKB)                          |
+| Notifications              | Web push, email, and optionally Telegram / Discord integrations                             |
+| Search and discovery       | PostgreSQL search initially; dedicated search only after product-market fit                 |
 
 ---
 
@@ -240,18 +240,18 @@ Wallet connection should be introduced only when the transaction and identity fl
 
 ## Data model split: on-chain vs off-chain
 
-| Data | Recommended home | Why |
-| --- | --- |
-| Current owner lock hash | On-chain | Ownership and authorization must be trustless |
-| Expiry and handoff window | On-chain | Death rule must be enforceable |
-| Chain generation / owner count | On-chain or indexable transition | Needed for trophy logic and integrity |
-| Lineage transaction references | On-chain / indexed | Provides auditable provenance |
-| Artifact content hash | On-chain | Makes the cultural record verifiable |
-| Full artifact text and images | Decentralized storage + database read model | Keeps transactions compact and performant |
-| Relay definitions | Off-chain, versioned and signed | Allows curation and partner updates |
-| Relay completion proof | Hybrid | Off-chain verification with optional on-chain attestation |
-| Queue pledges / reactions | Off-chain | Social interaction needs moderation and low fees |
-| Passport XP and badges | Off-chain first, on-chain attestation for milestones | Better iteration speed without losing verifiability |
+| Data                           | Recommended home                                     | Why                                                       |
+| ------------------------------ | ---------------------------------------------------- | --------------------------------------------------------- |
+| Current owner lock hash        | On-chain                                             | Ownership and authorization must be trustless             |
+| Expiry and handoff window      | On-chain                                             | Death rule must be enforceable                            |
+| Chain generation / owner count | On-chain or indexable transition                     | Needed for trophy logic and integrity                     |
+| Lineage transaction references | On-chain / indexed                                   | Provides auditable provenance                             |
+| Artifact content hash          | On-chain                                             | Makes the cultural record verifiable                      |
+| Full artifact text and images  | Decentralized storage + database read model          | Keeps transactions compact and performant                 |
+| Relay definitions              | Off-chain, versioned and signed                      | Allows curation and partner updates                       |
+| Relay completion proof         | Hybrid                                               | Off-chain verification with optional on-chain attestation |
+| Queue pledges / reactions      | Off-chain                                            | Social interaction needs moderation and low fees          |
+| Passport XP and badges         | Off-chain first, on-chain attestation for milestones | Better iteration speed without losing verifiability       |
 
 ---
 

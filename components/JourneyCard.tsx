@@ -100,6 +100,14 @@ export function JourneyCard({
           <ul className="mt-2 max-h-48 space-y-2 overflow-y-auto">
             {[...artifact.entries].reverse().slice(0, 6).map((entry) => (
               <li key={entry.id} className="border-2 border-black bg-white p-2.5">
+                {entry.imageUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={entry.imageUrl}
+                    alt=""
+                    className="mb-2 max-h-28 w-full border border-black object-cover"
+                  />
+                )}
                 <p className="text-xs font-semibold leading-snug">“{entry.body}”</p>
                 <p className="mt-1 flex flex-wrap items-center gap-2 font-mono text-[9px] font-bold text-black/60">
                   <span>@{entry.author}</span>
@@ -110,6 +118,9 @@ export function JourneyCard({
                     </span>
                   )}
                   <span className="uppercase">{entry.kind}</span>
+                  {entry.contentHash && (
+                    <span title={entry.contentHash}>hash {entry.contentHash.slice(0, 10)}…</span>
+                  )}
                 </p>
               </li>
             ))}

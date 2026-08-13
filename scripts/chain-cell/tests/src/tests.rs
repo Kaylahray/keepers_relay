@@ -300,6 +300,56 @@ fn test_handoff_same_lock_rejected() {
 }
 
 #[test]
+fn test_seal_mark_same_lock_valid() {
+    let mut context = Context::default();
+    let (_, chain_type, type_dep) = load_chain_type(&mut context);
+    let (lock, lock_dep) = always_success(&mut context, Bytes::from(vec![0xdd]));
+
+    let window = 86_400u32;
+    let expires = 1_700_000_000_000u64;
+    let chain_id = [0x77; 32];
+    let mut input = [0u8; DATA_LEN];
+    input[0] = 1;
+    input[1] = 0;
+    input[2] = 0;
+    input[4..8].copy_from_slice(&2u32.to_le_bytes());
+    input[8..16].copy_from_slice(&expires.to_le_bytes());
+    input[16..20].copy_from_slice(&window.to_le_bytes());
+    input[20..52].copy_from_slice(&chain_id);
+    input[84..116].copy_from_slice(&[0x11; 32]);
+
+    let mut output = input;
+    output[84..116].copy_from_slice(&[0x22; 32]);
+
+    let live = context.create_cell(
+        CellOutput::new_builder()
+            .capacity(20_000_000_000u64)
+            .lock(lock.clone())
+            .type_(Some(chain_type.clone()).pack())
+            .build(),
+        Bytes::from(input.to_vec()),
+    );
+
+    let tx = TransactionBuilder::default()
+        .input(CellInput::new_builder().previous_output(live).build())
+        .output(
+            CellOutput::new_builder()
+                .capacity(19_900_000_000u64)
+                .lock(lock)
+                .type_(Some(chain_type).pack())
+                .build(),
+        )
+        .output_data(Bytes::from(output.to_vec()).pack())
+        .cell_dep(lock_dep)
+        .cell_dep(type_dep)
+        .build();
+
+    let tx = context.complete_tx(tx);
+    let cycles = verify_and_dump_failed_tx(&context, &tx, MAX_CYCLES).expect("seal should pass");
+    println!("[chain-cell] seal mark — cycles: {cycles}");
+}
+
+#[test]
 fn test_return_home_final_handoff() {
     // return_home mode: last hop marks status=returned (finished journey).
     // Lock still changes to the creator; unique-holder rules live in the app layer for now.

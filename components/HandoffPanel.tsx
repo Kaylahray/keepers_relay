@@ -12,7 +12,8 @@ import {
 import { useWallet } from '@/hooks/useWallet';
 import { useChainQuery } from '@/hooks/useChain';
 import { chainCellConfigured } from '@/lib/registry/config';
-import { handoffChainCell } from '@/lib/registry/chain-cell';
+import { handoffChainCell, hexToBytes } from '@/lib/registry/chain-cell';
+import { normalizeArtifactRoot, ZERO_ARTIFACT_ROOT } from '@/lib/artifact-commit';
 
 /** Members request the Cell; the holder accepts / declines. */
 export function HandoffPanel({
@@ -120,11 +121,17 @@ export function HandoffPanel({
                           ) {
                             if (!signer) throw new Error('Connect your wallet to pass on-chain.');
                             setSigning(true);
+                            const pendingRoot = normalizeArtifactRoot(chain.artifactRoot);
+                            const artifactRoot =
+                              pendingRoot === ZERO_ARTIFACT_ROOT
+                                ? undefined
+                                : hexToBytes(pendingRoot);
                             const minted = await handoffChainCell(signer, {
                               liveOutPoint: chain.cellOutPoint,
                               recipient: item.requesterAddress,
                               creatorAddress: chain.creatorAddress,
                               mode: chain.mode,
+                              artifactRoot,
                             });
                             accept.mutate({
                               address,

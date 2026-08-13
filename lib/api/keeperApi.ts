@@ -18,6 +18,14 @@ export function publishArtifact(input: {
   body: string;
   kind: ArtifactKind;
   place?: string;
+  address?: string;
+  journeyId?: string;
+  imageUrl?: string;
+  contentHash?: string;
+  artifactRoot?: string;
+  cellOutPoint?: { txHash: string; index: string };
+  txHash?: string;
+  artifactRootOnChain?: boolean;
 }): Promise<LivingArtifact> {
   return post<LivingArtifact>('/api/artifact', input);
 }

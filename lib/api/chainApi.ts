@@ -13,6 +13,8 @@ export function passChain(
     cellOutPoint?: { txHash: string; index: string };
     txHash?: string;
     expiresAt?: string;
+    artifactRoot?: string;
+    artifactRootOnChain?: boolean;
   },
 ): Promise<Chain> {
   return post<Chain>('/api/chain/pass', { recipient, city, ...onChain });

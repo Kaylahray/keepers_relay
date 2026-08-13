@@ -92,7 +92,11 @@ fn validate() -> Result<(), Error> {
         (1, 1) => {
             let input = parse_data(0, Source::GroupInput)?;
             let output = parse_data(0, Source::GroupOutput)?;
-            validate_handoff(&input, &output)
+            if is_seal_transition(&input, &output) {
+                validate_seal(&input, &output)
+            } else {
+                validate_handoff(&input, &output)
+            }
         }
         _ => Err(Error::InvalidCardinality),
     }
@@ -107,6 +111,33 @@ fn validate_mint(out: &ChainData) -> Result<(), Error> {
     }
     if out.window_seconds < 60 {
         return Err(Error::WindowMismatch);
+    }
+    Ok(())
+}
+
+/// Seal: Keeper updates artifact_root without advancing ownership / expiry.
+fn is_seal_transition(input: &ChainData, output: &ChainData) -> bool {
+    input.status == STATUS_ALIVE
+        && output.status == STATUS_ALIVE
+        && output.owner_count == input.owner_count
+        && output.expires_at_ms == input.expires_at_ms
+}
+
+fn validate_seal(input: &ChainData, output: &ChainData) -> Result<(), Error> {
+    if output.mode != input.mode {
+        return Err(Error::InvalidData);
+    }
+    if output.window_seconds != input.window_seconds {
+        return Err(Error::WindowMismatch);
+    }
+    if output.chain_id != input.chain_id {
+        return Err(Error::ChainIdMismatch);
+    }
+
+    let in_lock = load_cell_lock_hash(0, Source::GroupInput).map_err(|_| Error::Syscall)?;
+    let out_lock = load_cell_lock_hash(0, Source::GroupOutput).map_err(|_| Error::Syscall)?;
+    if in_lock != out_lock {
+        return Err(Error::Unauthorized);
     }
     Ok(())
 }

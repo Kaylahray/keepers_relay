@@ -9,6 +9,10 @@ export interface ArtifactEntry {
   isFeatured: boolean;
   /** Optional city / place stamp for the journey map. */
   place?: string;
+  /** Image for view/meme marks (data URL or https). */
+  imageUrl?: string;
+  /** SHA-256 commitment chained into the Cell's artifact_root. */
+  contentHash?: string;
 }
 
 export interface LivingArtifact {

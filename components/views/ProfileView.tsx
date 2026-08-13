@@ -9,26 +9,66 @@ import {
   useRelayAttemptsQuery,
   useRelayBoardQuery,
 } from '@/hooks/useKeeperEcosystem';
+import { useMyBuilder } from '@/hooks/useBuilder';
+import { useWallet } from '@/hooks/useWallet';
 import { PageShell } from '@/components/PageShell';
 import { RelayStatusBadge } from '@/components/RelayStatusBadge';
 
 export function ProfileView({ address }: { address: string }) {
   const isSelf = address === 'me';
+  const { isConnected, connect, formattedAddress, address: walletAddress } = useWallet();
+  const myBuilder = useMyBuilder();
   const passport = usePassportQuery();
   const board = useRelayBoardQuery();
   const attempts = useRelayAttemptsQuery();
   const { data: chain } = useChainQuery();
 
-  const displayName = isSelf ? passport.data?.displayName ?? 'You' : decodeURIComponent(address);
+  if (isSelf && !isConnected) {
+    return (
+      <PageShell
+        eyebrow="Your proof passport"
+        title="Connect to view"
+        intro="Your passport is tied to your wallet."
+        backHref="/"
+        backLabel="Home"
+      >
+        <button
+          type="button"
+          onClick={() => connect()}
+          className="neo-button flex items-center gap-2 bg-[#224cff] px-5 py-3 text-sm font-black uppercase text-[#fff8e7]"
+        >
+          <WalletMinimal className="h-4 w-4 stroke-[3]" />
+          Connect wallet
+        </button>
+      </PageShell>
+    );
+  }
+
+  const me = myBuilder.data?.builder;
+  const displayName = isSelf
+    ? me?.displayName || passport.data?.displayName || 'You'
+    : decodeURIComponent(address);
   const keeperTurns = (chain?.owners ?? []).filter(
-    (owner) => owner.name.toLowerCase() === displayName.toLowerCase(),
+    (owner) =>
+      (owner.address &&
+        walletAddress &&
+        owner.address.toLowerCase() === walletAddress.toLowerCase()) ||
+      owner.name.toLowerCase() === displayName.toLowerCase(),
   );
-  const holdingNow =
-    chain && chain.owners[chain.owners.length - 1]?.name.toLowerCase() === displayName.toLowerCase();
+  const holdingNow = Boolean(
+    chain &&
+      ((walletAddress &&
+        chain.owners[chain.owners.length - 1]?.address?.toLowerCase() ===
+          walletAddress.toLowerCase()) ||
+        chain.owners[chain.owners.length - 1]?.name.toLowerCase() === displayName.toLowerCase()),
+  );
   const holderNumber =
     keeperTurns.length > 0
-      ? (chain?.owners.findIndex((o) => o.name.toLowerCase() === displayName.toLowerCase()) ?? -1) +
-        1
+      ? (chain?.owners.findIndex(
+          (o) =>
+            (walletAddress && o.address?.toLowerCase() === walletAddress.toLowerCase()) ||
+            o.name.toLowerCase() === displayName.toLowerCase(),
+        ) ?? -1) + 1
       : null;
 
   return (
@@ -43,18 +83,18 @@ export function ProfileView({ address }: { address: string }) {
       backHref="/"
       backLabel="Home"
     >
-      {isSelf && passport.data?.address && (
+      {isSelf && (formattedAddress || passport.data?.address) && (
         <div className="mb-6 flex flex-wrap items-center gap-3 border-[3px] border-black bg-black p-4 text-[#fff8e7] shadow-[6px_6px_0_#ff4cbd]">
           <WalletMinimal className="h-5 w-5 shrink-0 stroke-[3] text-[#d6ff00]" />
           <code className="border-2 border-[#fff8e7] px-2 py-1 font-mono text-[10px]">
-            {passport.data.address}
+            {formattedAddress || passport.data?.address}
           </code>
         </div>
       )}
 
       <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
         <div className="space-y-6">
-          {chain && (
+          {isSelf && chain && holderNumber ? (
             <section className="neo-card bg-[#d6ff00] p-5">
               <p className="text-[10px] font-black uppercase tracking-[0.16em]">
                 Cells I&rsquo;ve kept alive
@@ -62,22 +102,17 @@ export function ProfileView({ address }: { address: string }) {
               <h2 className="mt-2 font-poster text-3xl uppercase leading-none">
                 {chain.creatureName}
               </h2>
-              {holderNumber ? (
-                <p className="mt-3 text-sm font-semibold">
-                  Holder #{holderNumber}
-                  {holdingNow ? ' · holding now' : ''}
-                  {chain.status === 'returned' ? ' · journey came home' : ''}
-                </p>
-              ) : (
-                <p className="mt-3 text-sm font-semibold">
-                  Not on this lineage.
-                </p>
-              )}
+              <p className="mt-3 text-sm font-semibold">
+                Holder #{holderNumber}
+                {holdingNow ? ' · holding now' : ''}
+                {chain.status === 'returned' ? ' · journey came home' : ''}
+              </p>
               <p className="mt-2 font-mono text-[10px] font-bold">
-                {chain.owners.length} holders · {chain.mode === 'return_home' ? 'return home' : 'open'}
+                {chain.owners.length} holders ·{' '}
+                {chain.mode === 'return_home' ? 'return home' : 'open'}
               </p>
             </section>
-          )}
+          ) : null}
 
           {isSelf && passport.data && (
             <section className="neo-card bg-[#ff4cbd] p-5">
@@ -135,7 +170,7 @@ export function ProfileView({ address }: { address: string }) {
             {keeperTurns.length === 0 ? (
               <p className="mt-3 text-sm font-semibold leading-relaxed">
                 {isSelf
-                  ? 'You have not held the Cell yet. Join the handoff queue and make a promise the Keeper cannot ignore.'
+                  ? 'You have not held a Cell yet.'
                   : 'No recorded turns holding this Chain Cell.'}
               </p>
             ) : (

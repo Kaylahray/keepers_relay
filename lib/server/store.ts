@@ -964,6 +964,8 @@ export function acceptHandoff(input: {
     cellOutPoint: input.cellOutPoint,
     txHash: input.txHash,
     expiresAt: input.expiresAt,
+    artifactRoot: journey.chain.artifactRoot,
+    artifactRootOnChain: Boolean(input.cellOutPoint),
   });
   request.status = 'accepted';
   return next;
@@ -1127,6 +1129,8 @@ export type PassChainOnChain = {
   cellOutPoint?: { txHash: string; index: string };
   txHash?: string;
   expiresAt?: string;
+  artifactRoot?: string;
+  artifactRootOnChain?: boolean;
 };
 
 export function passChain(recipient: string, city?: string, onChain?: PassChainOnChain): Chain {
@@ -1152,10 +1156,7 @@ export function passChain(recipient: string, city?: string, onChain?: PassChainO
   const place = city?.trim();
 
   if (!currentKeeperHasContributed()) {
-    throw new StoreError(
-      'Seal one contribution into the Living Artifact before you pass the Cell.',
-      409,
-    );
+    throw new StoreError('Leave your mark first, then pass.', 409);
   }
 
   if (name.toLowerCase() === current.name.toLowerCase()) {
@@ -1193,6 +1194,12 @@ export function passChain(recipient: string, city?: string, onChain?: PassChainO
   chain.expiresAt = onChain?.expiresAt ?? new Date(now + hours(chain.windowHours)).toISOString();
   if (onChain?.cellOutPoint) chain.cellOutPoint = onChain.cellOutPoint;
   if (onChain?.txHash) chain.lastTxHash = onChain.txHash;
+  if (onChain?.artifactRoot) {
+    chain.artifactRoot = onChain.artifactRoot;
+    chain.artifactRootOnChain = onChain.artifactRootOnChain ?? true;
+  } else if (onChain?.cellOutPoint && chain.artifactRoot) {
+    chain.artifactRootOnChain = true;
+  }
 
   if (chain.mode === 'return_home' && isCreator) {
     chain.status = 'returned';
@@ -1242,14 +1249,33 @@ export function publishArtifact(input: {
   body: string;
   kind: ArtifactKind;
   place?: string;
+  address?: string;
+  journeyId?: string;
+  imageUrl?: string;
+  contentHash?: string;
+  artifactRoot?: string;
+  cellOutPoint?: { txHash: string; index: string };
+  txHash?: string;
+  artifactRootOnChain?: boolean;
 }): LivingArtifact {
   const s = state();
+  if (input.journeyId && s.journeys[input.journeyId]) {
+    s.activeJourneyId = input.journeyId;
+  }
   const journey = activeBundle();
-  const body = input.body.trim();
-  if (!body) throw new StoreError('Write a note before sealing it into the relic.');
-  if (body.length > 180) throw new StoreError('Keep the relic entry under 180 characters.');
+  const imageUrl = input.imageUrl?.trim() || undefined;
+  const body = input.body.trim() || (imageUrl ? 'Image sealed' : '');
+  if (!body && !imageUrl) throw new StoreError('Write a note or add an image before sealing.');
+  if (body.length > 180) throw new StoreError('Keep the entry under 180 characters.');
+  if (imageUrl && imageUrl.length > 400_000) {
+    throw new StoreError('Keep the image under ~300KB after compression.');
+  }
 
-  const keeper = getCurrentKeeper() || DEMO_KEEPER;
+  const builder = input.address ? getBuilder(input.address) : null;
+  const keeper =
+    builder?.displayName ||
+    getCurrentKeeper() ||
+    DEMO_KEEPER;
   const current = journey.chain.owners[journey.chain.owners.length - 1];
   const place = input.place?.trim() || undefined;
   const entryId = `entry_${Date.now().toString(36)}`;
@@ -1266,25 +1292,58 @@ export function publishArtifact(input: {
         createdAt: new Date().toISOString(),
         isFeatured: false,
         place,
+        imageUrl,
+        contentHash: input.contentHash || input.artifactRoot,
       },
     ],
   };
 
-  if (current && current.name.toLowerCase() === keeper.toLowerCase()) {
+  if (input.artifactRoot) {
+    journey.chain.artifactRoot = input.artifactRoot;
+    journey.chain.artifactRootOnChain = Boolean(input.artifactRootOnChain);
+  }
+  if (input.cellOutPoint) {
+    journey.chain.cellOutPoint = input.cellOutPoint;
+    journey.chain.lastTxHash = input.txHash ?? input.cellOutPoint.txHash;
+    journey.chain.artifactRootOnChain = true;
+  } else if (input.txHash) {
+    journey.chain.lastTxHash = input.txHash;
+  }
+
+  const isCurrentHolder =
+    Boolean(current) &&
+    ((input.address &&
+      current!.address &&
+      current!.address.toLowerCase() === input.address.toLowerCase()) ||
+      current!.name.toLowerCase() === keeper.toLowerCase());
+
+  if (current && isCurrentHolder) {
     current.contributionId = entryId;
+    if (input.address) current.address = input.address;
     if (place && !current.city) current.city = place;
   }
 
-  s.passport = {
-    ...s.passport,
-    artifactCount: s.passport.artifactCount + 1,
-    contributionXp: s.passport.contributionXp + 100,
-    badgeLabels: s.passport.badgeLabels.includes('Living archive')
-      ? s.passport.badgeLabels
-      : [...s.passport.badgeLabels, 'Living archive'],
-  };
-  if (s.passport.address && s.passports[s.passport.address]) {
-    s.passports[s.passport.address] = clone(s.passport);
+  if (input.address) {
+    const passport = getPassport(input.address);
+    passport.artifactCount += 1;
+    passport.contributionXp += 100;
+    if (!passport.badgeLabels.includes('Living archive')) {
+      passport.badgeLabels = [...passport.badgeLabels, 'Living archive'];
+    }
+    s.passports[input.address] = passport;
+    s.passport = passport;
+  } else {
+    s.passport = {
+      ...s.passport,
+      artifactCount: s.passport.artifactCount + 1,
+      contributionXp: s.passport.contributionXp + 100,
+      badgeLabels: s.passport.badgeLabels.includes('Living archive')
+        ? s.passport.badgeLabels
+        : [...s.passport.badgeLabels, 'Living archive'],
+    };
+    if (s.passport.address && s.passports[s.passport.address]) {
+      s.passports[s.passport.address] = clone(s.passport);
+    }
   }
 
   return clone(journey.artifact);
@@ -1552,23 +1611,24 @@ function emptyPassport(address: string, displayName: string, characterId: string
 
 export function getPassport(address?: string): PassportProfile {
   const s = state();
-  if (!address) return clone(s.passport);
+  if (!address?.trim()) {
+    return emptyPassport('', 'Guest', null);
+  }
 
-  const existing = s.passports[address];
+  const key = address.trim();
+  const existing = s.passports[key];
   if (existing) {
-    s.passport = existing;
     return clone(existing);
   }
 
-  const builder = s.builders[address];
+  const builder = s.builders[key];
   if (builder) {
-    const passport = emptyPassport(address, builder.displayName, builder.characterId);
-    s.passports[address] = passport;
-    s.passport = passport;
+    const passport = emptyPassport(key, builder.displayName, builder.characterId);
+    s.passports[key] = passport;
     return clone(passport);
   }
 
-  return clone(s.passport);
+  return emptyPassport(key, key.slice(0, 12), null);
 }
 
 export function setActivePassport(address: string): PassportProfile {

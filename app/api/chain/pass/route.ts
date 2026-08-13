@@ -11,6 +11,8 @@ export async function POST(request: Request) {
     cellOutPoint?: { txHash: string; index: string };
     txHash?: string;
     expiresAt?: string;
+    artifactRoot?: string;
+    artifactRootOnChain?: boolean;
   }>(request);
   return respondWrite(() =>
     passChain(body.recipient ?? '', body.city, {
@@ -18,6 +20,8 @@ export async function POST(request: Request) {
       cellOutPoint: body.cellOutPoint,
       txHash: body.txHash,
       expiresAt: body.expiresAt,
+      artifactRoot: body.artifactRoot,
+      artifactRootOnChain: body.artifactRootOnChain,
     }),
   );
 }

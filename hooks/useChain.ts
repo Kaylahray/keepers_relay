@@ -23,7 +23,8 @@ import type { Chain, ChainMode } from '@/types/chain';
 import { builderKeys } from '@/hooks/useBuilder';
 import { keeperKeys } from '@/lib/queryClient';
 import { chainCellConfigured } from '@/lib/registry/config';
-import { handoffChainCell, mintChainCell } from '@/lib/registry/chain-cell';
+import { handoffChainCell, hexToBytes, mintChainCell } from '@/lib/registry/chain-cell';
+import { normalizeArtifactRoot } from '@/lib/artifact-commit';
 
 /** Read the current chain. Poll lightly — countdown ticks locally every second. */
 export function useChainQuery(): UseQueryResult<Chain, Error> {
@@ -57,17 +58,26 @@ export function usePassChain(): UseMutationResult<
     mutationFn: async ({ recipient, city, chain }) => {
       if (chain.cellOutPoint && chainCellConfigured()) {
         if (!signer) throw new Error('Connect your wallet to pass the Chain Cell.');
+        const pendingRoot = normalizeArtifactRoot(chain.artifactRoot);
+        const artifactRoot =
+          pendingRoot ===
+          '0x0000000000000000000000000000000000000000000000000000000000000000'
+            ? undefined
+            : hexToBytes(pendingRoot);
         const minted = await handoffChainCell(signer, {
           liveOutPoint: chain.cellOutPoint,
           recipient,
           creatorAddress: chain.creatorAddress,
           mode: chain.mode,
+          artifactRoot,
         });
         return passChain(minted.recipientLabel, city, {
           recipientAddress: minted.recipientAddress,
           cellOutPoint: minted.cellOutPoint,
           txHash: minted.txHash,
           expiresAt: minted.expiresAt,
+          artifactRoot: minted.artifactRootHex,
+          artifactRootOnChain: true,
         });
       }
       return passChain(recipient, city);

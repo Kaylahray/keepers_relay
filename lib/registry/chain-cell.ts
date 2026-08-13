@@ -126,6 +126,85 @@ export async function mintChainCell(
   };
 }
 
+/**
+ * Seal path: same Keeper lock, same owner_count / expiry, updated artifact_root.
+ * Requires Chain Cell type script that allows seal (redeploy after script update).
+ */
+export async function commitArtifactRoot(
+  signer: NonNullable<Signer>,
+  input: {
+    liveOutPoint: ChainCellOutPoint;
+    artifactRoot: Uint8Array;
+  },
+): Promise<{
+  txHash: string;
+  cellOutPoint: ChainCellOutPoint;
+  artifactRootHex: string;
+}> {
+  if (input.artifactRoot.length !== 32) {
+    throw new Error("artifact_root must be 32 bytes.");
+  }
+
+  const live = await signer.client.getCellLive(
+    ccc.OutPoint.from({
+      txHash: input.liveOutPoint.txHash,
+      index: input.liveOutPoint.index,
+    }),
+  );
+  if (!live) {
+    throw new Error("Live Chain Cell not found — it may already have been spent.");
+  }
+
+  const holderLock = await getOwnerLock(signer);
+  if (live.cellOutput.lock.hash() !== holderLock.hash()) {
+    throw new Error("This wallet does not hold the live Chain Cell.");
+  }
+
+  const current = decodeChainCellData(new Uint8Array(ccc.bytesFrom(live.outputData)));
+  if (current.status !== ChainStatusCode.Alive) {
+    throw new Error("This Cell is no longer alive.");
+  }
+
+  const data = encodeChainCellData({
+    status: ChainStatusCode.Alive,
+    mode: current.mode,
+    ownerCount: current.ownerCount,
+    expiresAtMs: current.expiresAtMs,
+    windowSeconds: current.windowSeconds,
+    chainId: current.chainId,
+    lineageRoot: current.lineageRoot,
+    artifactRoot: input.artifactRoot,
+  });
+
+  const type = getChainCellTypeScript();
+  const minCapacity = computeMinCellCapacity(holderLock, type, data);
+  const capacity =
+    live.cellOutput.capacity > minCapacity ? live.cellOutput.capacity : minCapacity;
+
+  const tx = ccc.Transaction.from({
+    inputs: [
+      {
+        previousOutput: live.outPoint,
+        since: 0,
+      },
+    ],
+    outputs: [{ lock: holderLock, type, capacity }],
+    outputsData: [ccc.hexFrom(data)],
+    cellDeps: getChainCellDeps(),
+  });
+
+  await tx.completeInputsByCapacity(signer);
+  await tx.completeFeeBy(signer, REGISTRY_FEE_RATE);
+  const txHash = await signer.sendTransaction(tx);
+  await signer.client.waitTransaction(txHash);
+
+  return {
+    txHash,
+    cellOutPoint: { txHash, index: "0x0" },
+    artifactRootHex: bytesToHex(input.artifactRoot),
+  };
+}
+
 export async function handoffChainCell(
   signer: NonNullable<Signer>,
   input: {
@@ -133,6 +212,8 @@ export async function handoffChainCell(
     recipient: string;
     creatorAddress?: string;
     mode: ChainMode;
+    /** Pending mark commitment — written into the successor Cell. */
+    artifactRoot?: Uint8Array;
   },
 ): Promise<{
   txHash: string;
@@ -141,6 +222,7 @@ export async function handoffChainCell(
   recipientLabel: string;
   expiresAt: string;
   returned: boolean;
+  artifactRootHex: string;
 }> {
   const next = await resolveRecipientLock(signer, input.recipient);
   const live = await signer.client.getCellLive(
@@ -174,6 +256,11 @@ export async function handoffChainCell(
     throw new Error("Pass it to someone else — you already hold it.");
   }
 
+  const nextArtifactRoot =
+    input.artifactRoot && input.artifactRoot.length === 32
+      ? input.artifactRoot
+      : current.artifactRoot;
+
   const expiresAtMs = current.expiresAtMs + BigInt(current.windowSeconds) * BigInt(1000);
   const data = encodeChainCellData({
     status,
@@ -183,7 +270,7 @@ export async function handoffChainCell(
     windowSeconds: current.windowSeconds,
     chainId: current.chainId,
     lineageRoot: current.lineageRoot,
-    artifactRoot: current.artifactRoot,
+    artifactRoot: nextArtifactRoot,
   });
 
   const type = getChainCellTypeScript();
@@ -215,5 +302,6 @@ export async function handoffChainCell(
     recipientLabel: next.label,
     expiresAt: new Date(Number(expiresAtMs)).toISOString(),
     returned: returningHome,
+    artifactRootHex: bytesToHex(nextArtifactRoot),
   };
 }

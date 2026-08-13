@@ -21,6 +21,7 @@ match the claim treasury / reward scripts.
 | Path | Group | Checks |
 |------|--------|--------|
 | Genesis | 0→1 | alive, `owner_count≥1`, `window≥60s`, 116-byte data |
+| Seal mark | 1→1 | same lock, same `owner_count` / expiry / mode / window / chain_id; `artifact_root` (and lineage) may update |
 | Handoff | 1→1 | input alive; `owner_count+1`; same chain_id/mode/window; expiry advances ≈ one window (±2 min); lock changes if status stays alive |
 | Return home (final) | 1→1 | same as handoff, but output `status=returned` (finished journey back to creator) |
 | Burn | 1→0 | allowed |
@@ -58,15 +59,16 @@ Official fix ([Nervos Talk](https://talk.nervos.org/t/compilation-errors-encount
 
 ## Deploy
 
-Testnet (2026-08-11): [tx `0x32d24cfd…8488`](https://pudge.explorer.nervos.org/transaction/0x32d24cfd90b996e46e8ee01ac3ddf10d0b2c4b86f95ce29e7d939c09979c8488)
+Testnet (2026-08-13 seal upgrade): [tx `0x68f763f4…7acc`](https://pudge.explorer.nervos.org/transaction/0x68f763f4d15bbfe3b2922a0beb6a22847ad2202fc79f81f1550f938054437acc)
 
-- `code_hash` (type-id): `0xbb7ab79a409b728c4444bb229291f516776744b9eb313d2d0477ba759a9079f9`
+- `code_hash` (type-id): `0xbb7ab79a409b728c4444bb229291f516776744b9eb313d2d0477ba759a9079f9` (unchanged)
 - `hash_type`: `type`
 - cell dep: that tx, index `0`, `dep_type: code`
+- Prior deploy (2026-08-11): `0x32d24cfd…8488` (spent / superseded)
 
-Env: `NEXT_PUBLIC_CHAIN_CELL_*` in `.env.local`.
+Env: `NEXT_PUBLIC_CHAIN_CELL_*` in `.env.local` — update `NEXT_PUBLIC_CHAIN_CELL_TX_HASH` after each upgrade.
 
-Launch mints a genesis Cell; Pass / accept-handoff spends it and creates the successor (recipient = `@username` or `ckt` address). Demo streaks without `cellOutPoint` still use the store only.
+Launch mints a genesis Cell; Seal updates `artifact_root` in place; Pass / accept-handoff spends it and creates the successor (recipient = `@username` or `ckt` address). Demo streaks without `cellOutPoint` still use the store only.
 
 ## Later
 

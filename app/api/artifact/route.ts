@@ -9,12 +9,32 @@ export function GET() {
 }
 
 export async function POST(request: Request) {
-  const body = await readBody<{ body: string; kind: ArtifactKind; place?: string }>(request);
+  const body = await readBody<{
+    body: string;
+    kind: ArtifactKind;
+    place?: string;
+    address?: string;
+    journeyId?: string;
+    imageUrl?: string;
+    contentHash?: string;
+    artifactRoot?: string;
+    cellOutPoint?: { txHash: string; index: string };
+    txHash?: string;
+    artifactRootOnChain?: boolean;
+  }>(request);
   return respondWrite(() =>
     publishArtifact({
       body: body.body ?? '',
       kind: body.kind ?? 'message',
       place: body.place,
+      address: body.address,
+      journeyId: body.journeyId,
+      imageUrl: body.imageUrl,
+      contentHash: body.contentHash,
+      artifactRoot: body.artifactRoot,
+      cellOutPoint: body.cellOutPoint,
+      txHash: body.txHash,
+      artifactRootOnChain: body.artifactRootOnChain,
     }),
   );
 }

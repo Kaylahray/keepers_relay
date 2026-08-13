@@ -44,10 +44,11 @@ export function useMyBuilder() {
 }
 
 export function useMyPassport() {
-  const { address } = useWallet();
+  const { address, isConnected } = useWallet();
   return useQuery({
     queryKey: [...keeperKeys.passport, address || 'anon'],
-    queryFn: () => getPassport(address || undefined),
+    queryFn: () => getPassport(address!),
+    enabled: isConnected && Boolean(address),
     staleTime: 5_000,
   });
 }

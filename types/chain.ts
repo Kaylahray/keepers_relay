@@ -40,6 +40,13 @@ export interface Chain {
   genesisTxHash?: string;
   /** Latest handoff/mint tx. */
   lastTxHash?: string;
+  /**
+   * Latest artifact_root commitment (0x + 64 hex).
+   * Written into the Chain Cell on seal (script v2+) or on the next pass.
+   */
+  artifactRoot?: string;
+  /** True once artifactRoot is on the live Cell (seal or pass commit). */
+  artifactRootOnChain?: boolean;
   /** Owner count at which the chain becomes a permanent trophy. */
   trophyGoal: number;
   /** ISO timestamp the chain died, if it did. */

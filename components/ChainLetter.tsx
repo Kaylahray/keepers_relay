@@ -15,6 +15,7 @@ import {
   useSelectJourney,
 } from '@/hooks/useChain';
 import { useMyBuilder } from '@/hooks/useBuilder';
+import { useCommunitiesQuery, useCommunityQuery } from '@/hooks/useCommunity';
 import { useWallet } from '@/hooks/useWallet';
 import { useUsername } from '@/hooks/useUsername';
 import { useCountdown } from '@/hooks/useCountdown';
@@ -30,7 +31,6 @@ import { JourneySwitcher } from '@/components/JourneySwitcher';
 import { HandoffPanel } from '@/components/HandoffPanel';
 import { InviteButton } from '@/components/InviteButton';
 import { useKeeperEcosystem } from '@/hooks/useKeeperEcosystem';
-import { useCommunitiesQuery } from '@/hooks/useCommunity';
 import {
   CREATURE_STAGE_LABEL,
   creatureStageForHolders,
@@ -46,7 +46,7 @@ export function ChainLetter({ journeyId }: { journeyId?: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [journeyId]);
   const passChain = usePassChain();
-  const { isConnected, connect } = useWallet();
+  const { address, isConnected, connect } = useWallet();
   const myBuilder = useMyBuilder();
   const me = myBuilder.data?.builder;
   const { username: onChainUsername } = useUsername();
@@ -77,9 +77,14 @@ export function ChainLetter({ journeyId }: { journeyId?: string }) {
   const isHolder =
     !!me?.onboarded &&
     !!currentOwner &&
-    me.displayName.toLowerCase() === currentOwner.name.toLowerCase() &&
     !dead &&
-    !returned;
+    !returned &&
+    ((!!address &&
+      !!currentOwner.address &&
+      address.toLowerCase() === currentOwner.address.toLowerCase()) ||
+      me.displayName.toLowerCase() === currentOwner.name.toLowerCase() ||
+      (!!onChainUsername?.username &&
+        onChainUsername.username.toLowerCase() === currentOwner.name.toLowerCase()));
   const holderNumber = chain?.owners.length ?? 0;
   const stage = chain ? creatureStageForHolders(chain.owners.length) : 'blob';
   const cities = Array.from(
@@ -93,6 +98,12 @@ export function ChainLetter({ journeyId }: { journeyId?: string }) {
       ? 'home'
       : `${countdown.hours}h ${countdown.minutes}m left`;
   const room = communities.data?.find((c) => c.id === chain?.communityId);
+  const roomDetail = useCommunityQuery(room?.slug ?? '');
+  const passMembers = roomDetail.data?.members ?? [];
+
+  function scrollToMark() {
+    document.getElementById('contribute-ritual')?.scrollIntoView({ behavior: 'smooth' });
+  }
 
   function handleSubmit(recipient: string, city: string) {
     if (!chain) return;
@@ -108,6 +119,10 @@ export function ChainLetter({ journeyId }: { journeyId?: string }) {
   }
 
   function openHandoff(recipient = '') {
+    if (!hasContributedThisTurn) {
+      scrollToMark();
+      return;
+    }
     setNominatedRecipient(recipient);
     setDialogOpen(true);
   }
@@ -347,7 +362,16 @@ export function ChainLetter({ journeyId }: { journeyId?: string }) {
               alreadySealed={hasContributedThisTurn}
               publishing={ecosystem.publish.isPending}
               error={ecosystem.publish.error?.message ?? null}
-              onPublish={(input) => ecosystem.publish.mutate(input)}
+              artifactRoot={chain.artifactRoot}
+              artifactRootOnChain={chain.artifactRootOnChain}
+              onPublish={(input) =>
+                ecosystem.publish.mutate({
+                  ...input,
+                  address: address ?? undefined,
+                  journeyId: chain.id,
+                  chain,
+                })
+              }
             />
             {hasContributedThisTurn && (
               <button
@@ -442,7 +466,9 @@ export function ChainLetter({ journeyId }: { journeyId?: string }) {
         creatorName={chain.creatorName}
         creatureName={chain.creatureName}
         canPass={hasContributedThisTurn && !dead && !returned}
-        contributionHint="Leave your mark first."
+        members={passMembers}
+        excludeAddress={address}
+        onNeedMark={scrollToMark}
         onClose={() => {
           setDialogOpen(false);
           setNominatedRecipient('');
