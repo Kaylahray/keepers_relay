@@ -109,6 +109,10 @@ export function getBuilder(address: string): Promise<{ builder: BuilderProfile |
   return request(`/api/builders/${encodeURIComponent(address)}`);
 }
 
+export function releaseBuilderHandle(address: string) {
+  return post<BuilderProfile | null>(`/api/builders/${encodeURIComponent(address)}/release`, {});
+}
+
 export function checkUsername(username: string, except?: string) {
   const params = new URLSearchParams({ username });
   if (except) params.set('except', except);

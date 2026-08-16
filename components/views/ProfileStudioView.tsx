@@ -1,5 +1,6 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
@@ -11,10 +12,12 @@ import {
   UploadCloud,
 } from 'lucide-react';
 import { useSpore } from '@/hooks/useSpore';
-import { useClearAvatarOnMelt, useMyBuilder, useSetAvatar } from '@/hooks/useBuilder';
+import { useClearAvatarOnMelt, useMyBuilder, useReleaseBuilderHandle, useSetAvatar } from '@/hooks/useBuilder';
 import { useProfile } from '@/hooks/useProfile';
+import { useUsername } from '@/hooks/useUsername';
 import { useWallet } from '@/hooks/useWallet';
 import { compressForProfile } from '@/lib/image/compress';
+import Link from 'next/link';
 import { PageShell } from '@/components/PageShell';
 import { ProfileShareLink } from '@/components/ProfileShareLink';
 import { CharacterPicker } from '@/components/CharacterPicker';
@@ -28,6 +31,7 @@ import { useUnlockBadge, useUpsertBuilder } from '@/hooks/useBuilder';
 import type { CharacterId } from '@/lib/characters';
 
 export function ProfileStudioView() {
+  const router = useRouter();
   const { address, isConnected, connect, formattedAddress } = useWallet();
   const myBuilder = useMyBuilder();
   const builder = myBuilder.data?.builder;
@@ -37,6 +41,8 @@ export function ProfileStudioView() {
   const unlock = useUnlockBadge();
   const upsert = useUpsertBuilder();
   const onChainProfile = useProfile();
+  const onChainUsername = useUsername();
+  const releaseRoster = useReleaseBuilderHandle();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -46,6 +52,10 @@ export function ProfileStudioView() {
   const [headline, setHeadline] = useState('');
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profileBusy, setProfileBusy] = useState(false);
+  const [releaseOpen, setReleaseOpen] = useState(false);
+  const [releaseError, setReleaseError] = useState<string | null>(null);
+
+  const handle = builder?.username || onChainUsername.username?.username;
 
   useEffect(() => {
     if (builder) {
@@ -157,6 +167,18 @@ export function ProfileStudioView() {
     }
   }
 
+  async function onReleaseHandle() {
+    if (!address) return;
+    setReleaseError(null);
+    try {
+      await onChainUsername.release();
+      await releaseRoster.mutateAsync(address);
+      router.push('/join');
+    } catch (e) {
+      setReleaseError(e instanceof Error ? e.message : 'Could not release username.');
+    }
+  }
+
   if (!isConnected) {
     return (
       <PageShell
@@ -184,6 +206,12 @@ export function ProfileStudioView() {
         backHref="/"
       >
         <p className="font-mono text-xs font-bold">{formattedAddress}</p>
+        <Link
+          href="/join?next=/studio"
+          className="neo-button mt-4 inline-block bg-[#224cff] px-4 py-3 text-xs font-black uppercase text-[#fff8e7]"
+        >
+          Claim @handle
+        </Link>
       </PageShell>
     );
   }
@@ -372,6 +400,59 @@ export function ProfileStudioView() {
         onUnlock={(badgeId) => address && unlock.mutate({ address, badgeId })}
         unlocking={unlock.isPending}
       />
+
+      <section className="mt-6 border-[3px] border-black bg-[#fff8e7] p-5">
+        <p className="text-[10px] font-black uppercase tracking-wider text-black/60">Danger zone</p>
+        <h2 className="mt-2 font-poster text-2xl uppercase leading-none">Release @{handle}</h2>
+        <p className="mt-2 max-w-xl text-sm font-semibold">
+          Burns your username Cell. The CKB locked in it comes back to this wallet. Anyone can claim
+          @{handle} after that. You will need to join again.
+        </p>
+        {!releaseOpen ? (
+          <button
+            type="button"
+            onClick={() => setReleaseOpen(true)}
+            className="neo-button mt-4 bg-[#ffe454] px-4 py-3 text-xs font-black uppercase"
+          >
+            Release username
+          </button>
+        ) : (
+          <div className="mt-4 border-[3px] border-black bg-[#ff4cbd] p-4 text-black">
+            <p className="text-sm font-bold">
+              This signs a transaction that spends (burns) the @{handle} Cell. It cannot be undone
+              unless you — or someone else — claims it later.
+            </p>
+            {releaseError && (
+              <p role="alert" className="mt-2 text-sm font-bold">
+                {releaseError}
+              </p>
+            )}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={onChainUsername.isClaiming || releaseRoster.isPending}
+                onClick={() => void onReleaseHandle()}
+                className="neo-button flex items-center gap-2 bg-black px-4 py-3 text-xs font-black uppercase text-[#d6ff00] disabled:opacity-40"
+              >
+                {(onChainUsername.isClaiming || releaseRoster.isPending) && (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                )}
+                {onChainUsername.isClaiming || releaseRoster.isPending
+                  ? 'Waiting for wallet…'
+                  : 'Burn username cell'}
+              </button>
+              <button
+                type="button"
+                disabled={onChainUsername.isClaiming || releaseRoster.isPending}
+                onClick={() => setReleaseOpen(false)}
+                className="border-[3px] border-black bg-[#fff8e7] px-4 py-3 text-xs font-black uppercase"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
     </PageShell>
   );
 }

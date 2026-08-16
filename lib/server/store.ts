@@ -1662,6 +1662,7 @@ export function checkUsernameAvailable(usernameRaw: string, exceptAddress?: stri
 
   const taken = Object.values(state().builders).find(
     (builder) =>
+      builder.onboarded &&
       builder.username === username &&
       (!exceptAddress || builder.address !== exceptAddress),
   );
@@ -1727,6 +1728,17 @@ export function upsertBuilder(input: UpsertBuilderInput): BuilderProfile {
   }
 
   return clone(s.builders[address]);
+}
+
+/** Drop roster claim after the username Cell is burned. */
+export function releaseBuilderHandle(address: string): BuilderProfile | null {
+  const s = state();
+  const builder = s.builders[address];
+  if (!builder) return null;
+  builder.onboarded = false;
+  builder.username = '';
+  builder.lastSeenAt = new Date().toISOString();
+  return clone(builder);
 }
 
 export function setBuilderAvatar(address: string, avatarSporeId: string | null): BuilderProfile {

@@ -7,6 +7,7 @@ import {
   clearAvatarIfSpore,
   getBuilder,
   listBuilders,
+  releaseBuilderHandle,
   setBuilderAvatar,
   unlockBadge,
   upsertBuilder,
@@ -98,6 +99,18 @@ export function useUpsertBuilder() {
       queryClient.setQueryData(builderKeys.one(builder.address), { builder });
       queryClient.invalidateQueries({ queryKey: builderKeys.roster });
       queryClient.invalidateQueries({ queryKey: keeperKeys.passport });
+    },
+  });
+}
+
+export function useReleaseBuilderHandle() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (address: string) => releaseBuilderHandle(address),
+    onSuccess: (builder, address) => {
+      queryClient.setQueryData(builderKeys.one(address), { builder });
+      void queryClient.invalidateQueries({ queryKey: builderKeys.roster });
+      void queryClient.invalidateQueries({ queryKey: keeperKeys.passport });
     },
   });
 }
