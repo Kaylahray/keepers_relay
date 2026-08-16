@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import { ArrowRight, UsersRound } from 'lucide-react';
 import { useWallet } from '@/hooks/useWallet';
+import { useUsername } from '@/hooks/useUsername';
+import { useMyBuilder } from '@/hooks/useBuilder';
 
 const STEPS = [
   {
@@ -24,6 +26,9 @@ const STEPS = [
 
 export function HomeView() {
   const { isConnected, connect } = useWallet();
+  const { username } = useUsername();
+  const me = useMyBuilder().data?.builder;
+  const hasHandle = Boolean(username?.username || me?.onboarded);
 
   return (
     <div className="relative min-h-full w-full overflow-hidden bg-[#d6ff00]">
@@ -60,12 +65,20 @@ export function HomeView() {
               >
                 Connect wallet
               </button>
-            ) : (
+            ) : hasHandle ? (
               <Link
                 href="/streaks"
                 className="neo-button bg-[#fff8e7] px-4 py-3 text-xs font-black uppercase text-black"
               >
                 Live streaks
+              </Link>
+            ) : (
+              <Link
+                href="/join"
+                className="neo-button inline-flex items-center gap-2 bg-[#224cff] px-4 py-3 text-xs font-black uppercase text-[#fff8e7]"
+              >
+                Claim @handle
+                <ArrowRight className="h-4 w-4 stroke-[3]" />
               </Link>
             )}
           </div>

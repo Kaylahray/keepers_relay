@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { Archivo_Black, DM_Mono, Instrument_Serif, Inter } from 'next/font/google';
 import { Providers } from '@/components/Providers';
 import { SiteHeader } from '@/components/SiteHeader';
-import { OnboardingModal } from '@/components/OnboardingModal';
+import { JoinNudge } from '@/components/JoinNudge';
 import { OnChainIdentitySync } from '@/components/OnChainIdentitySync';
 import './globals.css';
 
@@ -51,8 +51,8 @@ export default function RootLayout({
         <Providers>
           <OnChainIdentitySync />
           <SiteHeader />
+          <JoinNudge />
           {children}
-          <OnboardingModal />
         </Providers>
       </body>
     </html>
