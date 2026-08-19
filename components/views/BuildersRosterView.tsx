@@ -16,7 +16,10 @@ export function BuildersRosterView() {
   const { data: chain } = useChainQuery();
   const { connect, isConnected } = useWallet();
   const myBuilder = useMyBuilder();
-  const currentKeeper = chain?.owners[chain.owners.length - 1]?.name;
+  // This page is a "who holds the currently live streak" dashboard.
+  // When the chain is dead/returned, we should not label the last recorded owner as "holding".
+  const currentKeeper =
+    chain?.status === 'alive' ? chain?.owners[chain.owners.length - 1]?.name : undefined;
 
   return (
     <PageShell

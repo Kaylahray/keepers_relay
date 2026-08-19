@@ -50,22 +50,29 @@ export function PassChainDialog({
   const [locating, setLocating] = useState(false);
   const [openList, setOpenList] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const submitGuardRef = useRef(false);
 
   useEffect(() => {
-    if (open) {
-      setValue(initialRecipient);
-      setCity('');
-      setOpenList(false);
-      if (!canPass) {
-        onNeedMark?.();
-        onClose();
-        return;
-      }
-      const id = window.setTimeout(() => inputRef.current?.focus(), 60);
-      return () => window.clearTimeout(id);
+    // Only initialize the input when the dialog transitions from closed -> open.
+    // The parent re-renders often (countdown), so we must NOT reset `value`
+    // on every render or the user will see the field "clear" while typing.
+    if (!open) return undefined;
+
+    setValue(initialRecipient);
+    setCity('');
+    setOpenList(false);
+
+    if (!canPass) {
+      onNeedMark?.();
+      onClose();
+      return undefined;
     }
-    return undefined;
-  }, [open, initialRecipient, canPass, onClose, onNeedMark]);
+
+    const id = window.setTimeout(() => inputRef.current?.focus(), 60);
+    return () => window.clearTimeout(id);
+    // Intentionally only depend on `open`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -77,19 +84,22 @@ export function PassChainDialog({
   }, [open, isPending, onClose]);
 
   const q = value.trim().toLowerCase().replace(/^@/, '');
-  const filtered = useMemo(() => {
+  const { filtered, passableCount } = useMemo(() => {
     const exclude = excludeAddress?.toLowerCase();
-    return members
-      .filter((m) => !exclude || m.address.toLowerCase() !== exclude)
-      .filter((m) => {
-        if (!q) return true;
-        return (
-          m.username.toLowerCase().includes(q) ||
-          m.displayName.toLowerCase().includes(q) ||
-          m.address.toLowerCase().includes(q)
-        );
-      })
-      .slice(0, 8);
+    const passable = members.filter(
+      (m) => !exclude || m.address.toLowerCase() !== exclude,
+    );
+    const matches = passable.filter((m) => {
+      if (!q) return true;
+      return (
+        m.username.toLowerCase().includes(q) ||
+        m.displayName.toLowerCase().includes(q) ||
+        m.address.toLowerCase().includes(q)
+      );
+    });
+    // The list scrolls, so keep the cap high enough that a busy room isn't
+    // silently truncated.
+    return { filtered: matches.slice(0, 50), passableCount: passable.length };
   }, [members, q, excludeAddress]);
 
   function pickMember(member: PassMember) {
@@ -97,9 +107,17 @@ export function PassChainDialog({
     setOpenList(false);
   }
 
+  // `isPending` only flips on the next render, so a second submit can slip through
+  // before it does — and each one signs its own handoff. Release once it settles
+  // so a genuinely failed pass can still be retried.
+  useEffect(() => {
+    if (!isPending) submitGuardRef.current = false;
+  }, [isPending]);
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!canPass || !value.trim() || isPending) return;
+    if (!canPass || !value.trim() || isPending || submitGuardRef.current) return;
+    submitGuardRef.current = true;
     onSubmit(value, city);
   }
 
@@ -143,7 +161,7 @@ export function PassChainDialog({
           </h2>
           <p className="mt-4 text-sm font-semibold leading-relaxed">
             <span className="font-black">{fromName}</span>&rsquo;s Cell gets consumed. A new Cell
-            mints for the next Keeper. The clock starts over.
+            mints for the next Keeper. The deadline gets extended by one full pass window.
           </p>
           {mode === 'return_home' && (
             <p className="mt-3 flex items-start gap-2 border-2 border-black bg-[#fff8e7] p-2.5 text-xs font-semibold">
@@ -201,11 +219,11 @@ export function PassChainDialog({
                 </ul>
               )}
             </div>
-            {members.length > 0 && (
-              <p className="mt-1 text-[10px] font-semibold text-black/60">
-                Pick a room member, or paste any @handle / ckt address.
-              </p>
-            )}
+            <p className="mt-1 text-[10px] font-semibold text-black/60">
+              {passableCount > 0
+                ? `${filtered.length} of ${passableCount} in this room. Anyone outside it — paste their @handle or ckt address.`
+                : 'No one else has joined this room yet. Paste any @handle or ckt address.'}
+            </p>
             <label
               htmlFor="city"
               className="mt-4 block text-[10px] font-black uppercase tracking-[.16em]"

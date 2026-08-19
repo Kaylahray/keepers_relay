@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   BookOpen,
   Check,
@@ -72,6 +72,16 @@ export function ContributeRitual({
     }
   }
 
+  // Keep what the Keeper typed/uploaded until the seal actually lands, so a
+  // failed transaction doesn't wipe their image and caption.
+  useEffect(() => {
+    if (!alreadySealed) return;
+    setBody('');
+    setPlace('');
+    setImageUrl('');
+    setUploadError(null);
+  }, [alreadySealed]);
+
   function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!canSubmit) return;
@@ -81,9 +91,6 @@ export function ContributeRitual({
       place: place.trim() || undefined,
       imageUrl: wantsImage ? imageUrl || undefined : undefined,
     });
-    setBody('');
-    setPlace('');
-    setImageUrl('');
   }
 
   if (alreadySealed) {
@@ -228,7 +235,11 @@ export function ContributeRitual({
           disabled={!canSubmit}
           className="neo-button flex w-full items-center justify-center gap-2 bg-[#224cff] px-4 py-3.5 text-sm font-black uppercase text-[#fff8e7] disabled:opacity-40"
         >
-          <Check className="h-4 w-4 stroke-[3]" />
+          {publishing ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Check className="h-4 w-4 stroke-[3]" />
+          )}
           {publishing ? 'Sealing…' : 'Seal into the Cell'}
         </button>
       </form>

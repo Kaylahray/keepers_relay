@@ -78,9 +78,18 @@ export function usePassChain(): UseMutationResult<
           expiresAt: minted.expiresAt,
           artifactRoot: minted.artifactRootHex,
           artifactRootOnChain: true,
+          journeyId: chain.id,
+          chainSnapshot: chain,
+          artifactSnapshot:
+            qc.getQueryData<import('@/types/keeper').LivingArtifact>(keeperKeys.artifact) ?? null,
         });
       }
-      return passChain(recipient, city);
+      return passChain(recipient, city, {
+        journeyId: chain.id,
+        chainSnapshot: chain,
+        artifactSnapshot:
+          qc.getQueryData<import('@/types/keeper').LivingArtifact>(keeperKeys.artifact) ?? null,
+      });
     },
     onSuccess: (next) => {
       qc.setQueryData(chainKeys.detail(), next);
@@ -118,6 +127,9 @@ export function useLaunchJourney() {
   const qc = useQueryClient();
   const signer = useSigner();
   return useMutation({
+    // Prevent double-mint if the mutation gets retried after an error.
+    // Minting a Chain Cell is expensive and should only happen once per click.
+    retry: false,
     mutationFn: async (input: {
       address: string;
       communityId: string;

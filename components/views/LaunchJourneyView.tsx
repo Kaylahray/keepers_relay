@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Coins, Home, Loader2, Rocket, Sparkles } from 'lucide-react';
@@ -40,6 +40,7 @@ export function LaunchJourneyView() {
   const [rewardPoolNote, setRewardPoolNote] = useState('');
   const [coverImageUrl, setCoverImageUrl] = useState(posterDataUri('Cell Scout'));
   const [coverLocked, setCoverLocked] = useState(false);
+  const launchGuardRef = useRef(false);
 
   const selectedCommunityId =
     communityId ||
@@ -60,7 +61,9 @@ export function LaunchJourneyView() {
 
   function submit(event: React.FormEvent) {
     event.preventDefault();
+    if (launchGuardRef.current) return;
     if (!address || !me?.onboarded || !selectedCommunityId || launch.isPending) return;
+    launchGuardRef.current = true;
     launch.mutate(
       {
         address,
@@ -76,6 +79,9 @@ export function LaunchJourneyView() {
       },
       {
         onSuccess: (chain) => router.push(`/streaks/${chain.id}`),
+        onSettled: () => {
+          launchGuardRef.current = false;
+        },
       },
     );
   }

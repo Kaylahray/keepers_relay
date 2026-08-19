@@ -1125,6 +1125,11 @@ export function currentKeeperHasContributed(): boolean {
 }
 
 export type PassChainOnChain = {
+  /** When provided, update the specific journey instead of relying on activeJourneyId. */
+  journeyId?: string;
+  /** Recover local state after reload if the snapshot missed this journey. */
+  chainSnapshot?: Chain;
+  artifactSnapshot?: LivingArtifact | null;
   recipientAddress?: string;
   cellOutPoint?: { txHash: string; index: string };
   txHash?: string;
@@ -1134,7 +1139,32 @@ export type PassChainOnChain = {
 };
 
 export function passChain(recipient: string, city?: string, onChain?: PassChainOnChain): Chain {
-  reconcileExpiry();
+  const s = state();
+  if (onChain?.journeyId) {
+    let journey = s.journeys[onChain.journeyId];
+    if (!journey && onChain.chainSnapshot) {
+      const relicId = `relic_${onChain.chainSnapshot.id}`;
+      // The client artifact cache is global, so only trust it when it belongs here.
+      const snapshotFits = onChain.artifactSnapshot?.id === relicId;
+      journey = {
+        chain: clone(onChain.chainSnapshot),
+        artifact: snapshotFits
+          ? clone(onChain.artifactSnapshot!)
+          : {
+              id: relicId,
+              title: `${onChain.chainSnapshot.creatureName} · living book`,
+              prompt: onChain.chainSnapshot.seedPrompt,
+              entries: [],
+            },
+      };
+      s.journeys[onChain.journeyId] = journey;
+    }
+    if (!journey) throw new StoreError('Streak not found.', 404);
+    s.activeJourneyId = journey.chain.id;
+    reconcileJourneyClock(journey.chain);
+  } else {
+    reconcileExpiry();
+  }
   const journey = activeBundle();
   const chain = journey.chain;
 
@@ -1155,11 +1185,22 @@ export function passChain(recipient: string, city?: string, onChain?: PassChainO
   const current = chain.owners[chain.owners.length - 1];
   const place = city?.trim();
 
-  if (!currentKeeperHasContributed()) {
+  // A txHash means the handoff already settled on CKB: the type script accepted
+  // it and the Cell has moved. These guards must run before signing, not after —
+  // throwing now would only leave the mirror behind the chain.
+  const settledOnChain = Boolean(onChain?.txHash);
+
+  // This runs after the handoff settles, so a resubmit can arrive carrying a
+  // transaction already recorded. Appending again would list the same Keeper twice.
+  if (settledOnChain && chain.lastTxHash === onChain!.txHash) {
+    return clone(chain);
+  }
+
+  if (!settledOnChain && !currentKeeperHasContributed()) {
     throw new StoreError('Leave your mark first, then pass.', 409);
   }
 
-  if (name.toLowerCase() === current.name.toLowerCase()) {
+  if (!settledOnChain && name.toLowerCase() === current.name.toLowerCase()) {
     throw new StoreError('Pass it to someone else — you already hold it.');
   }
 
@@ -1172,7 +1213,7 @@ export function passChain(recipient: string, city?: string, onChain?: PassChainO
     name.toLowerCase() === chain.creatorName.toLowerCase() ||
     Boolean(chain.creatorAddress && nextAddress === chain.creatorAddress.toLowerCase());
 
-  if (chain.mode === 'return_home') {
+  if (!settledOnChain && chain.mode === 'return_home') {
     const heldBefore =
       priorNames.includes(name.toLowerCase()) ||
       Boolean(nextAddress && priorAddresses.includes(nextAddress));
@@ -1207,7 +1248,6 @@ export function passChain(recipient: string, city?: string, onChain?: PassChainO
     chain.expiresAt = new Date(now + hours(24 * 365)).toISOString();
   }
 
-  const s = state();
   if (current.name === DEMO_KEEPER) {
     s.passport.keeperTurns += 1;
   }

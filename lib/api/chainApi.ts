@@ -1,4 +1,5 @@
 import type { Chain } from '@/types/chain';
+import type { LivingArtifact } from '@/types/keeper';
 import { post, request } from './client';
 
 export function getChain(): Promise<Chain> {
@@ -9,6 +10,11 @@ export function passChain(
   recipient: string,
   city?: string,
   onChain?: {
+    /** Ensure server updates the correct journey even if activeJourneyId drifted. */
+    journeyId?: string;
+    /** Fallback snapshot so server can recover local state after a dev reload. */
+    chainSnapshot?: Chain;
+    artifactSnapshot?: LivingArtifact | null;
     recipientAddress?: string;
     cellOutPoint?: { txHash: string; index: string };
     txHash?: string;
