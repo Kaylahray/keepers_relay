@@ -20,7 +20,7 @@ export function LineageList({ owners, dead }: LineageListProps) {
 
   return (
     <ol className="relative flex flex-col">
-      <span className="absolute bottom-4 left-[17px] top-4 w-[3px] bg-black" aria-hidden="true" />
+      <span className="absolute bottom-4 left-[17px] top-4 w-[2px] bg-white/20" aria-hidden="true" />
       <AnimatePresence initial={false}>
         {ordered.map((owner, i) => {
           const position = owners.length - i;
@@ -35,30 +35,30 @@ export function LineageList({ owners, dead }: LineageListProps) {
               className="relative flex items-center gap-3 py-3"
             >
               <span
-                className={`relative z-10 flex h-9 w-9 shrink-0 items-center justify-center border-[3px] border-black font-mono text-[11px] font-bold ${
-                  current ? (dead ? 'bg-[#777777]' : 'bg-[#d6ff00]') : 'bg-[#ffe454]'
+                className={`relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/20 font-mono text-[11px] font-bold ${
+                  current ? (dead ? 'bg-white/20' : 'bg-[#ff56f6]') : 'bg-[#e1bf47]/90 text-black'
                 }`}
               >
-                {current && dead ? <Lock className="h-4 w-4 stroke-[3]" /> : position}
+                {current && dead ? <Lock className="h-4 w-4" /> : position}
               </span>
-              <div className="flex min-w-0 flex-1 items-start justify-between gap-3 border-b-2 border-black pb-2">
+              <div className="flex min-w-0 flex-1 items-start justify-between gap-3 border-b border-white/10 pb-2">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-black uppercase">
+                  <p className="truncate text-sm font-bold uppercase text-white">
                     <Link href={profileHref(owner.name)} className="underline-offset-2 hover:underline">
                       {owner.name}
                     </Link>
                     {current && !dead && (
-                      <span className="ml-2 bg-[#ff4cbd] px-1.5 py-0.5 align-middle text-[9px] font-black">
+                      <span className="ml-2 rounded bg-[#ff56f6] px-1.5 py-0.5 align-middle text-[9px] font-bold">
                         HOLDING
                       </span>
                     )}
                   </p>
-                  <code className="font-mono text-[10px] font-bold text-black/50">
+                  <code className="font-mono text-[10px] font-bold text-white/40">
                     {owner.city ? `${owner.city} · ` : ''}
                     {owner.cellHash}
                   </code>
                 </div>
-                <span className="shrink-0 text-right font-mono text-[10px] font-bold text-black/55">
+                <span className="shrink-0 text-right font-mono text-[10px] font-bold text-white/45">
                   {owner.passedAt
                     ? `PASSED ${formatDistanceToNow(new Date(owner.passedAt), { addSuffix: true }).replace(' ago', '')}`
                     : `HELD ${formatDistanceToNow(new Date(owner.receivedAt), { addSuffix: true }).replace(' ago', '')}`}
@@ -69,10 +69,10 @@ export function LineageList({ owners, dead }: LineageListProps) {
         })}
       </AnimatePresence>
       <li className="relative flex items-center gap-3 pt-3">
-        <span className="relative z-10 flex h-9 w-9 items-center justify-center border-[3px] border-black bg-[#224cff] text-[#fff8e7]">
-          <Crown className="h-4 w-4 stroke-[3]" />
+        <span className="relative z-10 flex h-9 w-9 items-center justify-center rounded-lg border border-white/20 bg-[#406aff] text-white">
+          <Crown className="h-4 w-4" />
         </span>
-        <span className="text-[10px] font-black uppercase tracking-[.16em]">Genesis Cell</span>
+        <span className="text-[10px] font-bold uppercase tracking-[.16em] text-white/50">Genesis Cell</span>
       </li>
     </ol>
   );

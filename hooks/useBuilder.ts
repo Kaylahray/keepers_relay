@@ -16,6 +16,8 @@ import {
 import { assumeKeeper } from '@/lib/api/chainApi';
 import { chainKeys, keeperKeys } from '@/lib/queryClient';
 import type { CharacterId } from '@/lib/characters';
+import { postRewardAutoIssue } from '@/lib/rewards/auto-issue-client';
+import type { RewardMilestone } from '@/lib/rewards/milestones';
 import { useWallet } from '@/hooks/useWallet';
 import { registryConfigured } from '@/lib/registry/config';
 import { checkUsernameAvailability } from '@/lib/registry/username';
@@ -99,6 +101,21 @@ export function useUpsertBuilder() {
       queryClient.setQueryData(builderKeys.one(builder.address), { builder });
       queryClient.invalidateQueries({ queryKey: builderKeys.roster });
       queryClient.invalidateQueries({ queryKey: keeperKeys.passport });
+      const milestones = builder.claimedMilestones.filter(
+        (m): m is RewardMilestone =>
+          m === 'username_claimed' ||
+          m === 'profile_completed' ||
+          m === 'first_relay' ||
+          m === 'relay_streak_3',
+      );
+      if (milestones.length > 0) {
+        void postRewardAutoIssue({
+          recipientCkbAddress: builder.address,
+          milestones,
+        }).catch((err) => {
+          console.warn('[rewards] auto-issue after onboarding:', err);
+        });
+      }
     },
   });
 }

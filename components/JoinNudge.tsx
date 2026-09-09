@@ -18,13 +18,13 @@ export function JoinNudge() {
   if (username?.username || myBuilder.data?.builder?.onboarded) return null;
 
   return (
-    <div className="mx-3 mt-3 border-[3px] border-black bg-[#ffe454] px-4 py-3 text-black shadow-[4px_4px_0_#101010] sm:mx-6">
-      <p className="text-sm font-semibold">
-        Wallet connected. Claim an @handle to hold or pass a Cell — watching is free.
+    <div className="mx-3 mt-3 border border-[#99ee2d]/35 bg-black/60 px-4 py-3 text-white backdrop-blur-md sm:mx-6">
+      <p className="text-sm font-light text-white/85">
+        Wallet connected. Claim an @handle to join events — watching is free.
       </p>
       <Link
         href={`/join?next=${encodeURIComponent(pathname || '/')}`}
-        className="neo-button mt-2 inline-block bg-[#224cff] px-3 py-2 text-[10px] font-black uppercase text-[#fff8e7]"
+        className="arena-cta mt-2 inline-block px-3 py-2 text-[10px] font-bold uppercase tracking-wider"
       >
         Claim handle
       </Link>

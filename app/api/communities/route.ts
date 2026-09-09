@@ -1,6 +1,6 @@
 import {
   createCommunity,
-  grantCommunityProof,
+  grantCommunityPoints,
   joinCommunity,
   leaveCommunity,
   listCommunities,
@@ -16,7 +16,7 @@ export function GET(request: Request) {
 
 export async function POST(request: Request) {
   const body = await readBody<{
-    action?: 'create' | 'join' | 'leave' | 'grant_proof';
+    action?: 'create' | 'join' | 'leave' | 'grant_points';
     address?: string;
     slug?: string;
     name?: string;
@@ -25,20 +25,23 @@ export async function POST(request: Request) {
     recipientAddress?: string;
     amount?: number;
     note?: string;
+    invitedByAddress?: string;
   }>(request);
 
   const action = body.action ?? 'create';
   const address = body.address ?? '';
 
   if (action === 'join') {
-    return respondWrite(() => joinCommunity(body.slug ?? '', address));
+    return respondWrite(() =>
+      joinCommunity(body.slug ?? '', address, body.invitedByAddress),
+    );
   }
   if (action === 'leave') {
     return respondWrite(() => leaveCommunity(body.slug ?? '', address));
   }
-  if (action === 'grant_proof') {
+  if (action === 'grant_points') {
     return respondWrite(() =>
-      grantCommunityProof({
+      grantCommunityPoints({
         adminAddress: address,
         slug: body.slug ?? '',
         recipientAddress: body.recipientAddress ?? '',

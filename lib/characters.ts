@@ -17,13 +17,13 @@ export interface Character {
   accent: string;
   /** Secondary fill for posters. */
   fill: string;
-  /** DiceBear seed — gives each cast member a unique illustrated face. */
+  /** Stable seed used only for SVG pattern variation — not random generation. */
   seed: string;
 }
 
 /**
  * Curated cast for Keepers Relay.
- * Faces come from DiceBear Adventurer (open license); we own the names + lore.
+ * Portraits are fixed SVG silhouettes (select, never generate).
  */
 export const CHARACTERS: Character[] = [
   {
@@ -105,11 +105,45 @@ export function getCharacter(id: CharacterId | string | null | undefined): Chara
   return CHARACTERS.find((character) => character.id === id);
 }
 
+const FULL_BODY_ART: Record<CharacterId, string> = {
+  nova: '/arena/kind-archive.png',
+  ember: '/arena/kind-quest.png',
+  volt: '/arena/keeper-razzael.png',
+  mira: '/arena/kind-blitz.png',
+  kai: '/arena/featured-hero.png',
+  rune: '/arena/kind-archive.png',
+  haze: '/arena/keeper-razzael.png',
+  spark: '/arena/kind-blitz.png',
+};
+
+/** Tall full-body plate for the cast line / hero stage — never a cropped headshot. */
+export function characterFullBodyUrl(character: Character): string {
+  return FULL_BODY_ART[character.id] ?? '/arena/keeper-razzael.png';
+}
+
+/**
+ * Prefer curated local art when we have it; otherwise a fixed SVG plate.
+ * Never a random face generator.
+ */
 export function characterPortraitUrl(character: Character, size = 256): string {
-  const params = new URLSearchParams({
-    seed: character.seed,
-    size: String(size),
-    backgroundColor: character.fill.replace('#', ''),
-  });
-  return `https://api.dicebear.com/9.x/adventurer/svg?${params.toString()}`;
+  // Small avatars still use full-body art cropped carefully via object-position in UI.
+  if (FULL_BODY_ART[character.id]) {
+    return FULL_BODY_ART[character.id];
+  }
+  const accent = character.accent;
+  const fill = character.fill;
+  const initial = character.name.slice(0, 1).toUpperCase();
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 256 256">
+    <defs>
+      <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="${fill}"/>
+        <stop offset="55%" stop-color="${accent}"/>
+        <stop offset="100%" stop-color="#15121d"/>
+      </linearGradient>
+    </defs>
+    <rect width="256" height="256" fill="url(#g)"/>
+    <circle cx="128" cy="108" r="36" fill="#f5f5f5" opacity="0.92"/>
+    <text x="128" y="122" text-anchor="middle" font-family="system-ui,sans-serif" font-size="36" font-weight="700" fill="${fill}">${initial}</text>
+  </svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }

@@ -1,0 +1,11 @@
+/mnt/c/Users/chiom/Desktop/spore/keepers_relay/keepers_relay/scripts/event-engine/target/debug/deps/ckb_error-b91ca7f57888deb7.d: /home/chioma/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ckb-error-1.1.1/src/lib.rs /home/chioma/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ckb-error-1.1.1/src/convert.rs /home/chioma/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ckb-error-1.1.1/src/internal.rs /home/chioma/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ckb-error-1.1.1/src/prelude.rs /home/chioma/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ckb-error-1.1.1/src/util.rs
+
+/mnt/c/Users/chiom/Desktop/spore/keepers_relay/keepers_relay/scripts/event-engine/target/debug/deps/libckb_error-b91ca7f57888deb7.rlib: /home/chioma/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ckb-error-1.1.1/src/lib.rs /home/chioma/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ckb-error-1.1.1/src/convert.rs /home/chioma/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ckb-error-1.1.1/src/internal.rs /home/chioma/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ckb-error-1.1.1/src/prelude.rs /home/chioma/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ckb-error-1.1.1/src/util.rs
+
+/mnt/c/Users/chiom/Desktop/spore/keepers_relay/keepers_relay/scripts/event-engine/target/debug/deps/libckb_error-b91ca7f57888deb7.rmeta: /home/chioma/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ckb-error-1.1.1/src/lib.rs /home/chioma/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ckb-error-1.1.1/src/convert.rs /home/chioma/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ckb-error-1.1.1/src/internal.rs /home/chioma/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ckb-error-1.1.1/src/prelude.rs /home/chioma/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ckb-error-1.1.1/src/util.rs
+
+/home/chioma/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ckb-error-1.1.1/src/lib.rs:
+/home/chioma/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ckb-error-1.1.1/src/convert.rs:
+/home/chioma/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ckb-error-1.1.1/src/internal.rs:
+/home/chioma/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ckb-error-1.1.1/src/prelude.rs:
+/home/chioma/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ckb-error-1.1.1/src/util.rs:

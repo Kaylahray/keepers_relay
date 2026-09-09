@@ -21,17 +21,17 @@ export function urgencyState(fractionElapsed: number, dead: boolean) {
 }
 
 const COLOR: Record<string, string> = {
-  safe: '#224cff',
-  warning: '#ff6b2d',
-  critical: '#ff4cbd',
-  dead: '#777777',
+  safe: '#99ee2d',
+  warning: '#e1bf47',
+  critical: '#af2a3a',
+  dead: '#666',
 };
 
 const LABEL: Record<string, string> = {
-  safe: 'THE CHAIN LIVES',
+  safe: 'THE CELL LIVES',
   warning: 'THE CLOCK IS LOUD',
-  critical: 'DON’T BREAK IT',
-  dead: 'CHAIN DEAD',
+  critical: "DON'T BREAK IT",
+  dead: 'CELL DEAD',
 };
 
 export function Countdown({ countdown, dead }: CountdownProps) {
@@ -44,15 +44,15 @@ export function Countdown({ countdown, dead }: CountdownProps) {
   ];
 
   return (
-    <div className="border-[3px] border-black bg-[#fff8e7] p-4 text-black shadow-[7px_7px_0_#101010]">
+    <div className="border border-white/15 bg-black/40 p-4 text-white backdrop-blur-sm">
       <div className="flex items-center justify-between gap-3">
         <p
-          className="border-2 border-black px-2 py-1 text-[10px] font-black tracking-[0.14em]"
+          className="rounded px-2 py-1 text-[10px] font-bold tracking-[0.14em] text-white"
           style={{ backgroundColor: color }}
         >
           {LABEL[state]}
         </p>
-        <p className="font-mono text-[10px] font-bold">KEEPER WINDOW</p>
+        <p className="font-mono text-[10px] font-bold text-white/50">KEEPER WINDOW</p>
       </div>
       <motion.div
         className="mt-4 flex items-end justify-center gap-1.5 sm:gap-3"
@@ -61,29 +61,18 @@ export function Countdown({ countdown, dead }: CountdownProps) {
       >
         {segments.map(([value, unit], i) => (
           <React.Fragment key={unit}>
-            {i > 0 && <span className="pb-5 font-poster text-3xl">:</span>}
-            <div className="flex flex-col items-center">
-              <span
-                className="font-poster text-5xl leading-none sm:text-6xl"
-                style={{ color: dead ? '#777777' : '#101010' }}
-              >
+            {i > 0 && (
+              <span className="pb-3 font-poster text-2xl text-white/30 sm:text-3xl">:</span>
+            )}
+            <div className="text-center">
+              <p className="font-poster text-4xl tabular-nums leading-none text-white sm:text-5xl">
                 {pad(value)}
-              </span>
-              <span className="mt-2 border-t-2 border-black pt-1 font-mono text-[9px] font-bold">
-                {unit}
-              </span>
+              </p>
+              <p className="mt-1 font-mono text-[9px] font-bold text-white/45">{unit}</p>
             </div>
           </React.Fragment>
         ))}
       </motion.div>
-      <div className="mt-5 h-4 border-[3px] border-black bg-white p-[2px]">
-        <motion.div
-          className="h-full"
-          style={{ backgroundColor: color }}
-          animate={{ width: `${(1 - countdown.fractionElapsed) * 100}%` }}
-          transition={{ ease: 'linear', duration: 0.4 }}
-        />
-      </div>
     </div>
   );
 }

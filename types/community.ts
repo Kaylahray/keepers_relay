@@ -1,4 +1,5 @@
-/** A club where streaks (living Cells) live. */
+/** A persistent social group that hosts Events (Community = the room). */
+
 export interface Community {
   id: string;
   /** URL slug — `/communities/[slug]` */
@@ -6,7 +7,7 @@ export interface Community {
   name: string;
   blurb: string;
   coverImageUrl: string;
-  /** Official / curated rooms (Neon, CKB Main, etc.). */
+  /** Official / curated communities. */
   featured: boolean;
   creatorAddress: string;
   creatorName: string;
@@ -22,14 +23,26 @@ export type CommunitySummary = {
   coverImageUrl: string;
   featured: boolean;
   memberCount: number;
-  liveStreakCount: number;
+  liveEventCount: number;
   creatorName: string;
   creatorAddress: string;
   createdAt: string;
   isMember: boolean;
 };
 
-/** Member asks the current holder to pass them the Cell. */
+export type CommunityMember = {
+  address: string;
+  displayName: string;
+  username: string;
+  headline?: string;
+  avatarUrl?: string | null;
+  characterId?: string | null;
+  role: 'creator' | 'member';
+  eventsPlayed?: number;
+  wins?: number;
+};
+
+/** @deprecated handoffs belonged to the old Cell collectible product. */
 export type HandoffRequest = {
   id: string;
   journeyId: string;

@@ -2,11 +2,20 @@ import { NextResponse } from 'next/server';
 import {
   StoreError,
   applyIndexedCells,
+  applySocialState,
   exportStoreState,
   importStoreState,
   type StoreState,
 } from './store';
 import { loadSnapshot, saveSnapshot, persistenceMode } from '@/lib/db/persist';
+import {
+  ensureSocialTables,
+  loadSocialState,
+  migrateSocialFromSnapshotIfNeeded,
+  repairEmptyMembershipsFromSnapshot,
+  saveSocialState,
+} from '@/lib/db/social';
+import { ensureRelayEventTables } from '@/lib/db/relay-tables';
 
 let lastHydrateAt = 0;
 const HYDRATE_TTL_MS = 1_500;
@@ -15,14 +24,26 @@ const INDEX_TTL_MS = 8_000;
 
 async function ensureHydrated(): Promise<void> {
   const fresh =
-    Boolean((globalThis as { __keepersRelayStoreV7?: unknown }).__keepersRelayStoreV7) &&
+    Boolean((globalThis as { __keepersRelayStoreV8?: unknown }).__keepersRelayStoreV8) &&
     Date.now() - lastHydrateAt < HYDRATE_TTL_MS;
   if (fresh) return;
+
+  await ensureSocialTables();
+  await ensureRelayEventTables();
 
   const snap = await loadSnapshot();
   if (snap && typeof snap === 'object' && 'journeys' in snap && 'communities' in snap) {
     importStoreState(snap as unknown as StoreState);
+    await migrateSocialFromSnapshotIfNeeded(snap as Record<string, unknown>);
   }
+  await repairEmptyMembershipsFromSnapshot(
+    snap && typeof snap === 'object' ? (snap as Record<string, unknown>) : null,
+  );
+
+  /** Proper tables win for communities / builders / members. */
+  const social = await loadSocialState();
+  if (social) applySocialState(social);
+
   lastHydrateAt = Date.now();
 }
 
@@ -43,7 +64,12 @@ async function syncFromIndexer(): Promise<void> {
 
 async function flush(): Promise<void> {
   try {
-    await saveSnapshot(exportStoreState() as unknown as Record<string, unknown>);
+    const exported = exportStoreState();
+    await saveSnapshot(exported as unknown as Record<string, unknown>);
+    await saveSocialState({
+      builders: exported.builders,
+      communities: exported.communities,
+    });
     lastHydrateAt = Date.now();
   } catch (err) {
     console.warn(`[persist:${persistenceMode()}] save failed:`, err);

@@ -53,9 +53,6 @@ export function PassChainDialog({
   const submitGuardRef = useRef(false);
 
   useEffect(() => {
-    // Only initialize the input when the dialog transitions from closed -> open.
-    // The parent re-renders often (countdown), so we must NOT reset `value`
-    // on every render or the user will see the field "clear" while typing.
     if (!open) return undefined;
 
     setValue(initialRecipient);
@@ -70,7 +67,6 @@ export function PassChainDialog({
 
     const id = window.setTimeout(() => inputRef.current?.focus(), 60);
     return () => window.clearTimeout(id);
-    // Intentionally only depend on `open`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -97,8 +93,6 @@ export function PassChainDialog({
         m.address.toLowerCase().includes(q)
       );
     });
-    // The list scrolls, so keep the cap high enough that a busy room isn't
-    // silently truncated.
     return { filtered: matches.slice(0, 50), passableCount: passable.length };
   }, [members, q, excludeAddress]);
 
@@ -107,9 +101,6 @@ export function PassChainDialog({
     setOpenList(false);
   }
 
-  // `isPending` only flips on the next render, so a second submit can slip through
-  // before it does — and each one signs its own handoff. Release once it settles
-  // so a genuinely failed pass can still be retried.
   useEffect(() => {
     if (!isPending) submitGuardRef.current = false;
   }, [isPending]);
@@ -132,7 +123,11 @@ export function PassChainDialog({
         exit={{ opacity: 0 }}
       >
         <div
-          className="absolute inset-0 bg-black/70"
+          className="absolute inset-0 bg-[#0c0c12]/85 backdrop-blur-sm"
+          style={{
+            backgroundImage:
+              'radial-gradient(ellipse 60% 50% at 50% 40%, rgba(168,85,247,0.22), transparent 55%)',
+          }}
           onClick={() => !isPending && onClose()}
           aria-hidden="true"
         />
@@ -140,42 +135,49 @@ export function PassChainDialog({
           role="dialog"
           aria-modal="true"
           aria-labelledby="pass-title"
-          className="relative w-full max-w-md border-[4px] border-black bg-[#ffe454] p-6 text-black shadow-[10px_10px_0_#ff4cbd]"
-          initial={{ scale: 0.92, rotate: -2, opacity: 0 }}
-          animate={{ scale: 1, rotate: 0, opacity: 1 }}
-          exit={{ scale: 0.96, opacity: 0 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 23 }}
+          className="relative w-full max-w-md border border-white/15 bg-[#121018] p-6 text-white shadow-[0_0_60px_rgba(168,85,247,0.2)]"
+          initial={{ scale: 0.96, y: 12, opacity: 0 }}
+          animate={{ scale: 1, y: 0, opacity: 1 }}
+          exit={{ scale: 0.98, opacity: 0 }}
+          transition={{ type: 'spring', stiffness: 320, damping: 28 }}
         >
           <button
             type="button"
             onClick={onClose}
             disabled={isPending}
             aria-label="Close"
-            className="absolute right-3 top-3 border-2 border-black bg-[#fff8e7] p-1 text-black disabled:opacity-40"
+            className="absolute right-3 top-3 border border-white/20 bg-black/40 p-1.5 text-white/70 hover:text-white disabled:opacity-40"
           >
-            <X className="h-5 w-5 stroke-[3]" />
+            <X className="h-4 w-4" />
           </button>
-          <p className="text-[10px] font-black uppercase tracking-[.18em]">The real handoff</p>
-          <h2 id="pass-title" className="mt-2 font-poster text-4xl uppercase leading-[.85]">
-            Pass {creatureName}.
+
+          <p className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-[#99ee2d]">
+            The handoff
+          </p>
+          <h2 id="pass-title" className="mt-2 font-poster text-3xl uppercase leading-[0.9] sm:text-4xl">
+            Pass {creatureName}
           </h2>
-          <p className="mt-4 text-sm font-semibold leading-relaxed">
-            <span className="font-black">{fromName}</span>&rsquo;s Cell gets consumed. A new Cell
-            mints for the next Keeper. The deadline gets extended by one full pass window.
+          <p className="mt-3 text-sm font-light leading-relaxed text-white/60">
+            <span className="font-bold text-white">{fromName}</span>&rsquo;s Cell is consumed. A
+            new Cell mints for the next Keeper. The deadline extends by one full window.
           </p>
           {mode === 'return_home' && (
-            <p className="mt-3 flex items-start gap-2 border-2 border-black bg-[#fff8e7] p-2.5 text-xs font-semibold">
-              <Home className="mt-0.5 h-4 w-4 shrink-0 stroke-[3]" />
+            <p className="mt-3 flex items-start gap-2 border border-[#e1bf47]/40 bg-[#e1bf47]/10 p-2.5 text-xs text-white/80">
+              <Home className="mt-0.5 h-4 w-4 shrink-0 text-[#e1bf47]" />
               Return-home: only new holders — or send it back to{' '}
-              <strong>{creatorName}</strong> to seal the journey.
+              <strong className="text-white">{creatorName}</strong> to seal the journey.
             </p>
           )}
-          <form onSubmit={handleSubmit} className="mt-5 border-t-[3px] border-black pt-5">
-            <label htmlFor="recipient" className="text-[10px] font-black uppercase tracking-[.16em]">
+
+          <form onSubmit={handleSubmit} className="mt-5 border-t border-white/10 pt-5">
+            <label
+              htmlFor="recipient"
+              className="text-[10px] font-bold uppercase tracking-wider text-white/45"
+            >
               Next Keeper
             </label>
             <div className="relative mt-2">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 stroke-[3] text-black/50" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" />
               <input
                 id="recipient"
                 ref={inputRef}
@@ -195,21 +197,21 @@ export function PassChainDialog({
                 maxLength={100}
                 disabled={isPending}
                 autoComplete="off"
-                className="w-full border-[3px] border-black bg-[#fff8e7] py-3 pl-10 pr-3 text-black outline-none placeholder:text-black/35 focus:bg-white disabled:opacity-50"
+                className="w-full border border-white/15 bg-black/50 py-3 pl-10 pr-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-[#99ee2d] disabled:opacity-50"
               />
               {openList && filtered.length > 0 && (
-                <ul className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto border-[3px] border-black bg-[#fff8e7] shadow-[4px_4px_0_#101010]">
+                <ul className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto border border-white/15 bg-[#16141c] shadow-xl">
                   {filtered.map((member) => (
                     <li key={member.address}>
                       <button
                         type="button"
                         onClick={() => pickMember(member)}
-                        className="flex w-full flex-col items-start border-b-2 border-black px-3 py-2 text-left last:border-b-0 hover:bg-[#d6ff00]"
+                        className="flex w-full flex-col items-start border-b border-white/5 px-3 py-2.5 text-left last:border-b-0 hover:bg-[#99ee2d]/15"
                       >
-                        <span className="text-xs font-black uppercase">
+                        <span className="text-xs font-bold uppercase text-white">
                           {member.username ? `@${member.username}` : member.displayName}
                         </span>
-                        <span className="font-mono text-[10px] font-bold text-black/55">
+                        <span className="font-mono text-[10px] text-white/45">
                           {member.displayName}
                           {member.username ? ` · ${member.address.slice(0, 12)}…` : ''}
                         </span>
@@ -219,14 +221,15 @@ export function PassChainDialog({
                 </ul>
               )}
             </div>
-            <p className="mt-1 text-[10px] font-semibold text-black/60">
+            <p className="mt-1.5 text-[10px] text-white/45">
               {passableCount > 0
-                ? `${filtered.length} of ${passableCount} in this room. Anyone outside it — paste their @handle or ckt address.`
-                : 'No one else has joined this room yet. Paste any @handle or ckt address.'}
+                ? `${filtered.length} of ${passableCount} in this room. Outside — paste @handle or ckt.`
+                : 'No one else in this room yet. Paste any @handle or ckt address.'}
             </p>
+
             <label
               htmlFor="city"
-              className="mt-4 block text-[10px] font-black uppercase tracking-[.16em]"
+              className="mt-4 block text-[10px] font-bold uppercase tracking-wider text-white/45"
             >
               City stamp (optional)
             </label>
@@ -237,7 +240,7 @@ export function PassChainDialog({
               placeholder="Where is the Cell right now?"
               maxLength={40}
               disabled={isPending}
-              className="mt-2 w-full border-[3px] border-black bg-[#fff8e7] px-3 py-3 text-black outline-none placeholder:text-black/35 focus:bg-white disabled:opacity-50"
+              className="mt-2 w-full border border-white/15 bg-black/50 px-3 py-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-[#99ee2d] disabled:opacity-50"
             />
             <button
               type="button"
@@ -250,33 +253,35 @@ export function PassChainDialog({
                   })
                   .finally(() => setLocating(false));
               }}
-              className="mt-2 inline-flex items-center gap-1.5 border-2 border-black bg-white px-2.5 py-1.5 text-[10px] font-black uppercase disabled:opacity-40"
+              className="mt-2 inline-flex items-center gap-1.5 border border-white/20 bg-black/40 px-2.5 py-1.5 text-[10px] font-bold uppercase text-white/80 disabled:opacity-40"
             >
               {locating ? (
                 <Loader2 className="h-3 w-3 animate-spin" />
               ) : (
-                <MapPin className="h-3 w-3 stroke-[3]" />
+                <MapPin className="h-3 w-3" />
               )}
               Use my location
             </button>
+
             {error && (
-              <p role="alert" className="mt-2 text-sm font-bold text-red-800">
+              <p role="alert" className="mt-3 text-sm font-bold text-[#99ee2d]">
                 {error}
               </p>
             )}
+
             <button
               type="submit"
               disabled={!value.trim() || isPending}
-              className="neo-button mt-5 flex w-full items-center justify-center gap-2 bg-[#224cff] px-4 py-3.5 text-sm font-black uppercase text-[#fff8e7] disabled:cursor-not-allowed disabled:opacity-40"
+              className="arena-cta mt-5 flex w-full items-center justify-center gap-2 px-4 py-3.5 text-sm font-bold uppercase disabled:cursor-not-allowed disabled:opacity-40"
             >
               {isPending ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  PASSING…
+                  Passing…
                 </>
               ) : (
                 <>
-                  KEEP IT ALIVE <ArrowRight className="h-4 w-4 stroke-[3]" />
+                  Keep it alive <ArrowRight className="h-4 w-4" />
                 </>
               )}
             </button>

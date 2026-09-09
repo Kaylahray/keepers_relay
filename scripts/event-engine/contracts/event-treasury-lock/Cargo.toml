@@ -1,0 +1,14 @@
+[package]
+name = "keepers-relay-event-treasury-lock"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+description = "Keepers Relay Event treasury lock v3"
+
+[dependencies]
+ckb-std = { workspace = true }
+keepers-relay-protocol-common = { path = "../protocol-common" }
+
+[[bin]]
+name = "event-treasury-lock"
+path = "src/main.rs"

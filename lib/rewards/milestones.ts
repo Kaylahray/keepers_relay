@@ -1,8 +1,17 @@
+import type { Profile } from '@/lib/registry/types';
+
 export type RewardMilestone =
   | 'username_claimed'
   | 'profile_completed'
   | 'first_relay'
   | 'relay_streak_3';
+
+export const REWARD_MILESTONES: RewardMilestone[] = [
+  'username_claimed',
+  'profile_completed',
+  'first_relay',
+  'relay_streak_3',
+];
 
 export const REWARD_POINTS: Record<RewardMilestone, number> = {
   username_claimed: 10,
@@ -23,6 +32,15 @@ export const USERNAME_RULES = {
   max: 24,
   pattern: /^[a-z0-9_]+$/,
 };
+
+export function isProfileCompleted(profile: Profile | null): boolean {
+  if (!profile) return false;
+  return Boolean(
+    profile.name?.trim() &&
+      profile.headline?.trim() &&
+      profile.avatarSporeId?.trim(),
+  );
+}
 
 export function normalizeUsername(raw: string): string {
   return raw.trim().toLowerCase().replace(/^@/, '');
@@ -45,25 +63,25 @@ export function validateUsername(raw: string): string | null {
 export type ProofBadge = {
   id: string;
   name: string;
-  requiredProof: number;
+  requiredPoints: number;
   accent: string;
 };
 
 export const KEEPER_BADGES: ProofBadge[] = [
-  { id: 'explorer', name: 'Explorer', requiredProof: 10, accent: '#d6ff00' },
-  { id: 'builder', name: 'Builder', requiredProof: 20, accent: '#ffe454' },
-  { id: 'specialist', name: 'Specialist', requiredProof: 35, accent: '#224cff' },
-  { id: 'pro', name: 'Pro', requiredProof: 50, accent: '#ff4cbd' },
-  { id: 'elite', name: 'Elite', requiredProof: 75, accent: '#ff6b2d' },
-  { id: 'legend', name: 'Legend', requiredProof: 100, accent: '#d6ff00' },
+  { id: 'explorer', name: 'Explorer', requiredPoints: 10, accent: '#d6ff00' },
+  { id: 'builder', name: 'Builder', requiredPoints: 20, accent: '#ffe454' },
+  { id: 'specialist', name: 'Specialist', requiredPoints: 35, accent: '#224cff' },
+  { id: 'pro', name: 'Pro', requiredPoints: 50, accent: '#ff4cbd' },
+  { id: 'elite', name: 'Elite', requiredPoints: 75, accent: '#ff6b2d' },
+  { id: 'legend', name: 'Legend', requiredPoints: 100, accent: '#d6ff00' },
 ];
 
 export function getUnlockableBadges(
-  proofBalance: number,
+  pointsBalance: number,
   claimedBadgeIds: string[],
 ): ProofBadge[] {
   return KEEPER_BADGES.filter(
     (badge) =>
-      !claimedBadgeIds.includes(badge.id) && proofBalance >= badge.requiredProof,
+      !claimedBadgeIds.includes(badge.id) && pointsBalance >= badge.requiredPoints,
   );
 }

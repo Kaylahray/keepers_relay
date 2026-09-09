@@ -119,17 +119,78 @@ export const chainCellType: ScriptConfig = {
   depType: asDepType(process.env.NEXT_PUBLIC_CHAIN_CELL_DEP_TYPE),
 };
 
+export const keeperLock: ScriptConfig = {
+  codeHash: pick(process.env.NEXT_PUBLIC_KEEPER_LOCK_CODE_HASH),
+  hashType: asHashType(process.env.NEXT_PUBLIC_KEEPER_LOCK_HASH_TYPE),
+  args: pick(process.env.NEXT_PUBLIC_KEEPER_LOCK_ARGS, "0x"),
+  outPoint: {
+    txHash: pick(process.env.NEXT_PUBLIC_KEEPER_LOCK_TX_HASH),
+    index: pick(process.env.NEXT_PUBLIC_KEEPER_LOCK_INDEX, "0x0"),
+  },
+  depType: asDepType(process.env.NEXT_PUBLIC_KEEPER_LOCK_DEP_TYPE),
+};
+
+/** Event Cell type (event-type) — v3 Pudge deploy. */
+export const eventCellType: ScriptConfig = {
+  codeHash: pick(process.env.NEXT_PUBLIC_EVENT_CELL_CODE_HASH),
+  hashType: asHashType(process.env.NEXT_PUBLIC_EVENT_CELL_HASH_TYPE),
+  args: pick(process.env.NEXT_PUBLIC_EVENT_CELL_ARGS, "0x"),
+  outPoint: {
+    txHash: pick(process.env.NEXT_PUBLIC_EVENT_CELL_TX_HASH),
+    index: pick(process.env.NEXT_PUBLIC_EVENT_CELL_INDEX, "0x0"),
+  },
+  depType: asDepType(process.env.NEXT_PUBLIC_EVENT_CELL_DEP_TYPE),
+};
+
+/** Participant entry cell type — one per joined player. */
+export const participantType: ScriptConfig = {
+  codeHash: pick(process.env.NEXT_PUBLIC_PARTICIPANT_TYPE_CODE_HASH),
+  hashType: asHashType(process.env.NEXT_PUBLIC_PARTICIPANT_TYPE_HASH_TYPE),
+  args: pick(process.env.NEXT_PUBLIC_PARTICIPANT_TYPE_ARGS, "0x"),
+  outPoint: {
+    txHash: pick(process.env.NEXT_PUBLIC_PARTICIPANT_TYPE_TX_HASH),
+    index: pick(process.env.NEXT_PUBLIC_PARTICIPANT_TYPE_INDEX, "0x0"),
+  },
+  depType: asDepType(process.env.NEXT_PUBLIC_PARTICIPANT_TYPE_DEP_TYPE),
+};
+
+/** Event treasury lock — pot CKB for one event. */
+export const eventTreasuryLock: ScriptConfig = {
+  codeHash: pick(process.env.NEXT_PUBLIC_EVENT_TREASURY_CODE_HASH),
+  hashType: asHashType(process.env.NEXT_PUBLIC_EVENT_TREASURY_HASH_TYPE),
+  args: pick(process.env.NEXT_PUBLIC_EVENT_TREASURY_ARGS, "0x"),
+  outPoint: {
+    txHash: pick(process.env.NEXT_PUBLIC_EVENT_TREASURY_TX_HASH),
+    index: pick(process.env.NEXT_PUBLIC_EVENT_TREASURY_INDEX, "0x0"),
+  },
+  depType: asDepType(process.env.NEXT_PUBLIC_EVENT_TREASURY_DEP_TYPE),
+};
+
+/** Event settlement claim tickets (separate from PROOF sUDT rewardClaimType). */
+export const eventRewardClaimType: ScriptConfig = {
+  codeHash: pick(process.env.NEXT_PUBLIC_EVENT_REWARD_CLAIM_CODE_HASH),
+  hashType: asHashType(process.env.NEXT_PUBLIC_EVENT_REWARD_CLAIM_HASH_TYPE),
+  args: pick(process.env.NEXT_PUBLIC_EVENT_REWARD_CLAIM_ARGS, "0x"),
+  outPoint: {
+    txHash: pick(process.env.NEXT_PUBLIC_EVENT_REWARD_CLAIM_TX_HASH),
+    index: pick(process.env.NEXT_PUBLIC_EVENT_REWARD_CLAIM_INDEX, "0x0"),
+  },
+  depType: asDepType(process.env.NEXT_PUBLIC_EVENT_REWARD_CLAIM_DEP_TYPE),
+};
+
 export function chainCellConfigured(): boolean {
   return (
     chainCellType.codeHash.length > 2 &&
-    chainCellType.outPoint.txHash.length > 2
+    chainCellType.outPoint.txHash.length > 2 &&
+    keeperLock.codeHash.length > 2 &&
+    keeperLock.outPoint.txHash.length > 2
   );
 }
 
 export function assertChainCellConfigured(): void {
   if (chainCellConfigured()) return;
   throw new Error(
-    "Missing Chain Cell env — set NEXT_PUBLIC_CHAIN_CELL_* in `.env.local` from scripts/chain-cell/deployment/scripts.json.",
+    "Missing Chain Cell env — set NEXT_PUBLIC_CHAIN_CELL_* and NEXT_PUBLIC_KEEPER_LOCK_* in `.env.local` from scripts/chain-cell/deployment/scripts.json.",
   );
 }
 
@@ -183,6 +244,26 @@ export function assertRewardClaimsConfigured(): void {
   if (rewardClaimsConfigured()) return;
   throw new Error(
     "Missing reward claim env vars — set NEXT_PUBLIC_REWARD_CLAIM_* and NEXT_PUBLIC_REWARD_TREASURY_* from deployed reward contracts.",
+  );
+}
+
+export function eventEngineConfigured(): boolean {
+  return (
+    eventCellType.codeHash.length > 2 &&
+    eventCellType.outPoint.txHash.length > 2 &&
+    participantType.codeHash.length > 2 &&
+    participantType.outPoint.txHash.length > 2 &&
+    eventTreasuryLock.codeHash.length > 2 &&
+    eventTreasuryLock.outPoint.txHash.length > 2 &&
+    eventRewardClaimType.codeHash.length > 2 &&
+    eventRewardClaimType.outPoint.txHash.length > 2
+  );
+}
+
+export function assertEventEngineConfigured(): void {
+  if (eventEngineConfigured()) return;
+  throw new Error(
+    "Missing Event Engine env — set NEXT_PUBLIC_EVENT_CELL_*, NEXT_PUBLIC_PARTICIPANT_TYPE_*, NEXT_PUBLIC_EVENT_TREASURY_*, and NEXT_PUBLIC_EVENT_REWARD_CLAIM_* after deploy.",
   );
 }
 

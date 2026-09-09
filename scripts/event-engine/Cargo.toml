@@ -1,0 +1,28 @@
+[workspace]
+resolver = "2"
+
+members = [
+  "contracts/protocol-common",
+  "contracts/event-type",
+  "contracts/participant-type",
+  "contracts/event-treasury-lock",
+  "contracts/reward-claim-type",
+  "tests",
+]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+version = "0.1.0"
+
+[workspace.dependencies]
+ckb-std = { version = "=1.1.0", default-features = false, features = ["allocator", "ckb-types", "type-id", "dummy-atomic"] }
+blake2b-ref = { version = "0.3.1", default-features = false }
+
+[profile.release]
+overflow-checks = true
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "symbols"

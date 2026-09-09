@@ -15,7 +15,7 @@ function JoinInner() {
     <PageShell
       eyebrow="Onboarding"
       title="Claim your handle."
-      intro="Watch streaks without one. To hold, pass, or launch a Cell you need an on-chain @username — one wallet signature."
+      intro="Watching is free. To take, mark, or pass a Cell you need an on-chain @username — one wallet signature, and it is yours."
       backHref="/"
       backLabel="Home"
     >

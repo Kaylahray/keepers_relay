@@ -5,7 +5,7 @@ import {
   selectJourney,
 } from '@/lib/server/store';
 import { readBody, respond, respondWrite } from '@/lib/server/respond';
-import type { ChainMode } from '@/types/chain';
+import type { ChainMode, StakesConfig } from '@/types/chain';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,7 +25,7 @@ export async function POST(request: Request) {
     mode?: ChainMode;
     trophyGoal?: number;
     windowHours?: number;
-    initialProof?: number;
+    initialCkb?: number;
     rewardPoolNote?: string;
     coverImageUrl?: string;
     amount?: number;
@@ -34,6 +34,7 @@ export async function POST(request: Request) {
     onChainChainId?: string;
     genesisTxHash?: string;
     expiresAt?: string;
+    stakes?: Partial<StakesConfig> | null;
   }>(request);
 
   const action = body.action ?? 'launch';
@@ -62,13 +63,14 @@ export async function POST(request: Request) {
       mode: body.mode === 'open' ? 'open' : 'return_home',
       trophyGoal: body.trophyGoal ?? 50,
       windowHours: body.windowHours,
-      initialProof: body.initialProof,
+      initialCkb: body.initialCkb,
       rewardPoolNote: body.rewardPoolNote,
       coverImageUrl: body.coverImageUrl,
       cellOutPoint: body.cellOutPoint,
       onChainChainId: body.onChainChainId,
       genesisTxHash: body.genesisTxHash,
       expiresAt: body.expiresAt,
+      stakes: body.stakes,
     }),
   );
 }

@@ -1,0 +1,14 @@
+[package]
+name = "keepers-relay-reward-claim-type"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+description = "Keepers Relay event reward-claim type script"
+
+[dependencies]
+ckb-std = { workspace = true }
+keepers-relay-protocol-common = { path = "../protocol-common" }
+
+[[bin]]
+name = "reward-claim-type"
+path = "src/main.rs"

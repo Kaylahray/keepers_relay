@@ -36,4 +36,7 @@ export const keeperKeys = {
   relayDetail: (relayId: string) => ['keeper', 'relay', relayId] as const,
   queue: ['keeper', 'queue'] as const,
   passport: ['keeper', 'passport'] as const,
+  home: (address?: string | null) => ['keeper', 'home', address ?? 'anon'] as const,
+  draft: (address: string, journeyId: string) =>
+    ['keeper', 'draft', address, journeyId] as const,
 };

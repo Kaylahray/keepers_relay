@@ -14,10 +14,14 @@ export interface BuilderProfile {
   joinedAt: string;
   lastSeenAt: string;
   onboarded: boolean;
-  /** Soft PROOF balance (mirrors Spore ID rewards until treasury is wired). */
-  proofBalance: number;
+  /** Soft points balance (passport XP until treasury is wired). */
+  pointsBalance: number;
   claimedMilestones: RewardMilestone[];
   claimedBadgeIds: string[];
+  /** Set once when joining via an invite link — used for invite credit. */
+  invitedByAddress?: string | null;
+  /** ISO timestamp of last rescue — one soft rescue per day. */
+  lastRescueAt?: string | null;
 }
 
 export interface UpsertBuilderInput {

@@ -1,36 +1,57 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { PageShell } from '@/components/PageShell';
+import { ArenaCta, KindCard } from '@/components/arena/ArenaPrimitives';
 
 export const metadata: Metadata = {
   title: 'How it works — Keepers Relay',
-  description: 'A living CKB Cell that travels, collects marks, and dies if nobody passes it.',
+  description:
+    'A living CKB Cell passes from hand to hand, collects a mark from every Keeper, and dies if nobody passes it in time.',
 };
+
+const ACTS = [
+  {
+    act: 'Act one',
+    title: 'Take it',
+    lines: [
+      'A Cell is a single scarce object on CKB. Only one Keeper holds it at a time — there is no shared copy and no second edition.',
+      'Cells live inside rooms. Join one for the pots and the line — watching is free; holding needs an @handle.',
+    ],
+  },
+  {
+    act: 'Act two',
+    title: 'Mark it',
+    lines: [
+      'Every Cell carries a prompt. Before you can pass it on, you answer that prompt once — a line, a view, a place, a stamp.',
+      'Your mark is sealed into the Cell permanently and travels with it. After twenty Keepers, the Cell is worth more than when it left.',
+    ],
+  },
+  {
+    act: 'Act three',
+    title: 'Pass it',
+    lines: [
+      'You get a window. Hand the Cell to another @handle before it closes and the line continues with your name in it.',
+      'Miss the window and the Cell dies — not just for you, for everyone who ever carried it.',
+    ],
+  },
+];
 
 const RULES = [
   {
-    title: 'One Cell. One holder.',
-    body: 'A streak is a single scarce object — a CKB Cell. Only one person holds it at a time.',
+    title: 'Stakes & pots',
+    body: 'Event seats cost CKB. The pot is the sum of stakes plus sponsors. Score points to rank — winners take CKB. Chain stakes use the same money language on the Arena.',
   },
   {
-    title: 'Every holder leaves one mark.',
-    body: 'Before you pass, you seal one contribution: a view, a line, a stamp, a place. The Cell gets more interesting after twenty people touch it.',
+    title: 'Quests & archives',
+    body: 'Return-home Quests have a finish line. Archives are the long game — one Keeper can make a tradition legendary. Different energy, same Cell engine.',
   },
   {
-    title: 'The clock is the pressure.',
-    body: 'Each holder has a window to contribute and pass. Miss it and the lineage dies. Urgency is the game.',
+    title: 'The line',
+    body: 'Every Keeper who held it becomes a figure in the cast. The carousel grows. That is the memorial and the brag.',
   },
   {
-    title: 'Passing consumes and creates.',
-    body: 'A handoff spends the current Cell and creates a successor for the next Keeper. The lineage is the proof.',
-  },
-  {
-    title: 'Return home.',
-    body: 'Some streaks only travel to new holders, then come back to the creator to seal the journey.',
-  },
-  {
-    title: 'Communities hold streaks.',
-    body: 'Join a room. Launch a Cell. Pass it to an @handle. Watchers can look; members can play.',
+    title: 'Rescue',
+    body: 'When a Cell is critical, roommates can buy it more time. Somebody still has to take it.',
   },
 ];
 
@@ -39,34 +60,64 @@ export default function HowItWorksPage() {
     <PageShell
       eyebrow="The rules"
       title="How it works"
-      intro="Keepers Relay turns a CKB Cell into a living social artefact. Hold it, leave a mark, pass it on."
+      intro="Something alive gets handed to you. Keep it alive and leave your mark — or it dies on your watch."
       backHref="/"
-      backLabel="Home"
+      backLabel="Arena"
     >
-      <div className="grid gap-4 sm:grid-cols-2">
-        {RULES.map((rule, i) => (
-          <section key={rule.title} className="neo-card bg-[#fff8e7] p-5">
-            <span className="inline-block border-2 border-black bg-[#d6ff00] px-2 py-1 font-mono text-[10px] font-bold">
-              {String(i + 1).padStart(2, '0')}
-            </span>
-            <h2 className="mt-3 font-poster text-2xl uppercase leading-[.95]">{rule.title}</h2>
-            <p className="mt-3 text-sm font-semibold leading-relaxed">{rule.body}</p>
+      <div className="mb-10 grid gap-4 sm:grid-cols-3">
+        <KindCard kind="blitz" />
+        <KindCard kind="quest" />
+        <KindCard kind="archive" />
+      </div>
+
+      <div className="space-y-4">
+        {ACTS.map((act) => (
+          <section
+            key={act.title}
+            className="rounded-2xl border border-white/10 bg-gradient-to-br from-[#2a1850]/60 to-[#15121d] p-5 text-white sm:p-7"
+          >
+            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[#ff56f6]">
+              {act.act}
+            </p>
+            <h2 className="mt-2 font-poster text-4xl uppercase leading-[.9] sm:text-5xl">
+              {act.title}
+            </h2>
+            {act.lines.map((line) => (
+              <p
+                key={line}
+                className="mt-3 max-w-2xl text-sm font-medium leading-relaxed text-white/75"
+              >
+                {line}
+              </p>
+            ))}
           </section>
         ))}
       </div>
 
-      <div className="mt-7 flex flex-wrap gap-3">
+      <h2 className="mt-10 font-poster text-3xl uppercase leading-none text-white">
+        The finer print
+      </h2>
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        {RULES.map((rule) => (
+          <section
+            key={rule.title}
+            className="rounded-2xl border border-white/10 bg-white/5 p-5"
+          >
+            <h3 className="font-poster text-2xl uppercase leading-[.95] text-white">
+              {rule.title}
+            </h3>
+            <p className="mt-3 text-sm font-medium leading-relaxed text-white/65">{rule.body}</p>
+          </section>
+        ))}
+      </div>
+
+      <div className="mt-8 flex flex-wrap gap-3">
+        <ArenaCta href="/events">Browse events</ArenaCta>
         <Link
-          href="/communities"
-          className="neo-button bg-[#d6ff00] px-4 py-3 text-xs font-black uppercase text-black"
+          href="/create"
+          className="inline-flex items-center rounded-md border border-white/20 bg-white/5 px-4 py-3 text-xs font-bold uppercase text-white hover:bg-white/10"
         >
-          Open communities
-        </Link>
-        <Link
-          href="/streaks"
-          className="neo-button bg-[#ff4cbd] px-4 py-3 text-xs font-black uppercase text-black"
-        >
-          Live streaks
+          Create event
         </Link>
       </div>
     </PageShell>

@@ -21,6 +21,36 @@ export interface Owner {
   address?: string;
 }
 
+/**
+ * Escalating-pot rules. Present only on stakes streaks.
+ *
+ * Every Keeper pays to receive the Cell, the pot grows, and the window shrinks
+ * each hop so the streak always ends. Pass in time and you share the pot; be the
+ * one who lets it die and your stake stays in.
+ */
+export interface StakesConfig {
+  /** CKB the first receiving Keeper pays. */
+  entryCkb: number;
+  /** Percent the entry grows each handoff. */
+  escalationPct: number;
+  /** Percent the pass window shrinks each handoff. */
+  decayPct: number;
+  /** The window never falls below this many hours. */
+  floorHours: number;
+}
+
+/** A paid seat in a stakes streak. */
+export interface StakeEntry {
+  address: string;
+  name: string;
+  /** Lineage position this seat was bought at. */
+  hop: number;
+  paid: number;
+  at: string;
+  /** True once this Keeper passed the Cell on in time. */
+  survived: boolean;
+}
+
 export interface Chain {
   id: string;
   status: ChainStatus;
@@ -68,12 +98,28 @@ export interface Chain {
   /** When this journey was launched. */
   createdAt: string;
   /**
-   * Soft PROOF sitting in this journey's reward pot.
-   * Later: real sUDT / treasury claim scripts.
+   * CKB sitting in this journey's reward pot (mock balance until on-chain settle).
    */
-  rewardPoolProof: number;
+  rewardPoolCkb: number;
   /** Optional note about what the pot is for. */
   rewardPoolNote?: string;
+  /**
+   * Soft “you’re next” nomination by the current holder.
+   * Cleared on pass, death, or return.
+   */
+  nominatedNext?: {
+    address: string;
+    name: string;
+    nominatedAt: string;
+  } | null;
+  /** How many times this Cell was rescued from a dying clock. */
+  rescueCount?: number;
+  lastRescuedAt?: string | null;
+  lastRescuedBy?: string | null;
+  /** Escalating-pot rules. Undefined on free streaks. */
+  stakes?: StakesConfig;
+  /** Paid seats, oldest first. */
+  stakeEntries?: StakeEntry[];
 }
 
 export type JourneySummary = {
@@ -89,11 +135,73 @@ export type JourneySummary = {
   holderCount: number;
   currentHolder: string;
   trophyGoal: number;
-  rewardPoolProof: number;
+  rewardPoolCkb: number;
   expiresAt: string;
   createdAt: string;
   coverImageUrl: string;
+  stakes?: StakesConfig | null;
 };
+
+export const STAKES_DEFAULTS: StakesConfig = {
+  entryCkb: 5,
+  escalationPct: 15,
+  decayPct: 12,
+  floorHours: 1,
+};
+
+export function normalizeStakes(input: Partial<StakesConfig>): StakesConfig {
+  const clamp = (value: number | undefined, min: number, max: number, fallback: number) =>
+    Number.isFinite(value) ? Math.max(min, Math.min(max, Math.round(value as number))) : fallback;
+  return {
+    entryCkb: clamp(input.entryCkb, 1, 1_000, STAKES_DEFAULTS.entryCkb),
+    escalationPct: clamp(input.escalationPct, 0, 100, STAKES_DEFAULTS.escalationPct),
+    // The contract refuses a stakes Cell whose window never shrinks, so the
+    // floor here is 1, not 0 — otherwise a launch would mint and then fail.
+    decayPct: clamp(input.decayPct, 1, 50, STAKES_DEFAULTS.decayPct),
+    floorHours: clamp(input.floorHours, 1, 24, STAKES_DEFAULTS.floorHours),
+  };
+}
+
+/** What the Keeper buying seat `hop` pays. Hop 0 is the creator's seed. */
+export function stakesEntryAtHop(stakes: StakesConfig, hop: number): number {
+  const steps = Math.max(0, hop - 1);
+  const grown = stakes.entryCkb * (1 + stakes.escalationPct / 100) ** steps;
+  return Math.max(1, Math.round(grown));
+}
+
+/** How long the Keeper at seat `hop` gets. Shrinks every hop down to the floor. */
+export function stakesWindowHoursAtHop(
+  stakes: StakesConfig,
+  baseHours: number,
+  hop: number,
+): number {
+  const shrunk = baseHours * (1 - stakes.decayPct / 100) ** Math.max(0, hop);
+  return Math.max(stakes.floorHours, Math.round(shrunk * 100) / 100);
+}
+
+/**
+ * Split a pot across survivors, weighted so the later you survived the more you
+ * take. Remainder goes to the latest survivors first.
+ */
+export function stakesPayoutShares<T extends { address: string; name: string; hop: number }>(
+  pot: number,
+  survivors: T[],
+): { address: string; name: string; amount: number }[] {
+  if (pot <= 0 || survivors.length === 0) return [];
+  const ordered = [...survivors].sort((a, b) => a.hop - b.hop);
+  const totalWeight = (ordered.length * (ordered.length + 1)) / 2;
+  const shares = ordered.map((survivor, index) => ({
+    address: survivor.address,
+    name: survivor.name,
+    amount: Math.floor((pot * (index + 1)) / totalWeight),
+  }));
+  let remainder = pot - shares.reduce((sum, share) => sum + share.amount, 0);
+  for (let i = shares.length - 1; i >= 0 && remainder > 0; i -= 1) {
+    shares[i].amount += 1;
+    remainder -= 1;
+  }
+  return shares;
+}
 
 export type CreatureStage = 'blob' | 'walker' | 'voyager' | 'legend';
 
@@ -113,54 +221,3 @@ export const CREATURE_STAGE_LABEL: Record<CreatureStage, string> = {
 
 export const TROPHY_GOAL = 500;
 
-export const LAUNCH_PRESETS: {
-  creatureName: string;
-  seedPrompt: string;
-  mode: ChainMode;
-  trophyGoal: number;
-  blurb: string;
-}[] = [
-  {
-    creatureName: 'Window Relay',
-    seedPrompt: 'Show me the view outside your window — one line, one place.',
-    mode: 'return_home',
-    trophyGoal: 50,
-    blurb: 'A chain of windows across cities.',
-  },
-  {
-    creatureName: 'Cell Scout',
-    seedPrompt: 'Paste one real Cell explorer link and one sentence about what you noticed.',
-    mode: 'open',
-    trophyGoal: 100,
-    blurb: 'Teach the Cell model by hunting real Cells.',
-  },
-  {
-    creatureName: 'Spore Walk',
-    seedPrompt: 'Name one Spore / DOB you visited and why it stuck with you.',
-    mode: 'return_home',
-    trophyGoal: 30,
-    blurb: 'Digital objects, human taste.',
-  },
-  {
-    creatureName: 'Fiber Pulse',
-    seedPrompt: 'One sentence: what should Fiber make feel instant for builders?',
-    mode: 'open',
-    trophyGoal: 75,
-    blurb: 'Speed dreams for the CKB stack.',
-  },
-  {
-    creatureName: 'Trust Circle',
-    seedPrompt:
-      'Pass this only to someone you trust. Tell them one thing you wish someone told you.',
-    mode: 'return_home',
-    trophyGoal: 25,
-    blurb: 'Intimate handoffs, no strangers.',
-  },
-  {
-    creatureName: 'Docs Spark',
-    seedPrompt: 'Quote one Nervos doc line that clicked — and rewrite it in your own words.',
-    mode: 'open',
-    trophyGoal: 40,
-    blurb: 'Make the docs travel person to person.',
-  },
-];

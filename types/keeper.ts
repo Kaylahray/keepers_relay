@@ -109,4 +109,10 @@ export interface PassportProfile {
   artifactCount: number;
   badgeLabels: string[];
   keeperTurns: number;
+  /**
+   * Unbroken successful passes. Resets to 0 when any Cell you touched dies.
+   * This is the retention number — not Relay XP.
+   */
+  keeperPassStreak: number;
+  longestKeeperPassStreak: number;
 }

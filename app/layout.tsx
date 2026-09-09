@@ -1,40 +1,14 @@
 import type { Metadata } from 'next';
-import { Archivo_Black, DM_Mono, Instrument_Serif, Inter } from 'next/font/google';
 import { Providers } from '@/components/Providers';
 import { SiteHeader } from '@/components/SiteHeader';
 import { JoinNudge } from '@/components/JoinNudge';
 import { OnChainIdentitySync } from '@/components/OnChainIdentitySync';
 import './globals.css';
 
-const inter = Inter({
-  subsets: ['latin'],
-  weight: ['500', '600', '700', '800'],
-  variable: '--font-inter',
-});
-
-const dmMono = DM_Mono({
-  subsets: ['latin'],
-  weight: ['400', '500'],
-  variable: '--font-dm-mono',
-});
-
-const instrumentSerif = Instrument_Serif({
-  subsets: ['latin'],
-  weight: '400',
-  style: ['normal', 'italic'],
-  variable: '--font-instrument-serif',
-});
-
-const archivoBlack = Archivo_Black({
-  subsets: ['latin'],
-  weight: '400',
-  variable: '--font-archivo-black',
-});
-
 export const metadata: Metadata = {
-  title: 'Keepers Relay — Chain Letter',
+  title: 'Keepers Relay — take it, mark it, pass it on',
   description:
-    'A living CKB collectible that survives only if every Keeper passes it on before time runs out.',
+    'A living CKB Cell passes from hand to hand. Every Keeper leaves a mark and has a clock. Pass it in time or it dies on your watch.',
 };
 
 export default function RootLayout({
@@ -43,11 +17,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="en"
-      className={`${inter.variable} ${dmMono.variable} ${instrumentSerif.variable} ${archivoBlack.variable} h-full antialiased`}
-    >
-      <body className="min-h-full bg-[#d6ff00]">
+    <html lang="en" className="h-full antialiased">
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&family=Orbitron:wght@600;700;800&family=Outfit:wght@400;500;600;700&display=swap"
+          rel="stylesheet"
+        />
+      </head>
+      <body className="min-h-full bg-[#15121d] text-[#f5f5f5]">
         <Providers>
           <OnChainIdentitySync />
           <SiteHeader />

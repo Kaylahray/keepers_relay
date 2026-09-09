@@ -1,278 +1,276 @@
 'use client';
 
 import Link from 'next/link';
-import { formatDistanceToNow } from 'date-fns';
-import { Award, Crown, Flame, Scroll, ShieldCheck, WalletMinimal } from 'lucide-react';
-import { useChainQuery } from '@/hooks/useChain';
-import {
-  usePassportQuery,
-  useRelayAttemptsQuery,
-  useRelayBoardQuery,
-} from '@/hooks/useKeeperEcosystem';
+import { Crown, Flame, Loader2, Pencil, Trophy, UsersRound, WalletMinimal } from 'lucide-react';
+import { ArenaCta } from '@/components/arena/ArenaPrimitives';
+import { ArenaStage } from '@/components/arena/ArenaStage';
+import { CharacterAvatar } from '@/components/CharacterPicker';
 import { useMyBuilder } from '@/hooks/useBuilder';
+import { useUsername } from '@/hooks/useUsername';
 import { useWallet } from '@/hooks/useWallet';
-import { PageShell } from '@/components/PageShell';
-import { RelayStatusBadge } from '@/components/RelayStatusBadge';
+import { useCommunitiesQuery } from '@/hooks/useCommunity';
+import { useEventsQuery } from '@/hooks/useEvents';
 
+/**
+ * Event-product profile — identity, stats, communities, Studio entry.
+ * Not the old Living Collectible passport.
+ */
 export function ProfileView({ address }: { address: string }) {
-  const isSelf = address === 'me';
-  const { isConnected, connect, formattedAddress, address: walletAddress } = useWallet();
+  const { isConnected, connect, formattedAddress, address: walletAddress, isReady } =
+    useWallet();
   const myBuilder = useMyBuilder();
-  const passport = usePassportQuery();
-  const board = useRelayBoardQuery();
-  const attempts = useRelayAttemptsQuery();
-  const { data: chain } = useChainQuery();
+  const { username: onChainUsername } = useUsername();
+  const communities = useCommunitiesQuery();
+  const eventsQ = useEventsQuery();
 
-  if (isSelf && !isConnected) {
+  const normalized = decodeURIComponent(address).toLowerCase();
+  const isSelf =
+    address === 'me' ||
+    Boolean(walletAddress && walletAddress.toLowerCase() === normalized);
+
+  if (!isReady) {
     return (
-      <PageShell
-        eyebrow="Your proof passport"
-        title="Connect to view"
-        intro="Your passport is tied to your wallet."
-        backHref="/"
-        backLabel="Home"
-      >
-        <button
-          type="button"
-          onClick={() => connect()}
-          className="neo-button flex items-center gap-2 bg-[#224cff] px-5 py-3 text-sm font-black uppercase text-[#fff8e7]"
-        >
-          <WalletMinimal className="h-4 w-4 stroke-[3]" />
+      <ArenaStage backHref="/" backLabel="Home">
+        <Loader2 className="h-6 w-6 animate-spin text-[#99ee2d]" />
+      </ArenaStage>
+    );
+  }
+
+  if ((isSelf || address === 'me') && !isConnected) {
+    return (
+      <ArenaStage backHref="/" backLabel="Home">
+        <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">
+          Profile
+        </p>
+        <h1 className="mt-3 font-poster text-4xl uppercase text-white">Connect to view</h1>
+        <p className="mt-3 max-w-md text-sm text-white/55">
+          Your profile, avatar, and event stats are tied to your wallet.
+        </p>
+        <ArenaCta onClick={() => connect()} className="mt-6">
+          <WalletMinimal className="h-4 w-4" />
           Connect wallet
-        </button>
-      </PageShell>
+        </ArenaCta>
+      </ArenaStage>
     );
   }
 
   const me = myBuilder.data?.builder;
+  const handle = me?.username || onChainUsername?.username || null;
   const displayName = isSelf
-    ? me?.displayName || passport.data?.displayName || 'You'
-    : decodeURIComponent(address);
-  const keeperTurns = (chain?.owners ?? []).filter(
-    (owner) =>
-      (owner.address &&
-        walletAddress &&
-        owner.address.toLowerCase() === walletAddress.toLowerCase()) ||
-      owner.name.toLowerCase() === displayName.toLowerCase(),
-  );
-  const holdingNow = Boolean(
-    chain &&
-      ((walletAddress &&
-        chain.owners[chain.owners.length - 1]?.address?.toLowerCase() ===
-          walletAddress.toLowerCase()) ||
-        chain.owners[chain.owners.length - 1]?.name.toLowerCase() === displayName.toLowerCase()),
-  );
-  const holderNumber =
-    keeperTurns.length > 0
-      ? (chain?.owners.findIndex(
-          (o) =>
-            (walletAddress && o.address?.toLowerCase() === walletAddress.toLowerCase()) ||
-            o.name.toLowerCase() === displayName.toLowerCase(),
-        ) ?? -1) + 1
-      : null;
+    ? me?.displayName || handle || 'You'
+    : handle || `${normalized.slice(0, 10)}…`;
+
+  const myEvents = isSelf
+    ? (eventsQ.data?.events ?? []).filter(
+        (e) =>
+          e.hostAddress?.toLowerCase() === walletAddress?.toLowerCase() ||
+          e.hostName.toLowerCase() === (me?.displayName ?? '').toLowerCase(),
+      )
+    : [];
+  const joinedCommunities = isSelf
+    ? (communities.data ?? []).filter((c) => c.isMember)
+    : [];
 
   return (
-    <PageShell
-      eyebrow={isSelf ? 'Your proof passport' : 'Keeper profile'}
-      title={displayName}
-      intro={
-        isSelf
-          ? 'Receipts for helping the chain stay alive.'
-          : 'A public record of how this person has carried the Chain Cell.'
-      }
-      backHref="/"
-      backLabel="Home"
-    >
-      {isSelf && (formattedAddress || passport.data?.address) && (
-        <div className="mb-6 flex flex-wrap items-center gap-3 border-[3px] border-black bg-black p-4 text-[#fff8e7] shadow-[6px_6px_0_#ff4cbd]">
-          <WalletMinimal className="h-5 w-5 shrink-0 stroke-[3] text-[#d6ff00]" />
-          <code className="border-2 border-[#fff8e7] px-2 py-1 font-mono text-[10px]">
-            {formattedAddress || passport.data?.address}
-          </code>
+    <ArenaStage backHref="/" backLabel="Home">
+      <section className="grid items-start gap-8 lg:grid-cols-[minmax(220px,280px)_1fr] lg:gap-10">
+        <div className="relative z-10">
+          <div className="aspect-square w-full max-w-[280px] overflow-hidden border border-white/10 bg-black/50">
+            {me?.characterId ? (
+              <div className="flex h-full items-center justify-center bg-gradient-to-b from-[#a855f7]/30 to-transparent p-6">
+                <CharacterAvatar characterId={me.characterId} size="xl" />
+              </div>
+            ) : (
+              <div className="flex h-full flex-col items-center justify-center gap-2 text-white/40">
+                <UsersRound className="h-10 w-10" />
+                <span className="font-mono text-[10px] uppercase">No avatar yet</span>
+              </div>
+            )}
+          </div>
+          {isSelf ? (
+            <ArenaCta href="/profile/edit" className="mt-4 w-full justify-center text-center">
+              <Pencil className="h-4 w-4" />
+              Edit profile · Mint Spore
+            </ArenaCta>
+          ) : null}
         </div>
-      )}
 
-      <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
-        <div className="space-y-6">
-          {isSelf && chain && holderNumber ? (
-            <section className="neo-card bg-[#d6ff00] p-5">
-              <p className="text-[10px] font-black uppercase tracking-[0.16em]">
-                Cells I&rsquo;ve kept alive
-              </p>
-              <h2 className="mt-2 font-poster text-3xl uppercase leading-none">
-                {chain.creatureName}
-              </h2>
-              <p className="mt-3 text-sm font-semibold">
-                Holder #{holderNumber}
-                {holdingNow ? ' · holding now' : ''}
-                {chain.status === 'returned' ? ' · journey came home' : ''}
-              </p>
-              <p className="mt-2 font-mono text-[10px] font-bold">
-                {chain.owners.length} holders ·{' '}
-                {chain.mode === 'return_home' ? 'return home' : 'open'}
-              </p>
-            </section>
+        <div className="relative z-10 min-w-0">
+          <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">
+            Profile
+          </p>
+          <h1 className="mt-3 font-poster text-[clamp(2.5rem,5vw,3.75rem)] uppercase leading-[0.92] text-white">
+            {displayName}
+          </h1>
+          {handle ? (
+            <p className="mt-2 font-mono text-sm font-bold text-[#99ee2d]">@{handle}</p>
+          ) : isSelf ? (
+            <p className="mt-2 text-sm text-white/50">
+              No @handle yet.{' '}
+              <Link href="/join" className="text-[#99ee2d] underline">
+                Claim one
+              </Link>
+            </p>
+          ) : null}
+          {me?.headline ? (
+            <p className="mt-4 max-w-lg text-base font-light leading-relaxed text-white/60">
+              {me.headline}
+            </p>
+          ) : (
+            <p className="mt-4 max-w-lg text-sm font-light text-white/45">
+              {isSelf
+                ? 'Add a bio in Studio. Mint a Spore avatar when you’re ready.'
+                : 'Player on Keepers Relay.'}
+            </p>
+          )}
+
+          {isSelf && formattedAddress ? (
+            <p className="mt-4 flex flex-wrap items-center gap-2 font-mono text-[10px] text-white/40">
+              <WalletMinimal className="h-3.5 w-3.5" />
+              {formattedAddress}
+            </p>
           ) : null}
 
-          {isSelf && passport.data && (
-            <section className="neo-card bg-[#ff4cbd] p-5">
-              <div className="flex items-center gap-2 border-b-[3px] border-black pb-4">
-                <ShieldCheck className="h-5 w-5 stroke-[3]" />
-                <span className="text-[10px] font-black uppercase tracking-[0.16em]">
-                  Contribution passport
-                </span>
-              </div>
-              <div className="mt-5 grid grid-cols-2 gap-3">
-                <Tile
-                  icon={<Flame className="h-5 w-5 stroke-[3]" />}
-                  value={String(passport.data.relayStreak)}
-                  label="Relay streak"
-                  bg="#ffe454"
-                />
-                <Tile
-                  icon={<Award className="h-5 w-5 stroke-[3]" />}
-                  value={String(passport.data.contributionXp)}
-                  label="XP earned"
-                  bg="#d6ff00"
-                />
-                <Tile
-                  icon={<Scroll className="h-5 w-5 stroke-[3]" />}
-                  value={String(passport.data.artifactCount)}
-                  label="Marks left"
-                  bg="#fff8e7"
-                />
-                <Tile
-                  icon={<Crown className="h-5 w-5 stroke-[3]" />}
-                  value={String(passport.data.keeperTurns)}
-                  label="Keeper turns"
-                  bg="#224cff"
-                  light
-                />
-              </div>
-              <div className="mt-4 border-[3px] border-black bg-[#fff8e7] p-3">
-                <p className="text-[10px] font-black uppercase tracking-wider">Proof collected</p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {passport.data.badgeLabels.map((badge) => (
-                    <span
-                      key={badge}
-                      className="border-2 border-black bg-[#224cff] px-2 py-1 text-[10px] font-black text-[#fff8e7]"
-                    >
-                      {badge}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </section>
-          )}
-
-          <section className="neo-card bg-[#fff8e7] p-5">
-            <h2 className="font-poster text-2xl uppercase leading-none">Keeper history</h2>
-            {keeperTurns.length === 0 ? (
-              <p className="mt-3 text-sm font-semibold leading-relaxed">
-                {isSelf
-                  ? 'You have not held a Cell yet.'
-                  : 'No recorded turns holding this Chain Cell.'}
-              </p>
-            ) : (
-              <ul className="mt-4 space-y-2">
-                {keeperTurns.map((owner) => (
-                  <li key={owner.id} className="border-2 border-black bg-white p-3">
-                    <p className="text-xs font-black uppercase">
-                      {owner.passedAt ? 'Passed it on' : 'Holding now'}
-                    </p>
-                    <code className="font-mono text-[10px] font-bold text-black/60">
-                      {owner.cellHash}
-                    </code>
-                    <p className="mt-1 font-mono text-[10px] font-bold">
-                      Received{' '}
-                      {formatDistanceToNow(new Date(owner.receivedAt), { addSuffix: true })}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {holdingNow && (
-              <p className="mt-4 border-2 border-black bg-[#d6ff00] px-2.5 py-2 text-[10px] font-black uppercase">
-                Currently holds the Keeper Pass
-              </p>
-            )}
-          </section>
-        </div>
-
-        <section className="neo-card bg-[#224cff] p-5 text-[#fff8e7]">
-          <h2 className="font-poster text-3xl uppercase leading-none">Relay record</h2>
-          <p className="mt-2 text-sm font-semibold leading-relaxed">
-            {isSelf
-              ? 'Every mission you have started, proved, or claimed.'
-              : 'Relay record for this Keeper.'}
+          <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <StatTile icon={<Trophy className="h-4 w-4" />} value="—" label="Wins" />
+            <StatTile icon={<Flame className="h-4 w-4" />} value="—" label="Streak" />
+            <StatTile
+              icon={<UsersRound className="h-4 w-4" />}
+              value={String(myEvents.length)}
+              label="Hosted"
+            />
+            <StatTile
+              icon={<Crown className="h-4 w-4" />}
+              value={String(joinedCommunities.length)}
+              label="Communities"
+            />
+          </div>
+          <p className="mt-3 font-mono text-[10px] uppercase text-white/35">
+            Wins / losses / CKB earned fill in when event history is persisted.
           </p>
+        </div>
+      </section>
 
-          {isSelf && board.data && attempts.data ? (
-            <ul className="mt-5 space-y-3">
-              {board.data.relays.map((relay) => {
-                const attempt = attempts.data[relay.id];
-                return (
-                  <li key={relay.id} className="border-[3px] border-black bg-[#fff8e7] p-3.5 text-black">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-[10px] font-black uppercase tracking-wider">
-                          {relay.partner}
-                        </p>
-                        <h3 className="mt-0.5 text-sm font-black uppercase">{relay.title}</h3>
-                      </div>
-                      <RelayStatusBadge status={attempt.status} />
-                    </div>
-                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                      <span className="font-mono text-[10px] font-bold">
-                        {attempt.claimedAt
-                          ? `CLAIMED ${new Date(attempt.claimedAt).toLocaleDateString()}`
-                          : `+${relay.rewardXp} XP AVAILABLE`}
-                      </span>
-                      <Link
-                        href={`/relays/${relay.id}`}
-                        className="border-2 border-black bg-[#d6ff00] px-2.5 py-1.5 text-[10px] font-black uppercase"
-                      >
-                        {attempt.status === 'claimed' ? 'View receipt' : 'Continue'}
-                      </Link>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
+      {isSelf ? (
+        <section className="relative z-10 mt-14">
+          <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+            <h2 className="font-poster text-2xl uppercase text-white sm:text-3xl">
+              Your communities
+            </h2>
+            <Link
+              href="/communities"
+              className="border-b border-[#bef970] pb-1 text-[10px] font-bold uppercase text-white"
+            >
+              Browse all →
+            </Link>
+          </div>
+          {communities.isLoading ? (
+            <Loader2 className="h-5 w-5 animate-spin text-white/40" />
+          ) : joinedCommunities.length === 0 ? (
+            <p className="text-sm text-white/55">
+              You haven&apos;t joined a community yet.{' '}
+              <Link href="/communities" className="text-[#99ee2d] underline">
+                Find one
+              </Link>
+            </p>
           ) : (
-            <div className="mt-5 border-2 border-[#fff8e7] p-4 text-xs font-bold">
-              Nothing to show here yet.
-            </div>
+            <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {joinedCommunities.map((c) => (
+                <li key={c.id}>
+                  <Link
+                    href={`/communities/${c.slug}`}
+                    className="block border border-white/10 bg-black/40 px-4 py-3 transition hover:border-[#99ee2d]/40"
+                  >
+                    <span className="font-poster text-xl uppercase text-white">{c.name}</span>
+                    <span className="mt-1 block font-mono text-[10px] uppercase text-white/45">
+                      {c.memberCount} members · {c.liveEventCount} open
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
           )}
         </section>
-      </div>
-    </PageShell>
+      ) : null}
+
+      {isSelf ? (
+        <section className="relative z-10 mt-12">
+          <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+            <h2 className="font-poster text-2xl uppercase text-white sm:text-3xl">
+              Events you host
+            </h2>
+            <Link
+              href="/create"
+              className="border-b border-[#bef970] pb-1 text-[10px] font-bold uppercase text-white"
+            >
+              Create event →
+            </Link>
+          </div>
+          {eventsQ.isLoading ? (
+            <Loader2 className="h-5 w-5 animate-spin text-white/40" />
+          ) : myEvents.length === 0 ? (
+            <p className="text-sm text-white/55">
+              No hosted events yet. Host from a community or{' '}
+              <Link href="/create" className="text-[#99ee2d] underline">
+                start fresh
+              </Link>
+              .
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {myEvents.map((e) => (
+                <li key={e.id}>
+                  <Link
+                    href={`/events/${e.id}`}
+                    className="flex items-center justify-between gap-3 border border-white/10 bg-black/40 px-4 py-3 transition hover:border-[#99ee2d]/40"
+                  >
+                    <span>
+                      <span className="block font-poster text-lg uppercase text-white">
+                        {e.name}
+                      </span>
+                      <span className="font-mono text-[10px] uppercase text-white/45">
+                        {e.status} · {e.pot} CKB · {e.playerCount}/{e.maxPlayers}
+                      </span>
+                    </span>
+                    <span className="text-xs font-bold uppercase text-[#99ee2d]">Open →</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
+
+      {isSelf ? (
+        <section className="relative z-10 mt-12 border border-white/10 bg-black/40 p-5">
+          <h2 className="font-poster text-xl uppercase text-white">Studio</h2>
+          <p className="mt-2 max-w-lg text-sm font-light text-white/55">
+            Mint a Spore avatar on-chain, pick a cast figure, edit display name and bio. Studio
+            lives here — not as a separate product in the nav.
+          </p>
+          <ArenaCta href="/profile/edit" className="mt-5">
+            Open Studio · Mint Spore
+          </ArenaCta>
+        </section>
+      ) : null}
+    </ArenaStage>
   );
 }
 
-function Tile({
+function StatTile({
   icon,
   value,
   label,
-  bg,
-  light,
 }: {
   icon: React.ReactNode;
   value: string;
   label: string;
-  bg: string;
-  light?: boolean;
 }) {
   return (
-    <div
-      className="border-[3px] border-black p-3"
-      style={{ backgroundColor: bg, color: light ? '#fff8e7' : '#101010' }}
-    >
-      <div className="flex items-center gap-1.5">
-        {icon}
-        <span className="font-mono text-2xl font-bold">{value}</span>
-      </div>
-      <p className="mt-2 text-[10px] font-black uppercase tracking-wider">{label}</p>
+    <div className="border border-white/10 bg-black/40 p-3">
+      <div className="text-[#99ee2d]">{icon}</div>
+      <p className="mt-1 font-poster text-2xl text-white">{value}</p>
+      <p className="font-mono text-[10px] font-bold uppercase text-white/40">{label}</p>
     </div>
   );
 }

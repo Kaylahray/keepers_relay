@@ -55,13 +55,14 @@ export function launchJourney(input: {
   mode: 'open' | 'return_home';
   trophyGoal: number;
   windowHours?: number;
-  initialProof?: number;
+  initialCkb?: number;
   rewardPoolNote?: string;
   coverImageUrl?: string;
   cellOutPoint?: { txHash: string; index: string };
   onChainChainId?: string;
   genesisTxHash?: string;
   expiresAt?: string;
+  stakes?: Partial<import('@/types/chain').StakesConfig> | null;
 }): Promise<Chain> {
   return post<Chain>('/api/journeys', { action: 'launch', ...input });
 }

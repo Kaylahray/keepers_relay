@@ -1,4 +1,5 @@
 import type { ArtifactKind } from '@/types/keeper';
+import { nextArtifactRoot } from '@/lib/registry/chain-cell-layout';
 
 const ZERO_ROOT =
   '0x0000000000000000000000000000000000000000000000000000000000000000';
@@ -31,17 +32,18 @@ export function normalizeArtifactRoot(hex?: string | null): string {
 }
 
 /**
- * Chain a new mark into artifact_root:
- * SHA-256(prevRoot || kind || body || imageUrl || place)
+ * Hash of one mark's content: SHA-256(kind || body || imageUrl || place).
+ *
+ * This is the preimage the Chain Cell witness carries. The contract does the
+ * chaining itself — it recomputes `artifact_root` as blake2b(prevRoot || mark)
+ * — so a Keeper can add to the archive but can never rewrite what came before.
  */
-export async function computeArtifactRoot(input: {
-  previousRoot?: string | null;
+export async function computeMarkHash(input: {
   kind: ArtifactKind;
   body: string;
   imageUrl?: string;
   place?: string;
-}): Promise<{ root: Uint8Array; rootHex: string }> {
-  const prev = hexToBytes(normalizeArtifactRoot(input.previousRoot));
+}): Promise<{ mark: Uint8Array; markHex: string }> {
   const payload = new TextEncoder().encode(
     [
       input.kind,
@@ -50,11 +52,25 @@ export async function computeArtifactRoot(input: {
       (input.place ?? '').trim(),
     ].join('\n'),
   );
-  const buf = new Uint8Array(prev.length + payload.length);
-  buf.set(prev, 0);
-  buf.set(payload, prev.length);
-  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', buf));
-  return { root: digest, rootHex: bytesToHex(digest) };
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', payload));
+  return { mark: digest, markHex: bytesToHex(digest) };
+}
+
+/**
+ * The artifact root a mark will produce, mirroring the on-chain rule exactly so
+ * the off-chain record and the Cell never disagree.
+ */
+export async function computeArtifactRoot(input: {
+  previousRoot?: string | null;
+  kind: ArtifactKind;
+  body: string;
+  imageUrl?: string;
+  place?: string;
+}): Promise<{ mark: Uint8Array; markHex: string; root: Uint8Array; rootHex: string }> {
+  const { mark, markHex } = await computeMarkHash(input);
+  const prev = hexToBytes(normalizeArtifactRoot(input.previousRoot));
+  const root = nextArtifactRoot(prev, mark);
+  return { mark, markHex, root, rootHex: bytesToHex(root) };
 }
 
 export { ZERO_ROOT as ZERO_ARTIFACT_ROOT, bytesToHex as artifactRootToHex, hexToBytes as artifactRootFromHex };

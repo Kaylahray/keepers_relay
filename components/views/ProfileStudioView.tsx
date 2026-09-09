@@ -207,7 +207,7 @@ export function ProfileStudioView() {
       >
         <p className="font-mono text-xs font-bold">{formattedAddress}</p>
         <Link
-          href="/join?next=/studio"
+          href="/join?next=/profile/edit"
           className="neo-button mt-4 inline-block bg-[#224cff] px-4 py-3 text-xs font-black uppercase text-[#fff8e7]"
         >
           Claim @handle
@@ -220,9 +220,9 @@ export function ProfileStudioView() {
     <PageShell
       eyebrow="Profile studio"
       title={`@${builder.username}`}
-      intro="Mint a Spore avatar, set it live, and collect PROOF."
-      backHref="/builders"
-      backLabel="Builders roster"
+      intro="Mint a Spore avatar, set it live, and earn points."
+      backHref="/profile"
+      backLabel="Profile"
     >
       <div className="mb-6">
         <ProfileShareLink username={builder.username} />
@@ -394,7 +394,7 @@ export function ProfileStudioView() {
       </form>
 
       <RewardsPanel
-        proofBalance={builder.proofBalance}
+        pointsBalance={builder.pointsBalance}
         claimedMilestones={builder.claimedMilestones}
         claimedBadgeIds={builder.claimedBadgeIds}
         onUnlock={(badgeId) => address && unlock.mutate({ address, badgeId })}
@@ -458,13 +458,13 @@ export function ProfileStudioView() {
 }
 
 function RewardsPanel({
-  proofBalance,
+  pointsBalance,
   claimedMilestones,
   claimedBadgeIds,
   onUnlock,
   unlocking,
 }: {
-  proofBalance: number;
+  pointsBalance: number;
   claimedMilestones: RewardMilestone[];
   claimedBadgeIds: string[];
   onUnlock: (badgeId: string) => void;
@@ -475,9 +475,9 @@ function RewardsPanel({
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#d6ff00]">
-            Keepers PROOF
+            Keepers points
           </p>
-          <h2 className="mt-1 font-poster text-4xl uppercase leading-none">{proofBalance} PROOF</h2>
+          <h2 className="mt-1 font-poster text-4xl uppercase leading-none">{pointsBalance} pts</h2>
           <p className="mt-2 max-w-xl text-xs font-semibold text-[#fff8e7]/80">
             Earned by keeping Cells alive and completing relays.
           </p>
@@ -505,7 +505,7 @@ function RewardsPanel({
       <div className="mt-3 grid gap-3 sm:grid-cols-3">
         {KEEPER_BADGES.map((badge) => {
           const owned = claimedBadgeIds.includes(badge.id);
-          const canUnlock = !owned && proofBalance >= badge.requiredProof;
+          const canUnlock = !owned && pointsBalance >= badge.requiredPoints;
           return (
             <motion.div
               key={badge.id}
@@ -514,7 +514,7 @@ function RewardsPanel({
             >
               <p className="font-poster text-xl uppercase leading-none">{badge.name}</p>
               <p className="mt-1 font-mono text-[10px] font-bold">
-                Unlock at {badge.requiredProof} PROOF
+                Unlock at {badge.requiredPoints} pts
               </p>
               {owned ? (
                 <span className="mt-2 inline-block border-2 border-black bg-black px-2 py-1 text-[9px] font-black uppercase text-[#d6ff00]">

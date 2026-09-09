@@ -1,23 +1,21 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Link as LinkIcon, LogOut, Menu, UsersRound, WalletMinimal, X } from 'lucide-react';
+import { LogOut, Menu, WalletMinimal, X } from 'lucide-react';
 import { CharacterAvatar } from '@/components/CharacterPicker';
 import { useMyBuilder } from '@/hooks/useBuilder';
 import { useWallet } from '@/hooks/useWallet';
 import { useUsername } from '@/hooks/useUsername';
 
+/** Slim bar — logo | centered links | wallet/profile */
 const NAV = [
   { href: '/', label: 'Home' },
+  { href: '/events', label: 'Events' },
   { href: '/communities', label: 'Communities' },
-  { href: '/streaks', label: 'Streaks' },
-  { href: '/launch', label: 'Launch' },
-  { href: '/builders', label: 'Builders' },
-  { href: '/studio', label: 'Studio' },
-  { href: '/profile/me', label: 'Passport' },
-  { href: '/how-it-works', label: 'How it works' },
+  { href: '/create', label: 'Create' },
+  { href: '/profile', label: 'Profile' },
 ];
 
 function isActive(pathname: string, href: string): boolean {
@@ -35,111 +33,115 @@ export function SiteHeader() {
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
-    <header className="mx-3 mt-3 border-[3px] border-black bg-[#224cff] text-black shadow-[6px_6px_0_#101010] sm:mx-6">
-      <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-6">
-        <Link href="/" className="flex min-w-0 items-center gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center border-[3px] border-black bg-[#d6ff00]">
-            <LinkIcon className="h-5 w-5 stroke-[3]" aria-hidden="true" />
+    <header className="relative z-40 w-full border-b border-white/10 bg-[#111]">
+      <div className="mx-auto flex h-16 max-w-[1440px] items-center justify-between gap-4 px-4 sm:px-10">
+        <Link href="/" className="flex shrink-0 items-center gap-1.5">
+          <span className="font-poster text-lg uppercase tracking-wide text-white sm:text-xl">
+            Keepers
           </span>
-          <span className="leading-none">
-            <span className="block font-poster text-xl uppercase text-[#fff8e7] sm:text-3xl">
-              Keepers Relay
-            </span>
-            <span className="mt-1.5 hidden text-[10px] font-bold uppercase tracking-[0.2em] text-[#d6ff00] sm:block">
-              ONE CELL. ONE MARK. PASS IT ON.
-            </span>
+          <span className="font-poster text-lg uppercase tracking-wide text-[#99ee2d] sm:text-xl">
+            Relay
           </span>
         </Link>
 
-        <div className="flex shrink-0 items-center gap-2">
-          <Link
-            href="/builders"
-            className="hidden items-center gap-1.5 border-[3px] border-black bg-[#ff4cbd] px-3 py-2 text-[11px] font-black uppercase tracking-wider lg:flex"
-          >
-            <UsersRound className="h-4 w-4 stroke-[3]" />
-            Who&rsquo;s here
-          </Link>
+        <nav
+          id="primary-nav"
+          aria-label="Primary"
+          className="absolute left-1/2 top-1/2 hidden -translate-x-1/2 -translate-y-1/2 items-center gap-10 lg:flex"
+        >
+          {NAV.map((item) => {
+            const active = isActive(pathname, item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                aria-current={active ? 'page' : undefined}
+                className={`text-[15px] font-medium tracking-wide transition ${
+                  active ? 'text-white' : 'text-white/55 hover:text-white'
+                }`}
+              >
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
 
-          {!isReady ? (
-            <span className="hidden border-[3px] border-black bg-[#fff8e7] px-3 py-2 text-[11px] font-black uppercase text-black/50 sm:inline">
-              Checking wallet…
-            </span>
-          ) : isConnected ? (
-            <div className="flex items-center gap-2 border-[3px] border-black bg-[#fff8e7] py-1 pl-1 pr-2">
+        <div className="flex shrink-0 items-center gap-2">
+          {!isReady ? null : isConnected ? (
+            <div className="flex items-center gap-2">
               {builder?.characterId && (
                 <CharacterAvatar characterId={builder.characterId} size="sm" />
               )}
               <Link
-                href={shownHandle ? `/u/${shownHandle}` : `/join?next=${encodeURIComponent(pathname || '/')}`}
-                className="leading-none hover:opacity-80"
+                href={
+                  shownHandle
+                    ? `/profile`
+                    : `/join?next=${encodeURIComponent(pathname || '/')}`
+                }
+                className="hidden text-right leading-none sm:block"
               >
-                <p className="text-[11px] font-black uppercase">
-                  {shownHandle ? `@${shownHandle}` : 'Claim handle'}
+                <p className="text-[11px] font-bold uppercase text-white">
+                  {shownHandle ? `@${shownHandle}` : 'View profile'}
                 </p>
-                <p className="mt-1 hidden max-w-[9rem] truncate font-mono text-[9px] font-bold text-black/55 sm:block">
+                <p className="mt-0.5 max-w-[7rem] truncate font-mono text-[9px] text-white/40">
                   {formattedAddress}
                 </p>
               </Link>
               <button
                 type="button"
                 onClick={() => disconnect()}
-                aria-label="Disconnect wallet"
-                className="border-2 border-black bg-[#ffe454] p-1.5"
+                aria-label="Disconnect"
+                className="rounded p-1.5 text-white/50 hover:bg-white/10 hover:text-white"
               >
-                <LogOut className="h-3.5 w-3.5 stroke-[3]" />
+                <LogOut className="h-4 w-4" />
               </button>
             </div>
           ) : (
             <button
               type="button"
               onClick={() => connect()}
-              className="neo-button flex items-center gap-2 bg-[#d6ff00] px-3 py-2 text-[11px] font-black uppercase tracking-wider"
+              className="arena-cta flex items-center gap-2 px-4 py-2 text-[11px] font-bold uppercase"
             >
-              <WalletMinimal className="h-4 w-4 stroke-[3]" />
-              <span className="hidden sm:inline">Connect wallet</span>
-              <span className="sm:hidden">Connect</span>
+              <WalletMinimal className="h-4 w-4" />
+              Connect
             </button>
           )}
 
           <button
             type="button"
-            className="border-[3px] border-black bg-[#ffe454] p-2 lg:hidden"
+            className="p-2 text-white lg:hidden"
             aria-expanded={menuOpen}
-            aria-controls="primary-nav"
+            aria-controls="mobile-nav"
             aria-label={menuOpen ? 'Close menu' : 'Open menu'}
-            onClick={() => setMenuOpen((open) => !open)}
+            onClick={() => setMenuOpen((o) => !o)}
           >
-            {menuOpen ? <X className="h-5 w-5 stroke-[3]" /> : <Menu className="h-5 w-5 stroke-[3]" />}
+            {menuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
         </div>
       </div>
 
-      <nav
-        id="primary-nav"
-        aria-label="Primary"
-        className={`${
-          menuOpen ? 'flex flex-col' : 'hidden'
-        } border-t-[3px] border-black bg-black lg:flex lg:flex-row lg:overflow-x-auto`}
-      >
-        {NAV.map((item) => {
-          const active = isActive(pathname, item.href);
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              aria-current={active ? 'page' : undefined}
-              onClick={() => setMenuOpen(false)}
-              className={`border-b-[3px] border-black px-4 py-3 text-[11px] font-black uppercase tracking-wider lg:border-b-0 lg:border-r-[3px] lg:py-2.5 ${
-                active
-                  ? 'bg-[#d6ff00] text-black'
-                  : 'text-[#fff8e7] hover:bg-[#ff4cbd] hover:text-black'
-              }`}
-            >
-              {item.label}
-            </Link>
-          );
-        })}
-      </nav>
+      {menuOpen ? (
+        <nav
+          id="mobile-nav"
+          className="border-t border-white/10 bg-[#111] px-4 py-4 lg:hidden"
+        >
+          <ul className="space-y-1">
+            {NAV.map((item) => (
+              <li key={item.href}>
+                <Link
+                  href={item.href}
+                  onClick={() => setMenuOpen(false)}
+                  className={`block px-2 py-2.5 text-sm font-medium uppercase ${
+                    isActive(pathname, item.href) ? 'text-[#99ee2d]' : 'text-white/70'
+                  }`}
+                >
+                  {item.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      ) : null}
     </header>
   );
 }

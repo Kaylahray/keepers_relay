@@ -8,27 +8,34 @@ import { useWallet } from '@/hooks/useWallet';
 
 /**
  * If this wallet already has an on-chain @handle, sync it into the Keepers roster.
+ * Attempts once per wallet+handle; does not retry in a loop when the roster rejects it.
  */
 export function OnChainIdentitySync() {
   const { address, isConnected, isReady } = useWallet();
   const myBuilder = useMyBuilder();
-  const upsert = useUpsertBuilder();
+  const { mutateAsync } = useUpsertBuilder();
   const { username, isLoading: usernameLoading } = useUsername();
   const { profile, isLoading: profileLoading } = useProfile();
-  const syncing = useRef(false);
+  const mutateRef = useRef(mutateAsync);
+  mutateRef.current = mutateAsync;
+  /** Keys `${address}:${handle}` we already tried (success or permanent failure). */
+  const settledKey = useRef<string | null>(null);
 
   useEffect(() => {
     if (!isReady || !isConnected || !address) return;
+    if (myBuilder.isError) return;
     if (!myBuilder.isFetched) return;
     if (myBuilder.data?.builder?.onboarded) return;
     if (usernameLoading || profileLoading) return;
     if (!username?.username) return;
-    if (syncing.current || upsert.isPending) return;
 
-    syncing.current = true;
+    const attemptKey = `${address}:${username.username}`;
+    if (settledKey.current === attemptKey) return;
+
+    settledKey.current = attemptKey;
     const displayName = (profile?.name?.trim() || username.username).slice(0, 24);
-    void upsert
-      .mutateAsync({
+    void mutateRef
+      .current({
         address,
         username: username.username,
         displayName,
@@ -38,15 +45,13 @@ export function OnChainIdentitySync() {
       })
       .catch((err) => {
         console.warn('[identity-sync] roster upsert failed:', err);
-      })
-      .finally(() => {
-        syncing.current = false;
       });
   }, [
     isReady,
     isConnected,
     address,
     myBuilder.isFetched,
+    myBuilder.isError,
     myBuilder.data?.builder?.onboarded,
     usernameLoading,
     profileLoading,
@@ -54,7 +59,6 @@ export function OnChainIdentitySync() {
     profile?.name,
     profile?.headline,
     profile?.avatarSporeId,
-    upsert,
   ]);
 
   return null;

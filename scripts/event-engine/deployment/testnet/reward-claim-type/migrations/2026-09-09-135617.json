@@ -1,0 +1,13 @@
+{
+  "cell_recipes": [
+    {
+      "name": "reward-claim-type",
+      "tx_hash": "0x33ba05cc1726b9dc941296231a61f71ddf3f8c8de9b061f4880c29018fea405b",
+      "index": 0,
+      "occupied_capacity": 4376600000000,
+      "data_hash": "0x6ba7d4e08614d398dfd8bd0a31ad61fddb120060d179a08eac3a808ae5ea1728",
+      "type_id": "0x078e961974fb76ed6bc4bc0f5197744710fb62cb81be64abf1617c0f07b51045"
+    }
+  ],
+  "dep_group_recipes": []
+}

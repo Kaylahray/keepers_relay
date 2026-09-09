@@ -21,26 +21,26 @@ export function JourneySwitcher({ activeId }: { activeId: string }) {
   const me = myBuilder.data?.builder;
 
   return (
-    <section className="border-[3px] border-black bg-[#fff8e7] p-4 text-black">
+    <section className="rounded-2xl border border-white/15 bg-[#15121d] p-4 text-white">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.16em]">Cell streaks</p>
-          <p className="mt-1 text-sm font-semibold">
-            Streaks in this room.
+          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/45">
+            Cell streaks
           </p>
+          <p className="mt-1 text-sm font-medium text-white/70">Streaks in this room.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Link
             href="/communities"
-            className="neo-button inline-flex items-center gap-1.5 bg-[#224cff] px-3 py-2 text-[10px] font-black uppercase text-[#fff8e7]"
+            className="rounded border border-white/20 px-3 py-2 text-[10px] font-bold uppercase text-white/80 hover:bg-white/5"
           >
             Communities
           </Link>
           <Link
             href="/launch"
-            className="neo-button inline-flex items-center gap-1.5 bg-[#ff4cbd] px-3 py-2 text-[10px] font-black uppercase"
+            className="arena-cta inline-flex items-center gap-1.5 rounded px-3 py-2 text-[10px] font-bold uppercase"
           >
-            <Plus className="h-3.5 w-3.5 stroke-[3]" />
+            <Plus className="h-3.5 w-3.5" />
             Launch
           </Link>
         </div>
@@ -53,23 +53,27 @@ export function JourneySwitcher({ activeId }: { activeId: string }) {
             <Link
               key={journey.id}
               href={`/streaks/${journey.id}`}
-              className={`min-w-[9.5rem] shrink-0 overflow-hidden border-2 border-black text-left ${
-                selected ? 'bg-[#d6ff00]' : 'bg-white'
+              className={`min-w-[9.5rem] shrink-0 overflow-hidden rounded-xl border text-left ${
+                selected
+                  ? 'border-[#ff56f6]/50 bg-[#ff56f6]/15'
+                  : 'border-white/10 bg-white/5'
               }`}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={resolveCover(journey.coverImageUrl, journey.creatureName)}
                 alt=""
-                className="h-16 w-full object-cover"
+                className="h-20 w-full bg-black/40 object-contain"
               />
-              <p className="truncate px-2.5 pt-2 text-xs font-black uppercase">{journey.creatureName}</p>
-              <p className="mt-1 px-2.5 font-mono text-[9px] font-bold text-black/60">
+              <p className="truncate px-2.5 pt-2 text-xs font-bold uppercase text-white">
+                {journey.creatureName}
+              </p>
+              <p className="mt-1 px-2.5 font-mono text-[9px] font-bold text-white/45">
                 #{journey.holderCount} · {journey.status}
               </p>
-              <p className="mt-1 flex items-center gap-1 px-2.5 pb-2.5 font-mono text-[9px] font-bold">
-                <Coins className="h-3 w-3 stroke-[3]" />
-                {journey.rewardPoolProof} PROOF
+              <p className="mt-1 flex items-center gap-1 px-2.5 pb-2.5 font-mono text-[9px] font-bold text-[#e1bf47]">
+                <Coins className="h-3 w-3" />
+                {journey.rewardPoolCkb} CKB
               </p>
             </Link>
           );
@@ -77,16 +81,16 @@ export function JourneySwitcher({ activeId }: { activeId: string }) {
       </div>
 
       {active && isConnected && me?.onboarded && active.status !== 'dead' && (
-        <div className="mt-3 flex flex-wrap items-end gap-2 border-t-2 border-black pt-3">
-          <label className="text-[10px] font-black uppercase tracking-wider">
+        <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-white/10 pt-3">
+          <label className="text-[10px] font-bold uppercase tracking-wider text-white/45">
             Add to pot
             <input
               type="number"
               min={1}
-              max={me.proofBalance}
+              max={me.pointsBalance}
               value={fundAmount}
               onChange={(e) => setFundAmount(Number(e.target.value))}
-              className="mt-1 block w-24 border-2 border-black bg-white px-2 py-1.5 font-mono text-xs font-bold"
+              className="mt-1 block w-24 rounded-lg border border-white/15 bg-black/30 px-2 py-1.5 font-mono text-xs font-bold text-white"
             />
           </label>
           <button
@@ -100,13 +104,13 @@ export function JourneySwitcher({ activeId }: { activeId: string }) {
                 amount: fundAmount,
               })
             }
-            className="neo-button bg-[#224cff] px-3 py-2 text-[10px] font-black uppercase text-[#fff8e7] disabled:opacity-40"
+            className="arena-cta rounded px-3 py-2 text-[10px] font-bold uppercase disabled:opacity-40"
           >
-            <Rocket className="mr-1 inline h-3 w-3 stroke-[3]" />
-            Fund ({me.proofBalance} avail)
+            <Rocket className="mr-1 inline h-3 w-3" />
+            Fund ({me.pointsBalance} pts)
           </button>
           {fund.error && (
-            <p className="w-full text-xs font-bold text-red-800">{fund.error.message}</p>
+            <p className="w-full text-xs font-bold text-[#ff56f6]">{fund.error.message}</p>
           )}
         </div>
       )}

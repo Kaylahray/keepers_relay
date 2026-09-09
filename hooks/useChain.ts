@@ -19,12 +19,12 @@ import {
   resetChain,
   selectJourney,
 } from '@/lib/api/chainApi';
-import type { Chain, ChainMode } from '@/types/chain';
+import { normalizeStakes, type Chain, type ChainMode, type StakesConfig } from '@/types/chain';
+import { toOnChainStakes } from '@/lib/registry/chain-cell-layout';
 import { builderKeys } from '@/hooks/useBuilder';
 import { keeperKeys } from '@/lib/queryClient';
 import { chainCellConfigured } from '@/lib/registry/config';
-import { handoffChainCell, hexToBytes, mintChainCell } from '@/lib/registry/chain-cell';
-import { normalizeArtifactRoot } from '@/lib/artifact-commit';
+import { handoffChainCell, mintChainCell } from '@/lib/registry/chain-cell';
 
 /** Read the current chain. Poll lightly — countdown ticks locally every second. */
 export function useChainQuery(): UseQueryResult<Chain, Error> {
@@ -58,18 +58,11 @@ export function usePassChain(): UseMutationResult<
     mutationFn: async ({ recipient, city, chain }) => {
       if (chain.cellOutPoint && chainCellConfigured()) {
         if (!signer) throw new Error('Connect your wallet to pass the Chain Cell.');
-        const pendingRoot = normalizeArtifactRoot(chain.artifactRoot);
-        const artifactRoot =
-          pendingRoot ===
-          '0x0000000000000000000000000000000000000000000000000000000000000000'
-            ? undefined
-            : hexToBytes(pendingRoot);
+        // v2 reads mode, creator and the artifact root from the Cell itself,
+        // and decides on chain whether this pass is a return home.
         const minted = await handoffChainCell(signer, {
           liveOutPoint: chain.cellOutPoint,
           recipient,
-          creatorAddress: chain.creatorAddress,
-          mode: chain.mode,
-          artifactRoot,
         });
         return passChain(minted.recipientLabel, city, {
           recipientAddress: minted.recipientAddress,
@@ -95,6 +88,7 @@ export function usePassChain(): UseMutationResult<
       qc.setQueryData(chainKeys.detail(), next);
       void qc.invalidateQueries({ queryKey: keeperKeys.artifact });
       void qc.invalidateQueries({ queryKey: chainKeys.journeys() });
+      void qc.invalidateQueries({ queryKey: ['keeper', 'home'] });
     },
   });
 }
@@ -138,15 +132,24 @@ export function useLaunchJourney() {
       mode: ChainMode;
       trophyGoal: number;
       windowHours?: number;
-      initialProof?: number;
+      initialCkb?: number;
       rewardPoolNote?: string;
       coverImageUrl?: string;
+      stakes?: Partial<StakesConfig> | null;
     }) => {
       if (chainCellConfigured()) {
         if (!signer) throw new Error('Connect your wallet to mint the Chain Cell.');
+        const windowHours = input.windowHours ?? 24;
+        // Stakes have to be minted into the Cell, not just recorded app-side,
+        // or the contract will not enforce the schedule the player was shown.
+        const stakes = input.stakes
+          ? toOnChainStakes(normalizeStakes(input.stakes), Math.round(windowHours * 3600))
+          : null;
         const minted = await mintChainCell(signer, {
           mode: input.mode,
-          windowHours: input.windowHours ?? 24,
+          windowHours,
+          stakes,
+          potAmount: stakes ? BigInt(Math.max(0, Math.round(input.initialCkb ?? 0))) : 0n,
         });
         return launchJourney({
           ...input,

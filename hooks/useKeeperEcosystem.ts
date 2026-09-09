@@ -64,7 +64,7 @@ export type PublishMarkInput = {
 
 async function sealMark(input: PublishMarkInput, signer: ReturnType<typeof useSigner>) {
   const chain = input.chain ?? (await getChain());
-  const { root, rootHex } = await computeArtifactRoot({
+  const { mark, rootHex } = await computeArtifactRoot({
     previousRoot: chain.artifactRoot,
     kind: input.kind,
     body: input.body,
@@ -81,9 +81,11 @@ async function sealMark(input: PublishMarkInput, signer: ReturnType<typeof useSi
       throw new Error('Connect your wallet to seal this mark into the Chain Cell.');
     }
     try {
+      // v2 seals take the mark hash and derive the new root on chain, so the
+      // archive can only ever be appended to.
       const committed = await commitArtifactRoot(signer, {
         liveOutPoint: cellOutPoint,
-        artifactRoot: root,
+        markHash: mark,
       });
       cellOutPoint = committed.cellOutPoint;
       txHash = committed.txHash;
@@ -135,6 +137,7 @@ export function useKeeperEcosystem() {
       queryClient.setQueryData(keeperKeys.artifact, next);
       queryClient.invalidateQueries({ queryKey: keeperKeys.passport });
       queryClient.invalidateQueries({ queryKey: chainKeys.detail() });
+      queryClient.invalidateQueries({ queryKey: ['keeper', 'home'] });
     },
   });
 

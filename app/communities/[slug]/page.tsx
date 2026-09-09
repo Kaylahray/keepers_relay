@@ -8,7 +8,7 @@ export default async function CommunityPage({
 }) {
   const { slug } = await params;
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<div className="p-10 text-white/50">Loading…</div>}>
       <CommunityDetailView slug={slug} />
     </Suspense>
   );

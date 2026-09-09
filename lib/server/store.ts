@@ -1,5 +1,10 @@
-import type { Chain, JourneySummary, Owner } from '@/types/chain';
-import { TROPHY_GOAL } from '@/types/chain';
+import type { Chain, JourneySummary, Owner, StakesConfig } from '@/types/chain';
+import {
+  normalizeStakes,
+  stakesEntryAtHop,
+  stakesPayoutShares,
+  stakesWindowHoursAtHop,
+} from '@/types/chain';
 import type { BuilderProfile, UpsertBuilderInput } from '@/types/builder';
 import type { Community, CommunitySummary, HandoffRequest } from '@/types/community';
 import type {
@@ -12,6 +17,20 @@ import type {
   RelayBoard,
   RelayDetail,
 } from '@/types/keeper';
+import type {
+  HomeFeed,
+  HomeNotice,
+  HomeNoticeKind,
+  HomeStreakCard,
+  MarkDraft,
+} from '@/types/retention';
+import {
+  CRITICAL_SAVE_POINTS,
+  CRITICAL_WINDOW_MS,
+  INVITE_CREDIT_POINTS,
+  RESCUE_EXTEND_HOURS,
+  RESCUE_POINTS,
+} from '@/types/retention';
 import type { CharacterId } from '@/lib/characters';
 import { CHARACTERS } from '@/lib/characters';
 import { posterDataUri, resolveCover } from '@/lib/poster';
@@ -37,6 +56,8 @@ import {
 const SEED_NAMES = ['Alice', 'Bob', 'Charlie', 'David', 'Emma'];
 const SEED_CITIES = ['Kaduna', 'Abuja', 'Lagos', 'Accra', 'London'];
 const WINDOW_HOURS = 24;
+/** Pass windows offered on the launch page. Anything else falls back to 24h. */
+const ALLOWED_WINDOW_HOURS = new Set([12, 24, 72, 168, 720, 1440]);
 const DEMO_KEEPER = 'Emma';
 const DEMO_ADDRESS = 'ckt1qdemo...keeper';
 
@@ -122,8 +143,9 @@ function seedChain(): Chain {
     coverImageUrl: posterDataUri('Window Relay'),
     returnedAt: null,
     createdAt: new Date(now - step * (SEED_NAMES.length - 1)).toISOString(),
-    rewardPoolProof: 100,
-    rewardPoolNote: 'PROOF for keepers who help Window Relay come home.',
+    rewardPoolCkb: 100,
+    rewardPoolNote: 'CKB for keepers who help Window Relay come home.',
+    nominatedNext: null,
   };
 }
 
@@ -355,6 +377,8 @@ function seedPassport(): PassportProfile {
     artifactCount: 1,
     badgeLabels: ['Early carrier'],
     keeperTurns: 0,
+    keeperPassStreak: 0,
+    longestKeeperPassStreak: 0,
   };
 }
 
@@ -368,7 +392,7 @@ function seedBuilders(): Record<string, BuilderProfile> {
     characterId: CharacterId;
     headline: string;
     hoursAgo: number;
-    proofBalance: number;
+    pointsBalance: number;
   }> = [
     {
       address: 'ckt1qzdemo_nova_builder_01',
@@ -377,7 +401,7 @@ function seedBuilders(): Record<string, BuilderProfile> {
       characterId: 'nova',
       headline: 'New to CKB — learning Cells this week.',
       hoursAgo: 2,
-      proofBalance: 40,
+      pointsBalance: 40,
     },
     {
       address: 'ckt1qzdemo_ember_builder_02',
@@ -386,7 +410,7 @@ function seedBuilders(): Record<string, BuilderProfile> {
       characterId: 'ember',
       headline: 'Holding the night watch for the builder group.',
       hoursAgo: 5,
-      proofBalance: 55,
+      pointsBalance: 55,
     },
     {
       address: 'ckt1qzdemo_volt_builder_03',
@@ -395,7 +419,7 @@ function seedBuilders(): Record<string, BuilderProfile> {
       characterId: 'volt',
       headline: 'Shipping scripts and answering newbie questions.',
       hoursAgo: 9,
-      proofBalance: 20,
+      pointsBalance: 20,
     },
     {
       address: 'ckt1qzdemo_mira_builder_04',
@@ -404,7 +428,7 @@ function seedBuilders(): Record<string, BuilderProfile> {
       characterId: 'mira',
       headline: 'Documenting every handoff for the crew.',
       hoursAgo: 14,
-      proofBalance: 70,
+      pointsBalance: 70,
     },
     {
       address: 'ckt1qzdemo_spark_builder_05',
@@ -413,7 +437,7 @@ function seedBuilders(): Record<string, BuilderProfile> {
       characterId: 'spark',
       headline: 'Onboarding the next three builders into the group.',
       hoursAgo: 20,
-      proofBalance: 15,
+      pointsBalance: 15,
     },
   ];
 
@@ -429,9 +453,9 @@ function seedBuilders(): Record<string, BuilderProfile> {
       joinedAt: new Date(now - hours(seed.hoursAgo + 48)).toISOString(),
       lastSeenAt: new Date(now - hours(seed.hoursAgo)).toISOString(),
       onboarded: true,
-      proofBalance: seed.proofBalance,
+      pointsBalance: seed.pointsBalance,
       claimedMilestones: ['username_claimed'],
-      claimedBadgeIds: seed.proofBalance >= 10 ? ['explorer'] : [],
+      claimedBadgeIds: seed.pointsBalance >= 10 ? ['explorer'] : [],
     };
   }
   return out;
@@ -453,6 +477,10 @@ export interface StoreState {
   attempts: Record<string, RelayAttempt>;
   builders: Record<string, BuilderProfile>;
   passports: Record<string, PassportProfile>;
+  /** Soft in-app notices (critical / dead / home / pot). Not push yet. */
+  notices: HomeNotice[];
+  /** Draft marks keyed by `${address.toLowerCase()}:${journeyId}`. */
+  draftMarks: Record<string, MarkDraft>;
 }
 
 function seedState(): StoreState {
@@ -471,19 +499,61 @@ function seedState(): StoreState {
     attempts: {},
     builders: seedBuilders(),
     passports: {},
+    notices: [],
+    draftMarks: {},
+  };
+}
+
+function normalizePassport(p: PassportProfile): PassportProfile {
+  return {
+    ...p,
+    keeperPassStreak: p.keeperPassStreak ?? 0,
+    longestKeeperPassStreak: p.longestKeeperPassStreak ?? 0,
+  };
+}
+
+function normalizeStore(next: StoreState): StoreState {
+  const base = seedState();
+  const journeys = next.journeys ?? base.journeys;
+  for (const bundle of Object.values(journeys)) {
+    if (bundle.chain.nominatedNext === undefined) {
+      bundle.chain.nominatedNext = null;
+    }
+  }
+  const passports: Record<string, PassportProfile> = {};
+  for (const [key, passport] of Object.entries(next.passports ?? {})) {
+    passports[key] = normalizePassport(passport);
+  }
+  return {
+    ...base,
+    ...next,
+    /** Persisted snapshots may ship empty maps — keep seeded rooms/roster as defaults. */
+    communities: { ...base.communities, ...(next.communities ?? {}) },
+    builders: { ...base.builders, ...(next.builders ?? {}) },
+    journeys,
+    passports,
+    passport: normalizePassport(next.passport ?? base.passport),
+    notices: next.notices ?? [],
+    draftMarks: next.draftMarks ?? {},
   };
 }
 
 // Communities + scoped streaks + handoff requests.
 const globalStore = globalThis as typeof globalThis & {
+  __keepersRelayStoreV8?: StoreState;
   __keepersRelayStoreV7?: StoreState;
 };
 
 function state(): StoreState {
-  if (!globalStore.__keepersRelayStoreV7) {
-    globalStore.__keepersRelayStoreV7 = seedState();
+  if (!globalStore.__keepersRelayStoreV8) {
+    if (globalStore.__keepersRelayStoreV7) {
+      globalStore.__keepersRelayStoreV8 = normalizeStore(globalStore.__keepersRelayStoreV7);
+      delete globalStore.__keepersRelayStoreV7;
+    } else {
+      globalStore.__keepersRelayStoreV8 = seedState();
+    }
   }
-  return globalStore.__keepersRelayStoreV7;
+  return globalStore.__keepersRelayStoreV8;
 }
 
 /** Used by persistence layer — do not call from UI. */
@@ -493,7 +563,31 @@ export function exportStoreState(): StoreState {
 
 /** Hydrate from Neon / local file on cold start. */
 export function importStoreState(next: StoreState): void {
-  globalStore.__keepersRelayStoreV7 = next;
+  globalStore.__keepersRelayStoreV8 = normalizeStore(next);
+}
+
+/** Overlay builders + communities from proper Neon tables (source of truth). */
+export function applySocialState(social: {
+  builders: Record<string, BuilderProfile>;
+  communities: Record<string, Community>;
+}): void {
+  const s = state();
+  if (Object.keys(social.builders).length > 0) {
+    s.builders = { ...s.builders, ...social.builders };
+  }
+  for (const [id, incoming] of Object.entries(social.communities)) {
+    const prev = s.communities[id];
+    /** Never let an empty Neon member list erase an in-memory roster. */
+    const memberAddresses =
+      incoming.memberAddresses.length > 0
+        ? incoming.memberAddresses
+        : (prev?.memberAddresses ?? incoming.memberAddresses);
+    s.communities[id] = {
+      ...(prev ?? incoming),
+      ...incoming,
+      memberAddresses,
+    };
+  }
 }
 
 function activeBundle(): JourneyBundle {
@@ -526,6 +620,8 @@ function reconcileJourneyClock(chain: Chain): void {
   if (Date.now() > new Date(chain.expiresAt).getTime()) {
     chain.status = 'dead';
     chain.diedAt = chain.expiresAt;
+    chain.nominatedNext = null;
+    onChainDied(chain);
   }
 }
 
@@ -548,10 +644,11 @@ function toSummary(chain: Chain): JourneySummary {
     holderCount: chain.owners.length,
     currentHolder: chain.owners[chain.owners.length - 1]?.name ?? '',
     trophyGoal: chain.trophyGoal,
-    rewardPoolProof: chain.rewardPoolProof,
+    rewardPoolCkb: chain.rewardPoolCkb,
     expiresAt: chain.expiresAt,
     createdAt: chain.createdAt,
     coverImageUrl: resolveCover(chain.coverImageUrl, chain.creatureName),
+    stakes: chain.stakes ?? null,
   };
 }
 
@@ -586,13 +683,14 @@ export type LaunchJourneyInput = {
   mode: 'open' | 'return_home';
   trophyGoal: number;
   windowHours?: number;
-  initialProof?: number;
+  initialCkb?: number;
   rewardPoolNote?: string;
   coverImageUrl?: string;
   cellOutPoint?: { txHash: string; index: string };
   onChainChainId?: string;
   genesisTxHash?: string;
   expiresAt?: string;
+  stakes?: Partial<StakesConfig> | null;
 };
 
 /** Members of a community can launch a Cell streak inside that room. */
@@ -617,15 +715,20 @@ export function launchJourney(input: LaunchJourneyInput): Chain {
     throw new StoreError('Seed prompt must be 8–160 characters.');
   }
   const trophyGoal = Math.max(5, Math.min(500, Math.floor(input.trophyGoal || 50)));
-  const windowHours =
-    input.windowHours === 168 || input.windowHours === 720 ? input.windowHours : 24;
-  const initialProof = Math.max(0, Math.min(10_000, Math.floor(input.initialProof ?? 0)));
+  const windowHours = ALLOWED_WINDOW_HOURS.has(input.windowHours as number)
+    ? (input.windowHours as number)
+    : 24;
+  const initialCkb = Math.max(0, Math.min(10_000, Math.floor(input.initialCkb ?? 0)));
+  const stakes = input.stakes ? normalizeStakes(input.stakes) : undefined;
 
-  if (initialProof > 0 && builder.proofBalance < initialProof) {
+  if (initialCkb > 0 && builder.pointsBalance < initialCkb) {
     throw new StoreError(
-      `Not enough PROOF to seed the pot (you have ${builder.proofBalance}).`,
+      `Not enough balance to seed the pot (you have ${builder.pointsBalance}).`,
       409,
     );
+  }
+  if (stakes && initialCkb < 1) {
+    throw new StoreError('A stakes streak needs a seed pot — stake at least 1 CKB.');
   }
 
   const now = Date.now();
@@ -647,16 +750,30 @@ export function launchJourney(input: LaunchJourneyInput): Chain {
     coverImageUrl: resolveCover(input.coverImageUrl, creatureName),
     returnedAt: null,
     createdAt: new Date(now).toISOString(),
-    rewardPoolProof: initialProof,
+    rewardPoolCkb: initialCkb,
     rewardPoolNote:
       input.rewardPoolNote?.trim() ||
-      (initialProof > 0
+      (initialCkb > 0
         ? `Seeded by ${builder.displayName} for keepers who carry this Cell.`
         : undefined),
+    nominatedNext: null,
     cellOutPoint: input.cellOutPoint,
     onChainChainId: input.onChainChainId,
     genesisTxHash: input.genesisTxHash,
     lastTxHash: input.genesisTxHash,
+    stakes,
+    stakeEntries: stakes
+      ? [
+          {
+            address: builder.address,
+            name: builder.displayName,
+            hop: 0,
+            paid: initialCkb,
+            at: new Date(now).toISOString(),
+            survived: false,
+          },
+        ]
+      : undefined,
   };
 
   const artifact: LivingArtifact = {
@@ -667,8 +784,8 @@ export function launchJourney(input: LaunchJourneyInput): Chain {
   };
 
   const s = state();
-  if (initialProof > 0) {
-    builder.proofBalance -= initialProof;
+  if (initialCkb > 0) {
+    builder.pointsBalance -= initialCkb;
     s.builders[builder.address] = builder;
   }
 
@@ -689,9 +806,9 @@ export function fundJourneyTreasury(input: {
     throw new StoreError('Finish onboarding before funding a pot.', 403);
   }
   const amount = Math.floor(input.amount);
-  if (amount < 1) throw new StoreError('Add at least 1 PROOF.');
-  if (builder.proofBalance < amount) {
-    throw new StoreError(`Not enough PROOF (you have ${builder.proofBalance}).`, 409);
+  if (amount < 1) throw new StoreError('Add at least 1 CKB.');
+  if (builder.pointsBalance < amount) {
+    throw new StoreError(`Not enough balance (you have ${builder.pointsBalance}).`, 409);
   }
 
   const s = state();
@@ -701,9 +818,9 @@ export function fundJourneyTreasury(input: {
     throw new StoreError('Cannot fund a dead journey.', 409);
   }
 
-  builder.proofBalance -= amount;
+  builder.pointsBalance -= amount;
   s.builders[builder.address] = builder;
-  journey.chain.rewardPoolProof += amount;
+  journey.chain.rewardPoolCkb += amount;
   if (input.note?.trim()) {
     journey.chain.rewardPoolNote = input.note.trim();
   }
@@ -727,17 +844,11 @@ function toCommunitySummary(
   community: Community,
   viewerAddress?: string | null,
 ): CommunitySummary {
-  const s = state();
-  let liveStreakCount = 0;
-  for (const journey of Object.values(s.journeys)) {
-    reconcileJourneyClock(journey.chain);
-    if (
-      journey.chain.communityId === community.id &&
-      journey.chain.status === 'alive'
-    ) {
-      liveStreakCount += 1;
-    }
-  }
+  const { listEventsForCommunity } = require('@/lib/server/events-store') as typeof import('@/lib/server/events-store');
+  const communityEvents = listEventsForCommunity(community.id);
+  const liveEventCount = communityEvents.filter(
+    (e) => e.status === 'live' || e.status === 'ready' || e.status === 'registration',
+  ).length;
   return {
     id: community.id,
     slug: community.slug,
@@ -746,12 +857,14 @@ function toCommunitySummary(
     coverImageUrl: resolveCover(community.coverImageUrl, community.name),
     featured: community.featured,
     memberCount: community.memberAddresses.length,
-    liveStreakCount,
+    liveEventCount,
     creatorName: community.creatorName,
     creatorAddress: community.creatorAddress,
     createdAt: community.createdAt,
     isMember: viewerAddress
-      ? community.memberAddresses.includes(viewerAddress)
+      ? community.memberAddresses.some(
+          (a) => a.toLowerCase() === viewerAddress.toLowerCase(),
+        )
       : false,
   };
 }
@@ -771,20 +884,15 @@ export function getCommunityBySlug(
   viewerAddress?: string | null,
 ): {
   community: CommunitySummary;
-  streaks: JourneySummary[];
-  members: { address: string; displayName: string; username: string }[];
+  events: import('@/types/event').EventSummary[];
+  members: import('@/types/community').CommunityMember[];
 } {
   const s = state();
   const community = Object.values(s.communities).find((c) => c.slug === slug);
   if (!community) throw new StoreError('Community not found.', 404);
 
-  const streaks = Object.values(s.journeys)
-    .map((j) => {
-      reconcileJourneyClock(j.chain);
-      return toSummary(j.chain);
-    })
-    .filter((j) => j.communityId === community.id)
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const { listEventsForCommunity } = require('@/lib/server/events-store') as typeof import('@/lib/server/events-store');
+  const events = listEventsForCommunity(community.id);
 
   const members = community.memberAddresses.map((address) => {
     const builder = s.builders[address];
@@ -792,12 +900,20 @@ export function getCommunityBySlug(
       address,
       displayName: builder?.displayName ?? address.slice(0, 10),
       username: builder?.username ?? '',
+      headline: builder?.headline,
+      avatarUrl: null,
+      characterId: builder?.characterId ?? null,
+      role: (address === community.creatorAddress ? 'creator' : 'member') as
+        | 'creator'
+        | 'member',
+      eventsPlayed: 0,
+      wins: 0,
     };
   });
 
   return {
     community: toCommunitySummary(community, viewerAddress),
-    streaks,
+    events,
     members,
   };
 }
@@ -846,7 +962,11 @@ export function createCommunity(input: {
   return toCommunitySummary(community, builder.address);
 }
 
-export function joinCommunity(slug: string, address: string): CommunitySummary {
+export function joinCommunity(
+  slug: string,
+  address: string,
+  invitedByAddress?: string | null,
+): CommunitySummary {
   const builder = getBuilder(address);
   if (!builder?.onboarded) {
     throw new StoreError('Finish onboarding before joining a community.', 403);
@@ -854,8 +974,20 @@ export function joinCommunity(slug: string, address: string): CommunitySummary {
   const s = state();
   const community = Object.values(s.communities).find((c) => c.slug === slug);
   if (!community) throw new StoreError('Community not found.', 404);
-  if (!community.memberAddresses.includes(address)) {
+  const already = community.memberAddresses.some(
+    (a) => a.toLowerCase() === address.toLowerCase(),
+  );
+  if (!already) {
     community.memberAddresses.push(address);
+  }
+  const inviter = invitedByAddress?.trim();
+  if (
+    inviter &&
+    inviter.toLowerCase() !== address.toLowerCase() &&
+    !builder.invitedByAddress &&
+    s.builders[inviter]
+  ) {
+    builder.invitedByAddress = inviter;
   }
   return toCommunitySummary(community, address);
 }
@@ -994,8 +1126,8 @@ export function declineHandoff(input: {
   return clone(request);
 }
 
-/** Community creator / featured manager can mint soft PROOF to a member (app layer). */
-export function grantCommunityProof(input: {
+/** Community creator can mint passport points to a member (app layer). */
+export function grantCommunityPoints(input: {
   adminAddress: string;
   slug: string;
   recipientAddress: string;
@@ -1009,12 +1141,12 @@ export function grantCommunityProof(input: {
   const community = Object.values(s.communities).find((c) => c.slug === input.slug);
   if (!community) throw new StoreError('Community not found.', 404);
   if (community.creatorAddress !== admin.address) {
-    throw new StoreError('Only the community creator can grant PROOF here.', 403);
+    throw new StoreError('Only the community creator can grant points here.', 403);
   }
 
   const amount = Math.floor(input.amount);
   if (amount < 1 || amount > 10_000) {
-    throw new StoreError('Grant between 1 and 10,000 PROOF.');
+    throw new StoreError('Grant between 1 and 10,000 points.');
   }
 
   const recipient = getBuilder(input.recipientAddress);
@@ -1025,7 +1157,7 @@ export function grantCommunityProof(input: {
     throw new StoreError('Recipient must be a member of this community.', 403);
   }
 
-  recipient.proofBalance += amount;
+  recipient.pointsBalance += amount;
   s.builders[recipient.address] = recipient;
   return {
     recipient: clone(recipient),
@@ -1184,6 +1316,8 @@ export function passChain(recipient: string, city?: string, onChain?: PassChainO
   const now = Date.now();
   const current = chain.owners[chain.owners.length - 1];
   const place = city?.trim();
+  const msLeftBeforePass = new Date(chain.expiresAt).getTime() - now;
+  const wasCritical = msLeftBeforePass > 0 && msLeftBeforePass <= CRITICAL_WINDOW_MS;
 
   // A txHash means the handoff already settled on CKB: the type script accepted
   // it and the Cell has moved. These guards must run before signing, not after —
@@ -1225,14 +1359,59 @@ export function passChain(recipient: string, city?: string, onChain?: PassChainO
     }
   }
 
+  const recipientAddress = resolved?.address || onChain?.recipientAddress;
+  const nextHop = chain.owners.length;
+
+  // Stakes mode: the incoming Keeper buys their seat, and the outgoing Keeper
+  // banks theirs by passing in time. Whoever is holding when the clock runs out
+  // never gets marked, so their stake stays in the pot for everyone else.
+  if (chain.stakes) {
+    const cost = stakesEntryAtHop(chain.stakes, nextHop);
+    let paid = 0;
+    const recipientBuilder = recipientAddress ? getBuilder(recipientAddress) : null;
+    if (recipientBuilder) {
+      if (recipientBuilder.pointsBalance < cost) {
+        throw new StoreError(
+          `${recipientBuilder.displayName} needs ${cost} CKB to take this stake (they have ${recipientBuilder.pointsBalance}).`,
+          409,
+        );
+      }
+      creditBuilder(recipientBuilder.address, -cost);
+      paid = cost;
+      chain.rewardPoolCkb += cost;
+      pushNotice(recipientBuilder.address, 'stake_entry', {
+        journeyId: chain.id,
+        title: `−${cost} CKB · Keeper #${nextHop + 1} on ${chain.creatureName}`,
+        body: 'Pass it on before your window closes to keep your share of the pot.',
+      });
+    }
+    chain.stakeEntries = [
+      ...(chain.stakeEntries ?? []),
+      {
+        address: recipientAddress ?? '',
+        name,
+        hop: nextHop,
+        paid,
+        at: new Date(now).toISOString(),
+        survived: false,
+      },
+    ];
+    const outgoing = chain.stakeEntries.find((entry) => entry.hop === nextHop - 1);
+    if (outgoing) outgoing.survived = true;
+  }
+
   current.passedAt = new Date(now).toISOString();
   if (place && !current.city) current.city = place;
 
   chain.owners = [
     ...chain.owners,
-    makeOwner(name, now, null, place || undefined, null, resolved?.address || onChain?.recipientAddress),
+    makeOwner(name, now, null, place || undefined, null, recipientAddress),
   ];
-  chain.expiresAt = onChain?.expiresAt ?? new Date(now + hours(chain.windowHours)).toISOString();
+  const nextWindowHours = chain.stakes
+    ? stakesWindowHoursAtHop(chain.stakes, chain.windowHours, nextHop)
+    : chain.windowHours;
+  chain.expiresAt =
+    onChain?.expiresAt ?? new Date(now + hours(nextWindowHours)).toISOString();
   if (onChain?.cellOutPoint) chain.cellOutPoint = onChain.cellOutPoint;
   if (onChain?.txHash) chain.lastTxHash = onChain.txHash;
   if (onChain?.artifactRoot) {
@@ -1242,14 +1421,32 @@ export function passChain(recipient: string, city?: string, onChain?: PassChainO
     chain.artifactRootOnChain = true;
   }
 
+  chain.nominatedNext = null;
+
   if (chain.mode === 'return_home' && isCreator) {
     chain.status = 'returned';
     chain.returnedAt = new Date(now).toISOString();
     chain.expiresAt = new Date(now + hours(24 * 365)).toISOString();
+    distributeReturnHomePot(chain);
   }
 
   if (current.name === DEMO_KEEPER) {
     s.passport.keeperTurns += 1;
+  }
+
+  if (current.address) {
+    bumpKeeperPassStreak(current.address);
+    if (wasCritical) {
+      awardCriticalSave(current.address, chain);
+    }
+  }
+
+  if (recipientAddress) {
+    pushNotice(recipientAddress, 'incoming', {
+      journeyId: chain.id,
+      title: `${chain.creatureName} is yours`,
+      body: `You hold it now. Leave a mark before the window ends.`,
+    });
   }
 
   return clone(chain);
@@ -1365,6 +1562,7 @@ export function publishArtifact(input: {
 
   if (input.address) {
     const passport = getPassport(input.address);
+    const firstMark = passport.artifactCount === 0;
     passport.artifactCount += 1;
     passport.contributionXp += 100;
     if (!passport.badgeLabels.includes('Living archive')) {
@@ -1372,6 +1570,10 @@ export function publishArtifact(input: {
     }
     s.passports[input.address] = passport;
     s.passport = passport;
+    clearDraftMark(input.address, journey.chain.id);
+    if (firstMark) {
+      maybeAwardInviteCredit(input.address, journey.chain);
+    }
   } else {
     s.passport = {
       ...s.passport,
@@ -1646,6 +1848,8 @@ function emptyPassport(address: string, displayName: string, characterId: string
     artifactCount: 0,
     badgeLabels: ['Joined the relay'],
     keeperTurns: 0,
+    keeperPassStreak: 0,
+    longestKeeperPassStreak: 0,
   };
 }
 
@@ -1745,9 +1949,11 @@ export function upsertBuilder(input: UpsertBuilderInput): BuilderProfile {
     joinedAt: previous?.joinedAt ?? now,
     lastSeenAt: now,
     onboarded: true,
-    proofBalance: previous?.proofBalance ?? 0,
+    pointsBalance: previous?.pointsBalance ?? 0,
     claimedMilestones: previous?.claimedMilestones ?? [],
     claimedBadgeIds: previous?.claimedBadgeIds ?? [],
+    invitedByAddress: previous?.invitedByAddress ?? null,
+    lastRescueAt: previous?.lastRescueAt ?? null,
   };
 
   s.builders[address] = builder;
@@ -1825,10 +2031,10 @@ function awardMilestone(address: string, milestone: RewardMilestone): BuilderPro
   }
 
   builder.claimedMilestones = [...builder.claimedMilestones, milestone];
-  builder.proofBalance += REWARD_POINTS[milestone];
+  builder.pointsBalance += REWARD_POINTS[milestone];
 
   const passport = s.passports[address] ?? emptyPassport(address, builder.displayName, builder.characterId);
-  passport.contributionXp = builder.proofBalance;
+  passport.contributionXp = builder.pointsBalance;
   const label = REWARD_LABELS[milestone];
   if (!passport.badgeLabels.includes(label)) {
     passport.badgeLabels = [...passport.badgeLabels, label];
@@ -1845,9 +2051,9 @@ export function awardRelayReward(address: string, xp: number): BuilderProfile {
     throw new StoreError('Connect and onboard before claiming Relay rewards.', 403);
   }
 
-  builder.proofBalance += xp;
+  builder.pointsBalance += xp;
   const passport = getPassport(address);
-  passport.contributionXp = builder.proofBalance;
+  passport.contributionXp = builder.pointsBalance;
   passport.relayStreak += 1;
   s.passports[address] = passport;
   s.passport = passport;
@@ -1872,8 +2078,8 @@ export function unlockBadge(address: string, badgeId: string): BuilderProfile {
   if (builder.claimedBadgeIds.includes(badgeId)) {
     throw new StoreError('You already unlocked this badge.', 409);
   }
-  if (builder.proofBalance < badge.requiredProof) {
-    throw new StoreError(`Need ${badge.requiredProof} PROOF to unlock ${badge.name}.`, 409);
+  if (builder.pointsBalance < badge.requiredPoints) {
+    throw new StoreError(`Need ${badge.requiredPoints} pts to unlock ${badge.name}.`, 409);
   }
 
   // Soft spend: badge unlocks at threshold without burning (Spore ID burns sUDT on-chain later).
@@ -1914,6 +2120,565 @@ export function assumeKeeper(address: string): Chain {
   }
 
   return passChain(builder.displayName, current.city);
+}
+
+/**
+ * Soft rescue: non-holder extends a critical Cell's clock once per day.
+ * App-layer for now — later an ESO update path.
+ */
+export function rescueChain(input: {
+  address: string;
+  journeyId: string;
+}): Chain {
+  const builder = getBuilder(input.address);
+  if (!builder?.onboarded) {
+    throw new StoreError('Finish onboarding before rescuing a Cell.', 403);
+  }
+
+  const s = state();
+  const journey = s.journeys[input.journeyId];
+  if (!journey) throw new StoreError('Streak not found.', 404);
+  reconcileJourneyClock(journey.chain);
+  const chain = journey.chain;
+
+  if (chain.status !== 'alive') {
+    throw new StoreError('Only a live Cell can be rescued.', 409);
+  }
+
+  const msLeft = new Date(chain.expiresAt).getTime() - Date.now();
+  if (msLeft > CRITICAL_WINDOW_MS || msLeft <= 0) {
+    throw new StoreError('Rescue only works when under two hours remain.', 409);
+  }
+
+  const current = chain.owners[chain.owners.length - 1];
+  const isHolder =
+    (current?.address &&
+      current.address.toLowerCase() === builder.address.toLowerCase()) ||
+    current?.name.toLowerCase() === builder.displayName.toLowerCase();
+  if (isHolder) {
+    throw new StoreError('You already hold it — leave a mark and pass.', 409);
+  }
+
+  const community = s.communities[chain.communityId];
+  if (!community?.memberAddresses.includes(builder.address)) {
+    throw new StoreError('Join the community before rescuing this Cell.', 403);
+  }
+
+  if (builder.lastRescueAt) {
+    const since = Date.now() - new Date(builder.lastRescueAt).getTime();
+    if (since < hours(24)) {
+      throw new StoreError('You already used your rescue today. Come back tomorrow.', 409);
+    }
+  }
+
+  const now = Date.now();
+  chain.expiresAt = new Date(now + hours(RESCUE_EXTEND_HOURS)).toISOString();
+  chain.rescueCount = (chain.rescueCount ?? 0) + 1;
+  chain.lastRescuedAt = new Date(now).toISOString();
+  chain.lastRescuedBy = builder.displayName;
+  builder.lastRescueAt = new Date(now).toISOString();
+  builder.pointsBalance += RESCUE_POINTS;
+
+  pushNotice(builder.address, 'rescued', {
+    journeyId: chain.id,
+    title: `+${RESCUE_POINTS} pts · you saved ${chain.creatureName}`,
+    body: `Clock extended by ${RESCUE_EXTEND_HOURS}h. Points for now — on-chain claim later.`,
+  });
+
+  for (const address of touchedAddresses(chain)) {
+    if (address.toLowerCase() === builder.address.toLowerCase()) continue;
+    pushNotice(address, 'rescued', {
+      journeyId: chain.id,
+      title: `${chain.creatureName} was rescued`,
+      body: `${builder.displayName} pulled it back from under two hours. New window: ${RESCUE_EXTEND_HOURS}h.`,
+    });
+  }
+
+  if (current?.address) {
+    pushNotice(current.address, 'incoming', {
+      journeyId: chain.id,
+      title: `${chain.creatureName} got more time`,
+      body: 'Someone rescued your hold. Leave a mark and pass before this window dies too.',
+    });
+  }
+
+  s.activeJourneyId = chain.id;
+  return clone(chain);
+}
+
+/* ------------------------------------------------------------- retention */
+
+function draftKey(address: string, journeyId: string): string {
+  return `${address.trim().toLowerCase()}:${journeyId}`;
+}
+
+function ensurePassportMutable(address: string): PassportProfile {
+  const s = state();
+  const key = address.trim();
+  if (!s.passports[key]) {
+    const builder = s.builders[key];
+    s.passports[key] = emptyPassport(
+      key,
+      builder?.displayName ?? key.slice(0, 12),
+      builder?.characterId ?? null,
+    );
+  }
+  s.passports[key] = normalizePassport(s.passports[key]);
+  return s.passports[key];
+}
+
+function pushNotice(
+  address: string,
+  kind: HomeNoticeKind,
+  input: { journeyId?: string; title: string; body: string },
+): void {
+  if (!address.trim()) return;
+  const s = state();
+  const notice: HomeNotice = {
+    id: `notice_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+    address: address.trim(),
+    kind,
+    journeyId: input.journeyId,
+    title: input.title,
+    body: input.body,
+    createdAt: new Date().toISOString(),
+    read: false,
+  };
+  s.notices.unshift(notice);
+  if (s.notices.length > 400) s.notices.length = 400;
+}
+
+/**
+ * `getBuilder` hands back a clone, so a bare `builder.pointsBalance += n` is lost.
+ * Every points award has to go through here.
+ */
+function creditBuilder(address: string, amount: number): BuilderProfile | null {
+  if (!address.trim() || amount === 0) return null;
+  const s = state();
+  const builder = s.builders[address];
+  if (!builder) return null;
+  builder.pointsBalance = Math.max(0, builder.pointsBalance + amount);
+  s.builders[address] = builder;
+  return clone(builder);
+}
+
+function touchedAddresses(chain: Chain): string[] {
+  const set = new Set<string>();
+  if (chain.creatorAddress) set.add(chain.creatorAddress);
+  for (const owner of chain.owners) {
+    if (owner.address) set.add(owner.address);
+  }
+  return [...set];
+}
+
+function onChainDied(chain: Chain): void {
+  if (chain.stakes) settleStakesOnDeath(chain);
+  for (const address of touchedAddresses(chain)) {
+    const passport = ensurePassportMutable(address);
+    if (passport.keeperPassStreak > 0) {
+      passport.keeperPassStreak = 0;
+      pushNotice(address, 'streak_broken', {
+        journeyId: chain.id,
+        title: `${chain.creatureName} died`,
+        body: 'Your unbroken pass streak reset. A Cell you touched ran out of time.',
+      });
+    } else {
+      pushNotice(address, 'dead', {
+        journeyId: chain.id,
+        title: `${chain.creatureName} died`,
+        body: 'A Cell on your watchlist is locked forever.',
+      });
+    }
+  }
+}
+
+function bumpKeeperPassStreak(address: string): void {
+  const passport = ensurePassportMutable(address);
+  passport.keeperPassStreak += 1;
+  passport.keeperTurns += 1;
+  if (passport.keeperPassStreak > passport.longestKeeperPassStreak) {
+    passport.longestKeeperPassStreak = passport.keeperPassStreak;
+  }
+  const s = state();
+  if (s.passport.address === address) s.passport = passport;
+}
+
+function awardCriticalSave(address: string, chain: Chain): void {
+  if (!creditBuilder(address, CRITICAL_SAVE_POINTS)) return;
+  pushNotice(address, 'critical_save', {
+    journeyId: chain.id,
+    title: `+${CRITICAL_SAVE_POINTS} pts · critical save`,
+    body: `You passed ${chain.creatureName} with under two hours left. Points for now — on-chain claim later.`,
+  });
+}
+
+/**
+ * Pay a stakes pot out to the Keepers who passed in time, weighted so the later
+ * you survived the bigger your cut. Whoever is still holding gets nothing.
+ */
+function payOutStakesPot(chain: Chain, reason: 'returned' | 'dead'): void {
+  const pot = Math.max(0, Math.floor(chain.rewardPoolCkb));
+  const survivors = (chain.stakeEntries ?? []).filter(
+    (entry) => entry.survived && entry.address.trim(),
+  );
+  chain.rewardPoolCkb = 0;
+  if (pot <= 0 || survivors.length === 0) return;
+
+  const headline =
+    reason === 'returned'
+      ? `${chain.creatureName} came home`
+      : `${chain.creatureName} died`;
+  for (const share of stakesPayoutShares(pot, survivors)) {
+    if (share.amount <= 0) continue;
+    if (!creditBuilder(share.address, share.amount)) continue;
+    pushNotice(share.address, 'pot_share', {
+      journeyId: chain.id,
+      title: `+${share.amount} CKB · ${headline}`,
+      body:
+        reason === 'returned'
+          ? 'Every paid seat shared the pot when the Cell made it home.'
+          : 'You passed in time, so you kept your seat in the pot. Later survivors took the bigger cut.',
+    });
+  }
+}
+
+/** The Cell ran out of time: whoever was holding it forfeits their stake. */
+function settleStakesOnDeath(chain: Chain): void {
+  const holder = chain.owners[chain.owners.length - 1];
+  const dropped = (chain.stakeEntries ?? []).find(
+    (entry) => entry.hop === chain.owners.length - 1,
+  );
+  if (dropped) dropped.survived = false;
+  if (dropped?.address && dropped.paid > 0) {
+    pushNotice(dropped.address, 'stake_forfeit', {
+      journeyId: chain.id,
+      title: `−${dropped.paid} CKB · you dropped ${chain.creatureName}`,
+      body: `The clock ran out while ${holder?.name ?? 'you'} held it. Your stake stayed in the pot for the Keepers who passed in time.`,
+    });
+  }
+  payOutStakesPot(chain, 'dead');
+}
+
+function distributeReturnHomePot(chain: Chain): void {
+  if (chain.stakes && chain.stakeEntries?.length) {
+    // Completing beats dying: every paid seat counts as a survivor.
+    for (const entry of chain.stakeEntries) entry.survived = true;
+    payOutStakesPot(chain, 'returned');
+    return;
+  }
+
+  const pot = Math.max(0, Math.floor(chain.rewardPoolCkb));
+  if (pot <= 0) {
+    for (const address of touchedAddresses(chain)) {
+      pushNotice(address, 'returned', {
+        journeyId: chain.id,
+        title: `${chain.creatureName} came home`,
+        body: 'The journey sealed. No CKB was in the pot.',
+      });
+    }
+    return;
+  }
+
+  const recipients = [
+    ...new Set(
+      chain.owners
+        .map((o) => o.address)
+        .filter((a): a is string => Boolean(a)),
+    ),
+  ];
+  if (recipients.length === 0) {
+    chain.rewardPoolCkb = 0;
+    return;
+  }
+
+  const share = Math.floor(pot / recipients.length);
+  let remainder = pot - share * recipients.length;
+  for (const address of recipients) {
+    const builder = getBuilder(address);
+    if (!builder) continue;
+    const extra = remainder > 0 ? 1 : 0;
+    if (remainder > 0) remainder -= 1;
+    const gained = share + extra;
+    creditBuilder(address, gained);
+    pushNotice(address, 'pot_share', {
+      journeyId: chain.id,
+      title: `+${gained} CKB · ${chain.creatureName} home`,
+      body: 'Split from the soft pot. Real sUDT claim comes when the treasury env is wired.',
+    });
+  }
+  chain.rewardPoolCkb = 0;
+
+  if (chain.creatorAddress && !recipients.includes(chain.creatorAddress)) {
+    pushNotice(chain.creatorAddress, 'returned', {
+      journeyId: chain.id,
+      title: `${chain.creatureName} came home`,
+      body: 'Your streak made it back. The pot went to the Keepers who carried it.',
+    });
+  }
+}
+
+function maybeAwardInviteCredit(newKeeperAddress: string, chain: Chain): void {
+  const builder = getBuilder(newKeeperAddress);
+  const inviter = builder?.invitedByAddress;
+  if (!inviter || inviter.toLowerCase() === newKeeperAddress.toLowerCase()) return;
+  if (!creditBuilder(inviter, INVITE_CREDIT_POINTS)) return;
+  pushNotice(inviter, 'invite_credit', {
+    journeyId: chain.id,
+    title: `+${INVITE_CREDIT_POINTS} pts · invite credit`,
+    body: `@${builder.username || builder.displayName} sealed their first mark. Points for bringing them in.`,
+  });
+}
+
+function maybeEmitCriticalNotices(): void {
+  const s = state();
+  const now = Date.now();
+  for (const journey of Object.values(s.journeys)) {
+    const chain = journey.chain;
+    reconcileJourneyClock(chain);
+    if (chain.status !== 'alive') continue;
+    const ms = new Date(chain.expiresAt).getTime() - now;
+    if (ms <= 0 || ms > CRITICAL_WINDOW_MS) continue;
+    for (const address of touchedAddresses(chain)) {
+      const recent = s.notices.find(
+        (n) =>
+          n.address === address &&
+          n.kind === 'critical' &&
+          n.journeyId === chain.id &&
+          now - new Date(n.createdAt).getTime() < CRITICAL_WINDOW_MS,
+      );
+      if (recent) continue;
+      pushNotice(address, 'critical', {
+        journeyId: chain.id,
+        title: `${chain.creatureName} is critical`,
+        body: 'Under two hours left. A Cell you touched needs a pass.',
+      });
+    }
+  }
+}
+
+function toHomeCard(
+  chain: Chain,
+  tone: HomeStreakCard['tone'],
+  extra?: Partial<HomeStreakCard>,
+): HomeStreakCard {
+  const msRemaining = new Date(chain.expiresAt).getTime() - Date.now();
+  return {
+    ...toSummary(chain),
+    tone,
+    msRemaining,
+    critical: chain.status === 'alive' && msRemaining > 0 && msRemaining <= CRITICAL_WINDOW_MS,
+    ...extra,
+  };
+}
+
+function viewerHeldOrCreated(chain: Chain, address: string, displayName: string): boolean {
+  const key = address.toLowerCase();
+  if (chain.creatorAddress?.toLowerCase() === key) return true;
+  return chain.owners.some(
+    (o) =>
+      o.address?.toLowerCase() === key ||
+      o.name.toLowerCase() === displayName.toLowerCase(),
+  );
+}
+
+export function getHomeFeed(address: string): HomeFeed {
+  const builder = getBuilder(address);
+  if (!builder) {
+    throw new StoreError('Connect and claim an @handle first.', 403);
+  }
+
+  maybeEmitCriticalNotices();
+  const s = state();
+  const passport = ensurePassportMutable(address);
+  const key = address.toLowerCase();
+  const holding: HomeStreakCard[] = [];
+  const incoming: HomeStreakCard[] = [];
+  const created: HomeStreakCard[] = [];
+  const watching: HomeStreakCard[] = [];
+  const seen = new Set<string>();
+
+  for (const journey of Object.values(s.journeys)) {
+    reconcileJourneyClock(journey.chain);
+    const chain = journey.chain;
+    const current = chain.owners[chain.owners.length - 1];
+    const isHolder =
+      chain.status === 'alive' &&
+      ((current?.address && current.address.toLowerCase() === key) ||
+        current?.name.toLowerCase() === builder.displayName.toLowerCase());
+    const isCreator = chain.creatorAddress?.toLowerCase() === key;
+    const draft = s.draftMarks[draftKey(address, chain.id)];
+    const needsMark = Boolean(isHolder && !current?.contributionId);
+    const nominated =
+      chain.status === 'alive' &&
+      chain.nominatedNext?.address.toLowerCase() === key &&
+      !isHolder;
+    const pendingRequest = s.handoffRequests.some(
+      (r) =>
+        r.journeyId === chain.id &&
+        r.requesterAddress.toLowerCase() === key &&
+        r.status === 'pending',
+    );
+
+    if (isHolder) {
+      holding.push(
+        toHomeCard(chain, 'holding', {
+          needsMark,
+          hasDraft: Boolean(draft),
+        }),
+      );
+      seen.add(chain.id);
+      continue;
+    }
+
+    if (nominated || pendingRequest) {
+      incoming.push(
+        toHomeCard(chain, 'incoming', {
+          nominated,
+          pendingRequest,
+          hasDraft: Boolean(draft),
+        }),
+      );
+      seen.add(chain.id);
+      continue;
+    }
+
+    if (isCreator) {
+      created.push(toHomeCard(chain, 'created', { hasDraft: Boolean(draft) }));
+      seen.add(chain.id);
+      continue;
+    }
+
+    if (viewerHeldOrCreated(chain, address, builder.displayName)) {
+      watching.push(toHomeCard(chain, 'watching', { hasDraft: Boolean(draft) }));
+      seen.add(chain.id);
+    }
+  }
+
+  const byUrgency = (a: HomeStreakCard, b: HomeStreakCard) => {
+    if (a.status === 'alive' && b.status !== 'alive') return -1;
+    if (b.status === 'alive' && a.status !== 'alive') return 1;
+    return a.msRemaining - b.msRemaining;
+  };
+
+  holding.sort(byUrgency);
+  incoming.sort(byUrgency);
+  created.sort(byUrgency);
+  watching.sort(byUrgency);
+
+  const notices = s.notices
+    .filter((n) => n.address.toLowerCase() === key)
+    .slice(0, 20);
+
+  void seen;
+
+  return {
+    address: builder.address,
+    displayName: builder.displayName,
+    username: builder.username,
+    keeperPassStreak: passport.keeperPassStreak,
+    longestKeeperPassStreak: passport.longestKeeperPassStreak,
+    pointsBalance: builder.pointsBalance,
+    holding,
+    incoming,
+    created,
+    watching,
+    notices: clone(notices),
+    unreadNoticeCount: notices.filter((n) => !n.read).length,
+  };
+}
+
+export function markHomeNoticesRead(address: string): HomeFeed {
+  const s = state();
+  const key = address.trim().toLowerCase();
+  for (const notice of s.notices) {
+    if (notice.address.toLowerCase() === key) notice.read = true;
+  }
+  return getHomeFeed(address);
+}
+
+export function saveDraftMark(input: {
+  address: string;
+  journeyId: string;
+  body?: string;
+  kind?: ArtifactKind;
+  place?: string;
+  imageUrl?: string;
+}): MarkDraft {
+  const builder = getBuilder(input.address);
+  if (!builder?.onboarded) {
+    throw new StoreError('Finish onboarding before drafting a mark.', 403);
+  }
+  const journey = state().journeys[input.journeyId];
+  if (!journey) throw new StoreError('Streak not found.', 404);
+
+  const draft: MarkDraft = {
+    journeyId: input.journeyId,
+    address: builder.address,
+    body: (input.body ?? '').trim().slice(0, 180),
+    kind: input.kind ?? 'message',
+    place: input.place?.trim() || undefined,
+    imageUrl: input.imageUrl?.trim() || undefined,
+    updatedAt: new Date().toISOString(),
+  };
+  state().draftMarks[draftKey(builder.address, input.journeyId)] = draft;
+  return clone(draft);
+}
+
+export function getDraftMark(address: string, journeyId: string): MarkDraft | null {
+  const draft = state().draftMarks[draftKey(address, journeyId)];
+  return draft ? clone(draft) : null;
+}
+
+export function clearDraftMark(address: string, journeyId: string): void {
+  delete state().draftMarks[draftKey(address, journeyId)];
+}
+
+/** Current holder soft-promises the Cell to a community member. */
+export function nominateNextKeeper(input: {
+  address: string;
+  journeyId: string;
+  nomineeAddress: string;
+}): Chain {
+  const holder = getBuilder(input.address);
+  const nominee = getBuilder(input.nomineeAddress);
+  if (!holder?.onboarded) throw new StoreError('Finish onboarding first.', 403);
+  if (!nominee?.onboarded) throw new StoreError('Nominee must be an onboarded Keeper.', 404);
+
+  const s = state();
+  const journey = s.journeys[input.journeyId];
+  if (!journey) throw new StoreError('Streak not found.', 404);
+  reconcileJourneyClock(journey.chain);
+  if (journey.chain.status !== 'alive') {
+    throw new StoreError('This streak is no longer open.', 409);
+  }
+
+  const community = s.communities[journey.chain.communityId];
+  if (!community?.memberAddresses.includes(nominee.address)) {
+    throw new StoreError('Nominee must be in this community.', 403);
+  }
+
+  const current = journey.chain.owners[journey.chain.owners.length - 1];
+  const isHolder =
+    (current?.address && current.address.toLowerCase() === holder.address.toLowerCase()) ||
+    current?.name.toLowerCase() === holder.displayName.toLowerCase();
+  if (!isHolder) {
+    throw new StoreError('Only the current holder can nominate the next Keeper.', 403);
+  }
+  if (nominee.address.toLowerCase() === holder.address.toLowerCase()) {
+    throw new StoreError('Nominate someone else — you already hold it.');
+  }
+
+  journey.chain.nominatedNext = {
+    address: nominee.address,
+    name: nominee.displayName,
+    nominatedAt: new Date().toISOString(),
+  };
+  pushNotice(nominee.address, 'incoming', {
+    journeyId: journey.chain.id,
+    title: `${journey.chain.creatureName} is heading to you`,
+    body: `${holder.displayName} nominated you. Draft your mark while you wait.`,
+  });
+  return clone(journey.chain);
 }
 
 export { DEMO_KEEPER, DEMO_ADDRESS };

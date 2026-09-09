@@ -6,9 +6,9 @@ import { Coins, Loader2, Shield } from 'lucide-react';
 import { PageShell } from '@/components/PageShell';
 import {
   useCommunityQuery,
-  useGrantCommunityProof,
+  useGrantCommunityPoints,
 } from '@/hooks/useCommunity';
-import { useFundJourney } from '@/hooks/useChain';
+import { useFundJourney, useJourneysQuery } from '@/hooks/useChain';
 import { useMyBuilder } from '@/hooks/useBuilder';
 import { useWallet } from '@/hooks/useWallet';
 
@@ -16,8 +16,9 @@ export function CommunityAdminView({ slug }: { slug: string }) {
   const { address, isConnected, connect } = useWallet();
   const myBuilder = useMyBuilder();
   const detail = useCommunityQuery(slug);
-  const grant = useGrantCommunityProof();
+  const grant = useGrantCommunityPoints();
   const fund = useFundJourney();
+  const journeys = useJourneysQuery();
   const me = myBuilder.data?.builder;
 
   const [recipientAddress, setRecipientAddress] = useState('');
@@ -27,8 +28,11 @@ export function CommunityAdminView({ slug }: { slug: string }) {
   const [potJourneyId, setPotJourneyId] = useState('');
 
   const community = detail.data?.community;
-  const streaks = detail.data?.streaks ?? [];
+  const events = detail.data?.events ?? [];
   const members = detail.data?.members ?? [];
+  const liveCells = (journeys.data?.journeys ?? []).filter(
+    (j) => j.communityId === community?.id && j.status === 'alive',
+  );
 
   if (detail.isLoading) {
     return (
@@ -52,7 +56,7 @@ export function CommunityAdminView({ slug }: { slug: string }) {
     <PageShell
       eyebrow="Community admin"
       title={community.name}
-      intro="Grant PROOF to members and fund streak pots."
+      intro="Grant points to members and put CKB on the Cells in this room."
       backHref={`/communities/${slug}`}
       backLabel="Back to room"
     >
@@ -73,10 +77,10 @@ export function CommunityAdminView({ slug }: { slug: string }) {
           <section className="neo-card bg-[#fff8e7] p-5">
             <p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider">
               <Shield className="h-3.5 w-3.5 stroke-[3]" />
-              Grant PROOF to a member
+              Grant points to a member
             </p>
             <p className="mt-2 text-xs font-semibold text-black/70">
-              Adds PROOF to a member&apos;s passport.
+              Adds points to a member&apos;s passport.
             </p>
             <label className="mt-4 block text-xs font-semibold">
               Member
@@ -118,7 +122,7 @@ export function CommunityAdminView({ slug }: { slug: string }) {
             )}
             {grant.isSuccess && (
               <p className="mt-2 text-sm font-bold text-green-800">
-                Granted {grant.data.granted} PROOF → balance {grant.data.recipient.proofBalance}
+                Granted {grant.data.granted} pts → balance {grant.data.recipient.pointsBalance}
               </p>
             )}
             <button
@@ -136,42 +140,44 @@ export function CommunityAdminView({ slug }: { slug: string }) {
               }
               className="neo-button mt-4 flex items-center gap-2 bg-[#d6ff00] px-4 py-3 text-xs font-black uppercase disabled:opacity-40"
             >
-              {grant.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Coins className="h-4 w-4 stroke-[3]" />}
-              Grant PROOF
+              {grant.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Coins className="h-4 w-4 stroke-[3]" />
+              )}
+              Grant points
             </button>
           </section>
 
           <section className="neo-card bg-[#ffe454] p-5">
             <p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider">
               <Coins className="h-3.5 w-3.5 stroke-[3]" />
-              Fund a streak pot
+              Put CKB on a Cell
             </p>
             <p className="mt-2 text-xs font-semibold text-black/70">
-              Move PROOF from your balance into a streak pot.
+              Move CKB from your balance into a Cell&rsquo;s pot. Whoever keeps it alive shares it.
             </p>
             <label className="mt-4 block text-xs font-semibold">
-              Streak
+              Cell
               <select
                 value={potJourneyId}
                 onChange={(e) => setPotJourneyId(e.target.value)}
                 className="mt-1 w-full border-[3px] border-black bg-white px-3 py-2 text-xs"
               >
-                <option value="">Select streak…</option>
-                {streaks
-                  .filter((s) => s.status === 'alive')
-                  .map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.creatureName} · pot {s.rewardPoolProof}
-                    </option>
-                  ))}
+                <option value="">Select a Cell…</option>
+                {liveCells.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.creatureName} · pot {s.rewardPoolCkb}
+                  </option>
+                ))}
               </select>
             </label>
             <label className="mt-3 block text-xs font-semibold">
-              Amount (you have {me?.proofBalance ?? 0})
+              Amount (you have {me?.pointsBalance ?? 0} pts)
               <input
                 type="number"
                 min={1}
-                max={me?.proofBalance ?? 0}
+                max={me?.pointsBalance ?? 0}
                 value={potAmount}
                 onChange={(e) => setPotAmount(Number(e.target.value))}
                 className="mt-1 w-full border-[3px] border-black bg-white px-3 py-2 font-mono text-xs"
@@ -197,24 +203,31 @@ export function CommunityAdminView({ slug }: { slug: string }) {
             </button>
 
             <div className="mt-6 border-t-[3px] border-black pt-4">
-              <p className="text-[10px] font-black uppercase tracking-wider">Live streaks</p>
+              <p className="text-[10px] font-black uppercase tracking-wider">Community events</p>
               <ul className="mt-2 space-y-2">
-                {streaks.map((s) => (
-                  <li key={s.id} className="flex items-center justify-between gap-2 text-xs font-semibold">
-                    <span>
-                      {s.creatureName} · #{s.holderCount} · {s.status}
-                    </span>
-                    <Link href={`/streaks/${s.id}`} className="underline">
-                      Open
-                    </Link>
-                  </li>
-                ))}
+                {events.length === 0 ? (
+                  <li className="text-xs font-semibold text-black/55">No events yet.</li>
+                ) : (
+                  events.map((e) => (
+                    <li
+                      key={e.id}
+                      className="flex items-center justify-between gap-2 text-xs font-semibold"
+                    >
+                      <span>
+                        {e.name} · {e.status} · pot {e.pot}
+                      </span>
+                      <Link href={`/events/${e.id}`} className="underline">
+                        Open
+                      </Link>
+                    </li>
+                  ))
+                )}
               </ul>
               <Link
-                href={`/launch?community=${community.id}`}
+                href={`/create?community=${community.id}`}
                 className="mt-3 inline-block text-xs font-black uppercase underline"
               >
-                Launch another streak in this room →
+                Create event in this room →
               </Link>
             </div>
           </section>

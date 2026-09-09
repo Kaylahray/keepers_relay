@@ -7,6 +7,7 @@ description = "Keepers Relay Chain Cell type script — enforces living Cell han
 
 [dependencies]
 ckb-std.workspace = true
+blake2b-ref.workspace = true
 
 [[bin]]
 name = "chain-cell-type"

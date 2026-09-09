@@ -27,7 +27,7 @@ export function CharacterAvatar({ characterId, size = 'md', className = '' }: Ch
   if (!character) {
     return (
       <div
-        className={`${SIZES[size]} border-[3px] border-black bg-[#777777] ${className}`}
+        className={`${SIZES[size]} rounded-xl border border-white/15 bg-white/10 ${className}`}
         aria-hidden="true"
       />
     );
@@ -35,14 +35,14 @@ export function CharacterAvatar({ characterId, size = 'md', className = '' }: Ch
 
   return (
     <div
-      className={`relative overflow-hidden border-[3px] border-black ${SIZES[size]} ${className}`}
-      style={{ backgroundColor: character.fill, boxShadow: `4px 4px 0 ${character.accent}` }}
+      className={`relative overflow-hidden rounded-xl border border-white/20 ${SIZES[size]} ${className}`}
+      style={{ backgroundColor: character.fill }}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={characterPortraitUrl(character, size === 'xl' || size === 'lg' ? 320 : 160)}
         alt=""
-        className="h-full w-full object-cover"
+        className="h-full w-full object-contain object-bottom"
       />
     </div>
   );
@@ -55,7 +55,11 @@ interface CharacterPickerProps {
 
 export function CharacterPicker({ value, onChange }: CharacterPickerProps) {
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4" role="listbox" aria-label="Choose your character">
+    <div
+      className="grid grid-cols-2 gap-3 sm:grid-cols-4"
+      role="listbox"
+      aria-label="Choose your character"
+    >
       {CHARACTERS.map((character) => (
         <CharacterCard
           key={character.id}
@@ -83,33 +87,35 @@ function CharacterCard({
       role="option"
       aria-selected={selected}
       onClick={onSelect}
-      whileHover={{ y: -3 }}
+      whileHover={{ y: -4 }}
       whileTap={{ scale: 0.98 }}
-      className={`border-[3px] border-black p-2 text-left ${
-        selected ? 'bg-[#d6ff00] shadow-[6px_6px_0_#101010]' : 'bg-[#fff8e7] shadow-[4px_4px_0_#101010]'
+      className={`overflow-hidden rounded-2xl border p-2 text-left transition ${
+        selected
+          ? 'border-[#ff56f6] bg-[#ff56f6]/15 shadow-[0_0_28px_rgba(255,86,246,0.35)]'
+          : 'border-white/10 bg-white/5 hover:border-white/25'
       }`}
     >
       <div
-        className="relative aspect-square overflow-hidden border-[3px] border-black"
+        className="relative aspect-square overflow-hidden rounded-xl"
         style={{ backgroundColor: character.fill }}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={characterPortraitUrl(character, 256)}
           alt={character.name}
-          className="h-full w-full object-cover"
+          className="h-full w-full object-contain object-bottom"
         />
         {selected && (
-          <span className="absolute bottom-1 left-1 border-2 border-black bg-[#ff4cbd] px-1.5 py-0.5 text-[9px] font-black uppercase">
+          <span className="absolute bottom-1 left-1 rounded-md bg-[#ff56f6] px-1.5 py-0.5 text-[9px] font-bold uppercase text-white">
             Selected
           </span>
         )}
       </div>
-      <p className="mt-2 font-poster text-lg uppercase leading-none">{character.name}</p>
-      <p className="mt-1 text-[10px] font-black uppercase tracking-wider" style={{ color: character.accent === '#fff8e7' ? '#101010' : undefined }}>
+      <p className="mt-2 font-poster text-lg uppercase leading-none text-white">{character.name}</p>
+      <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-[#ff56f6]">
         {character.title}
       </p>
-      <p className="mt-1 text-[10px] font-semibold leading-snug text-black/70">{character.tagline}</p>
+      <p className="mt-1 text-[10px] font-medium leading-snug text-white/55">{character.tagline}</p>
     </motion.button>
   );
 }

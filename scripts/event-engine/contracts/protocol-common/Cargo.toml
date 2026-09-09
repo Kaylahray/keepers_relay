@@ -1,0 +1,8 @@
+[package]
+name = "keepers-relay-protocol-common"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+ckb-std = { workspace = true }

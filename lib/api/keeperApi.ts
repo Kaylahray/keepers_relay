@@ -106,7 +106,8 @@ export function upsertBuilder(input: {
 }
 
 export function getBuilder(address: string): Promise<{ builder: BuilderProfile | null }> {
-  return request(`/api/builders/${encodeURIComponent(address)}`);
+  const params = new URLSearchParams({ address });
+  return request(`/api/builders?${params.toString()}`);
 }
 
 export function releaseBuilderHandle(address: string) {

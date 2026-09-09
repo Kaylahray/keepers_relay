@@ -5,21 +5,18 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
-import { chainKeys, communityKeys } from '@/lib/queryClient';
+import { communityKeys } from '@/lib/queryClient';
 import {
-  acceptHandoff,
   createCommunity,
-  declineHandoff,
   getCommunity,
-  grantCommunityProof,
+  grantCommunityPoints,
   joinCommunity,
   leaveCommunity,
   listCommunities,
-  listHandoffs,
-  requestHandoff,
 } from '@/lib/api/communityApi';
+import { post, request } from '@/lib/api/client';
 import { useWallet } from '@/hooks/useWallet';
-import { builderKeys } from '@/hooks/useBuilder';
+import type { HandoffRequest } from '@/types/community';
 
 export function useCommunitiesQuery() {
   const { address } = useWallet();
@@ -51,8 +48,15 @@ export function useCreateCommunity() {
 export function useJoinCommunity() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ slug, address }: { slug: string; address: string }) =>
-      joinCommunity(slug, address),
+    mutationFn: ({
+      slug,
+      address,
+      invitedByAddress,
+    }: {
+      slug: string;
+      address: string;
+      invitedByAddress?: string;
+    }) => joinCommunity(slug, address, invitedByAddress),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: communityKeys.all });
     },
@@ -70,19 +74,36 @@ export function useLeaveCommunity() {
   });
 }
 
-export function useHandoffsQuery(journeyId: string | undefined) {
+export function useGrantCommunityPoints() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: grantCommunityPoints,
+    onSuccess: (_data, vars) => {
+      void qc.invalidateQueries({ queryKey: communityKeys.all });
+      void qc.invalidateQueries({
+        queryKey: communityKeys.detail(vars.slug, vars.address),
+      });
+    },
+  });
+}
+
+/** Legacy Chain Cell handoff queue (still used by ChainLetter / HandoffPanel). */
+export function useHandoffsQuery(journeyId: string) {
   return useQuery({
-    queryKey: communityKeys.handoffs(journeyId ?? ''),
-    queryFn: () => listHandoffs(journeyId!),
+    queryKey: communityKeys.handoffs(journeyId),
+    queryFn: () =>
+      request<HandoffRequest[]>(
+        `/api/handoffs?journeyId=${encodeURIComponent(journeyId)}`,
+      ),
     enabled: Boolean(journeyId),
-    refetchInterval: 30_000,
   });
 }
 
 export function useRequestHandoff() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: requestHandoff,
+    mutationFn: (body: { address: string; journeyId: string; note?: string }) =>
+      post<HandoffRequest>('/api/handoffs', { action: 'request', ...body }),
     onSuccess: (_data, vars) => {
       void qc.invalidateQueries({ queryKey: communityKeys.handoffs(vars.journeyId) });
     },
@@ -92,10 +113,17 @@ export function useRequestHandoff() {
 export function useAcceptHandoff() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: acceptHandoff,
+    mutationFn: (body: {
+      address: string;
+      requestId: string;
+      city?: string;
+      cellOutPoint?: { txHash: string; index: string };
+      txHash?: string;
+      expiresAt?: string;
+    }) => post('/api/handoffs', { action: 'accept', ...body }),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: chainKeys.all });
       void qc.invalidateQueries({ queryKey: communityKeys.all });
+      void qc.invalidateQueries({ queryKey: ['chain'] });
     },
   });
 }
@@ -103,20 +131,10 @@ export function useAcceptHandoff() {
 export function useDeclineHandoff() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: declineHandoff,
+    mutationFn: (body: { address: string; requestId: string }) =>
+      post('/api/handoffs', { action: 'decline', ...body }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: communityKeys.all });
-    },
-  });
-}
-
-export function useGrantCommunityProof() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: grantCommunityProof,
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: communityKeys.all });
-      void qc.invalidateQueries({ queryKey: builderKeys.roster });
     },
   });
 }

@@ -1,0 +1,13 @@
+{
+  "cell_recipes": [
+    {
+      "name": "event-treasury-lock",
+      "tx_hash": "0xe90e1ac6245ad1220d1f6c8ab20c03c841445fe0b473436bedb1a5f2245c59dd",
+      "index": 0,
+      "occupied_capacity": 4685400000000,
+      "data_hash": "0x6f15c11caaae65ac59e3f690562ee2e682c4f867c263228d745bde01a2e20852",
+      "type_id": "0xbd865152531766f24efd4b6334321e7d2e585a0d427768f935b9eb5933c277d6"
+    }
+  ],
+  "dep_group_recipes": []
+}

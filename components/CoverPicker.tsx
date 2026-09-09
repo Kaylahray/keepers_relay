@@ -3,17 +3,17 @@
 import { useRef, useState } from 'react';
 import { ImagePlus, Loader2 } from 'lucide-react';
 import {
-  COVER_PRESETS,
+  ARENA_COVERS,
+  arenaCoverForSeed,
   fileToCoverDataUrl,
   isUsableCover,
-  posterDataUri,
 } from '@/lib/poster';
 
 export function CoverPicker({
   value,
   onChange,
   seed,
-  label = 'Cover · this is the Cell',
+  label = 'Cover · pick arena art',
 }: {
   value: string;
   onChange: (url: string) => void;
@@ -24,7 +24,7 @@ export function CoverPicker({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [urlDraft, setUrlDraft] = useState('');
-  const preview = value || posterDataUri(seed || 'keepers');
+  const preview = value || arenaCoverForSeed(seed || 'keepers');
 
   async function onFile(file: File | undefined) {
     if (!file) return;
@@ -42,7 +42,7 @@ export function CoverPicker({
   function applyUrl() {
     const next = urlDraft.trim();
     if (!isUsableCover(next)) {
-      setError('Paste an https:// image URL.');
+      setError('Paste an https:// image URL or pick arena art.');
       return;
     }
     setError(null);
@@ -50,18 +50,20 @@ export function CoverPicker({
   }
 
   return (
-    <fieldset className="mt-4">
-      <legend className="text-[10px] font-black uppercase tracking-wider">{label}</legend>
-      <p className="mt-1 text-[11px] font-semibold text-black/70">
-        Upload, paste a link, or pick a poster.
+    <fieldset className="mt-5">
+      <legend className="text-[10px] font-bold uppercase tracking-wider text-white/45">
+        {label}
+      </legend>
+      <p className="mt-1 text-[11px] font-medium text-white/55">
+        Curated arena plates — upload or URL if you want your own. No generate.
       </p>
 
       <div className="mt-3 grid grid-cols-[7.5rem_1fr] gap-3 sm:grid-cols-[9rem_1fr]">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={preview}
-          alt="Streak cover preview"
-          className="h-24 w-full border-[3px] border-black object-cover sm:h-28"
+          alt="Cell cover preview"
+          className="h-28 w-full rounded-xl border border-white/15 bg-black/40 object-contain sm:h-32"
         />
         <div className="flex flex-col justify-center gap-2">
           <input
@@ -75,35 +77,37 @@ export function CoverPicker({
             type="button"
             disabled={busy}
             onClick={() => inputRef.current?.click()}
-            className="neo-button inline-flex items-center justify-center gap-1.5 bg-[#224cff] px-3 py-2 text-[10px] font-black uppercase text-[#fff8e7] disabled:opacity-40"
+            className="arena-cta inline-flex items-center justify-center gap-1.5 rounded px-3 py-2 text-[10px] font-bold uppercase disabled:opacity-40"
           >
-            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5 stroke-[3]" />}
+            {busy ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <ImagePlus className="h-3.5 w-3.5" />
+            )}
             Upload cover
-          </button>
-          <button
-            type="button"
-            onClick={() => onChange(posterDataUri(seed || 'keepers'))}
-            className="border-2 border-black bg-[#fff8e7] px-3 py-1.5 text-[10px] font-black uppercase"
-          >
-            Generate from name
           </button>
         </div>
       </div>
 
       <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-        {COVER_PRESETS.map((preset) => {
-          const src = posterDataUri(preset.id);
-          const selected = value === src;
+        {ARENA_COVERS.map((preset) => {
+          const selected = value === preset.src;
           return (
             <button
               key={preset.id}
               type="button"
-              onClick={() => onChange(src)}
-              className={`shrink-0 border-[3px] ${selected ? 'border-[#ff4cbd]' : 'border-black'}`}
+              onClick={() => onChange(preset.src)}
+              className={`shrink-0 overflow-hidden rounded-xl border-2 bg-black/40 ${
+                selected ? 'border-[#ff56f6]' : 'border-white/15'
+              }`}
               title={preset.label}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={src} alt={preset.label} className="h-12 w-16 object-cover" />
+              <img
+                src={preset.src}
+                alt={preset.label}
+                className="h-16 w-14 object-contain object-bottom"
+              />
             </button>
           );
         })}
@@ -114,18 +118,18 @@ export function CoverPicker({
           value={urlDraft}
           onChange={(event) => setUrlDraft(event.target.value)}
           placeholder="https://… image URL"
-          className="min-w-0 flex-1 border-[3px] border-black bg-[#fff8e7] px-3 py-2 text-xs font-semibold outline-none"
+          className="min-w-0 flex-1 rounded-lg border border-white/15 bg-black/30 px-3 py-2 text-xs font-medium text-white outline-none placeholder:text-white/35"
         />
         <button
           type="button"
           onClick={applyUrl}
-          className="border-2 border-black bg-white px-3 py-2 text-[10px] font-black uppercase"
+          className="rounded-lg border border-white/20 px-3 py-2 text-[10px] font-bold uppercase text-white/80 hover:bg-white/5"
         >
           Use URL
         </button>
       </div>
       {error && (
-        <p role="alert" className="mt-2 text-xs font-bold text-red-800">
+        <p role="alert" className="mt-2 text-xs font-bold text-[#ff56f6]">
           {error}
         </p>
       )}
