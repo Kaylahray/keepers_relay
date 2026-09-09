@@ -41,6 +41,9 @@ yarn-error.log*
 /scripts/chain-cell/build/
 /scripts/chain-cell/tests/failed_txs/
 
+# event-engine cargo build cache (keep build/release binaries)
+/scripts/event-engine/target/
+
 # vercel
 .vercel
 
