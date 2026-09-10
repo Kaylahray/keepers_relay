@@ -39,6 +39,26 @@ export async function loadAllRelayEvents(): Promise<RelayEvent[]> {
   }
 }
 
+/** Fetch one event by id — used when the working set miss happens after a race or cold instance. */
+export async function loadRelayEventById(eventId: string): Promise<RelayEvent | null> {
+  if (!databaseConfigured() || !eventId) return null;
+  await ensureRelayEventTables();
+  const sql = neon(requireDatabaseUrl());
+  try {
+    const rows = await sql`
+      SELECT payload FROM relay_events WHERE id = ${eventId} LIMIT 1
+    `;
+    const raw = rows[0]?.payload;
+    if (!raw) return null;
+    const event =
+      typeof raw === 'string' ? (JSON.parse(raw) as RelayEvent) : (raw as RelayEvent);
+    return event?.id ? event : null;
+  } catch (err) {
+    console.warn('[db] loadRelayEventById failed:', err);
+    throw err;
+  }
+}
+
 export async function upsertRelayEvent(event: RelayEvent): Promise<void> {
   if (!databaseConfigured()) {
     throw new Error(
@@ -87,5 +107,46 @@ export async function saveAllRelayEvents(events: RelayEvent[]): Promise<void> {
   }
   for (const event of events) {
     await upsertRelayEvent(event);
+  }
+}
+
+/**
+ * Best-effort write of question vault rows (includes correct_index).
+ * Never throws to callers — create/list must not break if this fails.
+ */
+export async function persistRelayQuestionsBestEffort(event: RelayEvent): Promise<void> {
+  if (!databaseConfigured() || !event?.id || !event.questionPool?.length) return;
+  try {
+    await ensureRelayEventTables();
+    const sql = neon(requireDatabaseUrl());
+    for (const q of event.questionPool) {
+      await sql`
+        INSERT INTO relay_questions (
+          id, event_id, commit, prompt, options, correct_index,
+          category, difficulty, explanation, created_at
+        ) VALUES (
+          ${q.id},
+          ${event.id},
+          ${q.commit},
+          ${q.prompt},
+          ${JSON.stringify(q.options ?? [])}::jsonb,
+          ${q.correctIndex ?? 0},
+          ${q.category ?? 'general'},
+          ${q.difficulty ?? 'medium'},
+          ${q.explanation ?? null},
+          now()
+        )
+        ON CONFLICT (id) DO UPDATE SET
+          commit = EXCLUDED.commit,
+          prompt = EXCLUDED.prompt,
+          options = EXCLUDED.options,
+          correct_index = EXCLUDED.correct_index,
+          category = EXCLUDED.category,
+          difficulty = EXCLUDED.difficulty,
+          explanation = EXCLUDED.explanation
+      `;
+    }
+  } catch (err) {
+    console.warn('[db] persistRelayQuestionsBestEffort failed:', err);
   }
 }

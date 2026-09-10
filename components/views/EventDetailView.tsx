@@ -16,6 +16,7 @@ import {
   useStartEvent,
 } from '@/hooks/useEvents';
 import { useWallet } from '@/hooks/useWallet';
+import { useAuth } from '@/context/auth-provider';
 import { useMyBuilder } from '@/hooks/useBuilder';
 import { useUsername } from '@/hooks/useUsername';
 import { buildCellTimeline, EVENT_MODE_LABEL } from '@/types/event';
@@ -27,7 +28,8 @@ const LIFECYCLE = ['registration', 'ready', 'live', 'finished', 'settled'] as co
 export function EventDetailView({ eventId }: { eventId: string }) {
   const router = useRouter();
   const { data, isLoading, error } = useEventQuery(eventId);
-  const { address, isConnected, connect } = useWallet();
+  const { address, isConnected } = useWallet();
+  const { ensureAuth, authenticated, busy: authBusy } = useAuth();
   const me = useMyBuilder().data?.builder;
   const { username } = useUsername();
   const join = useJoinEvent(eventId);
@@ -173,8 +175,13 @@ export function EventDetailView({ eventId }: { eventId: string }) {
           </p>
 
           <div className="mt-8 flex flex-wrap gap-3">
-            {!isConnected ? (
-              <ArenaCta onClick={() => connect()}>Connect to join</ArenaCta>
+            {!isConnected || !authenticated ? (
+              <ArenaCta
+                onClick={() => void ensureAuth().catch(() => undefined)}
+                disabled={authBusy}
+              >
+                {authBusy ? 'Connecting…' : 'Connect to join'}
+              </ArenaCta>
             ) : event.status === 'live' ? (
               <ArenaCta href={`/events/${eventId}/live`}>Enter match</ArenaCta>
             ) : event.status === 'settled' || event.status === 'finished' ? (
@@ -185,15 +192,17 @@ export function EventDetailView({ eventId }: { eventId: string }) {
                   <button
                     type="button"
                     disabled={join.isPending}
-                    onClick={() =>
-                      address &&
-                      join.mutate(
-                        { eventId, address, displayName },
-                        {
-                          onSuccess: () => router.push(`/events/${eventId}/waiting`),
-                        },
-                      )
-                    }
+                    onClick={() => {
+                      if (!address) return;
+                      void ensureAuth()
+                        .then(() =>
+                          join.mutateAsync(
+                            { eventId, address, displayName },
+                          ),
+                        )
+                        .then(() => router.push(`/events/${eventId}/waiting`))
+                        .catch(() => undefined);
+                    }}
                     className="arena-cta px-5 py-3.5 text-[15px] font-bold uppercase disabled:opacity-40"
                   >
                     {join.isPending ? (

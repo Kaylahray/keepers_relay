@@ -5,7 +5,8 @@ import {
   leaveCommunity,
   listCommunities,
 } from '@/lib/server/social-service';
-import { readBody, respond, respondWrite } from '@/lib/server/respond';
+import { readBody, respond, respondSocial } from '@/lib/server/respond';
+import { requireSession } from '@/lib/server/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,18 +30,19 @@ export async function POST(request: Request) {
   }>(request);
 
   const action = body.action ?? 'create';
-  const address = body.address ?? '';
+  const session = requireSession(request, body.address);
+  const address = session.address;
 
   if (action === 'join') {
-    return respondWrite(() =>
+    return respondSocial(() =>
       joinCommunity(body.slug ?? '', address, body.invitedByAddress),
     );
   }
   if (action === 'leave') {
-    return respondWrite(() => leaveCommunity(body.slug ?? '', address));
+    return respondSocial(() => leaveCommunity(body.slug ?? '', address));
   }
   if (action === 'grant_points') {
-    return respondWrite(() =>
+    return respondSocial(() =>
       grantCommunityPoints({
         adminAddress: address,
         slug: body.slug ?? '',
@@ -51,7 +53,7 @@ export async function POST(request: Request) {
     );
   }
 
-  return respondWrite(() =>
+  return respondSocial(() =>
     createCommunity({
       address,
       name: body.name ?? '',

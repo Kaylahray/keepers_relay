@@ -1,10 +1,9 @@
 import * as ccc from '@ckb-ccc/core';
+import { getServerCkbClient } from '@/lib/ckb/server-client';
 import {
-  network,
   profileType,
   REGISTRY_FEE_RATE,
   rewardClaimType,
-  rpcUrl,
   usernameType,
 } from '@/lib/registry/config';
 import { computeMinCellCapacityCore } from '@/lib/registry/capacity-core';
@@ -24,18 +23,6 @@ import {
   REWARD_POINTS,
   type RewardMilestone,
 } from '@/lib/rewards/milestones';
-
-let cachedClient: ccc.Client | null = null;
-
-export function getServerCkbClient(): ccc.Client {
-  if (cachedClient) return cachedClient;
-  if (network === 'mainnet') {
-    cachedClient = new ccc.ClientPublicMainnet({ url: rpcUrl });
-  } else {
-    cachedClient = new ccc.ClientPublicTestnet({ url: rpcUrl });
-  }
-  return cachedClient;
-}
 
 function scriptFromConfig(cfg: {
   codeHash: string;

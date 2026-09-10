@@ -1,5 +1,6 @@
 import { getBuilder, listBuilders, upsertBuilder } from '@/lib/server/social-service';
-import { readBody, respond, respondWrite } from '@/lib/server/respond';
+import { readBody, respond, respondSocial } from '@/lib/server/respond';
+import { requireSession } from '@/lib/server/auth';
 import type { CharacterId } from '@/lib/characters';
 
 export const dynamic = 'force-dynamic';
@@ -25,9 +26,11 @@ export async function POST(request: Request) {
     avatarSporeId?: string | null;
   }>(request);
 
-  return respondWrite(() =>
+  const session = requireSession(request, body.address);
+
+  return respondSocial(() =>
     upsertBuilder({
-      address: body.address ?? '',
+      address: session.address,
       username: body.username ?? '',
       displayName: body.displayName ?? '',
       characterId: body.characterId ?? null,

@@ -8,6 +8,7 @@ import { databaseConfigured, getDb } from './client';
 import { builders, communities, communityMembers } from './schema';
 import type { BuilderProfile } from '@/types/builder';
 import type { Community } from '@/types/community';
+import { normalizeAddress } from '@/lib/server/auth';
 
 let tablesReady = false;
 
@@ -111,13 +112,16 @@ export async function loadSocialState(): Promise<SocialState | null> {
 
   const buildersMap: Record<string, BuilderProfile> = {};
   for (const row of builderRows) {
-    buildersMap[row.address] = rowToBuilder(row);
+    const profile = rowToBuilder(row);
+    const key = normalizeAddress(profile.address);
+    profile.address = key;
+    buildersMap[key] = profile;
   }
 
   const membersByCommunity = new Map<string, string[]>();
   for (const m of memberRows) {
     const list = membersByCommunity.get(m.communityId) ?? [];
-    list.push(m.address);
+    list.push(normalizeAddress(m.address));
     membersByCommunity.set(m.communityId, list);
   }
 
@@ -130,7 +134,7 @@ export async function loadSocialState(): Promise<SocialState | null> {
       blurb: row.blurb ?? '',
       coverImageUrl: row.coverImageUrl ?? '',
       featured: Boolean(row.featured),
-      creatorAddress: row.creatorAddress,
+      creatorAddress: normalizeAddress(row.creatorAddress),
       creatorName: row.creatorName,
       memberAddresses: membersByCommunity.get(row.id) ?? [],
       createdAt: asIso(row.createdAt),
@@ -149,13 +153,14 @@ export async function saveSocialState(state: SocialState): Promise<void> {
   const sql = neon(url);
 
   for (const b of Object.values(state.builders)) {
+    const address = normalizeAddress(b.address);
     await sql`
       INSERT INTO keepers_builders (
         address, username, display_name, character_id, avatar_spore_id, headline,
         joined_at, last_seen_at, onboarded, points_balance,
         claimed_milestones, claimed_badge_ids, invited_by_address, last_rescue_at
       ) VALUES (
-        ${b.address},
+        ${address},
         ${b.username ?? ''},
         ${b.displayName},
         ${b.characterId},
@@ -167,7 +172,7 @@ export async function saveSocialState(state: SocialState): Promise<void> {
         ${b.pointsBalance ?? 0},
         ${JSON.stringify(b.claimedMilestones ?? [])}::jsonb,
         ${JSON.stringify(b.claimedBadgeIds ?? [])}::jsonb,
-        ${b.invitedByAddress ?? null},
+        ${b.invitedByAddress ? normalizeAddress(b.invitedByAddress) : null},
         ${b.lastRescueAt ?? null}
       )
       ON CONFLICT (address) DO UPDATE SET
@@ -188,6 +193,7 @@ export async function saveSocialState(state: SocialState): Promise<void> {
   }
 
   for (const c of Object.values(state.communities)) {
+    const creatorAddress = normalizeAddress(c.creatorAddress);
     await sql`
       INSERT INTO keepers_communities (
         id, slug, name, blurb, cover_image_url, featured,
@@ -199,7 +205,7 @@ export async function saveSocialState(state: SocialState): Promise<void> {
         ${c.blurb ?? ''},
         ${c.coverImageUrl ?? ''},
         ${c.featured},
-        ${c.creatorAddress},
+        ${creatorAddress},
         ${c.creatorName},
         ${c.createdAt}
       )
@@ -214,7 +220,7 @@ export async function saveSocialState(state: SocialState): Promise<void> {
         created_at = EXCLUDED.created_at
     `;
 
-    const members = c.memberAddresses ?? [];
+    const members = (c.memberAddresses ?? []).map((a) => normalizeAddress(a));
     /**
      * Never DELETE-all when the in-memory roster is empty — that wiped CKB Main
      * after a bad hydrate. Empty = skip member sync for this community.
@@ -226,15 +232,28 @@ export async function saveSocialState(state: SocialState): Promise<void> {
       continue;
     }
 
-    await sql`DELETE FROM keepers_community_members WHERE community_id = ${c.id}`;
-
+    // Upsert each member, then delete only addresses present in Neon but not in roster.
+    const rosterSet = new Set(members);
     for (const address of members) {
-      const role = address === c.creatorAddress ? 'creator' : 'member';
+      const role = address === creatorAddress ? 'creator' : 'member';
       await sql`
         INSERT INTO keepers_community_members (community_id, address, role, joined_at)
         VALUES (${c.id}, ${address}, ${role}, now())
         ON CONFLICT (community_id, address) DO UPDATE SET role = EXCLUDED.role
       `;
+    }
+
+    const existing = await sql`
+      SELECT address FROM keepers_community_members WHERE community_id = ${c.id}
+    `;
+    for (const row of existing) {
+      const addr = normalizeAddress(String(row.address ?? ''));
+      if (!rosterSet.has(addr)) {
+        await sql`
+          DELETE FROM keepers_community_members
+          WHERE community_id = ${c.id} AND address = ${String(row.address ?? '')}
+        `;
+      }
     }
   }
 }

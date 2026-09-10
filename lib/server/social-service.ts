@@ -12,7 +12,12 @@ import {
   type SocialState,
 } from '@/lib/db/social';
 import { databaseConfigured } from '@/lib/db/client';
-import { listEventsForCommunity } from '@/lib/server/events-store';
+import {
+  listEventsForCommunity,
+  passportStatsForAddress,
+} from '@/lib/server/events-store';
+import { normalizeAddress } from '@/lib/server/auth';
+import { refreshCommunityIndexFromMap } from '@/lib/server/community-index';
 import { ApiError } from '@/lib/server/errors';
 import {
   normalizeUsername,
@@ -29,6 +34,10 @@ function emptyState(): SocialState {
   return { builders: {}, communities: {} };
 }
 
+function syncCommunityIndex(state: SocialState): void {
+  refreshCommunityIndexFromMap(state.communities);
+}
+
 async function loadOrEmpty(): Promise<SocialState> {
   if (!databaseConfigured()) {
     throw new ApiError(
@@ -37,11 +46,25 @@ async function loadOrEmpty(): Promise<SocialState> {
     );
   }
   await ensureSocialTables();
-  return (await loadSocialState()) ?? emptyState();
+  const state = (await loadSocialState()) ?? emptyState();
+  syncCommunityIndex(state);
+  return state;
+}
+
+/** Load communities into the sync name/slug index (for event summaries). */
+export async function refreshCommunityIndex(): Promise<void> {
+  if (!databaseConfigured()) {
+    refreshCommunityIndexFromMap({});
+    return;
+  }
+  await ensureSocialTables();
+  const state = (await loadSocialState()) ?? emptyState();
+  syncCommunityIndex(state);
 }
 
 async function persist(state: SocialState): Promise<void> {
   await saveSocialState(state);
+  syncCommunityIndex(state);
 }
 
 function slugify(input: string): string {
@@ -61,6 +84,7 @@ function toCommunitySummary(
   const liveEventCount = communityEvents.filter(
     (e) => e.status === 'live' || e.status === 'ready' || e.status === 'registration',
   ).length;
+  const viewer = viewerAddress ? normalizeAddress(viewerAddress) : '';
   return {
     id: community.id,
     slug: community.slug,
@@ -73,10 +97,8 @@ function toCommunitySummary(
     creatorName: community.creatorName,
     creatorAddress: community.creatorAddress,
     createdAt: community.createdAt,
-    isMember: viewerAddress
-      ? community.memberAddresses.some(
-          (a) => a.toLowerCase() === viewerAddress.toLowerCase(),
-        )
+    isMember: viewer
+      ? community.memberAddresses.some((a) => normalizeAddress(a) === viewer)
       : false,
   };
 }
@@ -107,19 +129,21 @@ export async function getCommunityBySlug(
 
   const events = listEventsForCommunity(community.id);
   const members = community.memberAddresses.map((address) => {
-    const builder = s.builders[address];
+    const key = normalizeAddress(address);
+    const builder = s.builders[key] ?? s.builders[address];
+    const stats = passportStatsForAddress(address);
     return {
-      address,
+      address: key || address,
       displayName: builder?.displayName ?? address.slice(0, 10),
       username: builder?.username ?? '',
       headline: builder?.headline,
       avatarUrl: null,
       characterId: builder?.characterId ?? null,
-      role: (address === community.creatorAddress ? 'creator' : 'member') as
-        | 'creator'
-        | 'member',
-      eventsPlayed: 0,
-      wins: 0,
+      role: (normalizeAddress(address) === normalizeAddress(community.creatorAddress)
+        ? 'creator'
+        : 'member') as 'creator' | 'member',
+      eventsPlayed: stats.eventsPlayed,
+      wins: stats.wins,
     };
   });
 
@@ -137,7 +161,8 @@ export async function createCommunity(input: {
   coverImageUrl?: string;
 }): Promise<CommunitySummary> {
   const s = await loadOrEmpty();
-  const builder = s.builders[input.address];
+  const address = normalizeAddress(input.address);
+  const builder = s.builders[address];
   if (!builder?.onboarded) {
     throw new ApiError('Finish onboarding before creating a community.', 403);
   }
@@ -164,22 +189,23 @@ export async function createCommunity(input: {
     blurb,
     coverImageUrl: input.coverImageUrl?.trim() || '',
     featured: false,
-    creatorAddress: input.address,
+    creatorAddress: address,
     creatorName: builder.displayName,
-    memberAddresses: [input.address],
+    memberAddresses: [address],
     createdAt: new Date().toISOString(),
   };
   s.communities[id] = community;
   await persist(s);
-  return toCommunitySummary(community, input.address);
+  return toCommunitySummary(community, address);
 }
 
 export async function joinCommunity(
   slug: string,
-  address: string,
+  addressRaw: string,
   invitedByAddress?: string,
 ): Promise<CommunitySummary> {
   const s = await loadOrEmpty();
+  const address = normalizeAddress(addressRaw);
   const builder = s.builders[address];
   if (!builder?.onboarded) {
     throw new ApiError('Finish onboarding before joining a community.', 403);
@@ -187,11 +213,11 @@ export async function joinCommunity(
   const community = Object.values(s.communities).find((c) => c.slug === slug);
   if (!community) throw new ApiError('Community not found.', 404);
 
-  if (!community.memberAddresses.some((a) => a.toLowerCase() === address.toLowerCase())) {
+  if (!community.memberAddresses.some((a) => normalizeAddress(a) === address)) {
     community.memberAddresses.push(address);
   }
   if (invitedByAddress && !builder.invitedByAddress) {
-    builder.invitedByAddress = invitedByAddress;
+    builder.invitedByAddress = normalizeAddress(invitedByAddress);
     s.builders[address] = builder;
   }
   await persist(s);
@@ -200,16 +226,17 @@ export async function joinCommunity(
 
 export async function leaveCommunity(
   slug: string,
-  address: string,
+  addressRaw: string,
 ): Promise<CommunitySummary> {
   const s = await loadOrEmpty();
+  const address = normalizeAddress(addressRaw);
   const community = Object.values(s.communities).find((c) => c.slug === slug);
   if (!community) throw new ApiError('Community not found.', 404);
-  if (community.featured && community.creatorAddress === address) {
+  if (community.featured && normalizeAddress(community.creatorAddress) === address) {
     throw new ApiError('Featured community creators can’t leave the room.', 409);
   }
   community.memberAddresses = community.memberAddresses.filter(
-    (a) => a.toLowerCase() !== address.toLowerCase(),
+    (a) => normalizeAddress(a) !== address,
   );
   await persist(s);
   return toCommunitySummary(community, address);
@@ -223,25 +250,25 @@ export async function grantCommunityPoints(input: {
   note?: string;
 }): Promise<{ recipient: BuilderProfile; amount: number }> {
   const s = await loadOrEmpty();
-  const admin = s.builders[input.adminAddress];
+  const adminAddress = normalizeAddress(input.adminAddress);
+  const recipientAddress = normalizeAddress(input.recipientAddress);
+  const admin = s.builders[adminAddress];
   if (!admin?.onboarded) throw new ApiError('Finish onboarding first.', 403);
   const community = Object.values(s.communities).find((c) => c.slug === input.slug);
   if (!community) throw new ApiError('Community not found.', 404);
-  if (community.creatorAddress.toLowerCase() !== input.adminAddress.toLowerCase()) {
+  if (normalizeAddress(community.creatorAddress) !== adminAddress) {
     throw new ApiError('Only the community creator can grant points here.', 403);
   }
   const amount = Math.floor(input.amount);
   if (amount < 1 || amount > 10_000) {
     throw new ApiError('Grant between 1 and 10,000 points.');
   }
-  const recipient = s.builders[input.recipientAddress];
+  const recipient = s.builders[recipientAddress];
   if (!recipient?.onboarded) {
     throw new ApiError('Recipient must be an onboarded builder.', 404);
   }
   if (
-    !community.memberAddresses.some(
-      (a) => a.toLowerCase() === input.recipientAddress.toLowerCase(),
-    )
+    !community.memberAddresses.some((a) => normalizeAddress(a) === recipientAddress)
   ) {
     throw new ApiError('Recipient must be a member of this community.', 403);
   }
@@ -260,8 +287,9 @@ export async function listBuilders(): Promise<BuilderProfile[]> {
     .sort((a, b) => new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime());
 }
 
-export async function getBuilder(address: string): Promise<BuilderProfile | null> {
+export async function getBuilder(addressRaw: string): Promise<BuilderProfile | null> {
   const s = await loadOrEmpty();
+  const address = normalizeAddress(addressRaw);
   return s.builders[address] ?? null;
 }
 
@@ -274,11 +302,12 @@ export async function checkUsernameAvailable(
   if (reason) return { username, available: false, reason };
 
   const s = await loadOrEmpty();
+  const except = exceptAddress ? normalizeAddress(exceptAddress) : undefined;
   const taken = Object.values(s.builders).find(
     (builder) =>
       builder.onboarded &&
       builder.username === username &&
-      (!exceptAddress || builder.address !== exceptAddress),
+      (!except || normalizeAddress(builder.address) !== except),
   );
   if (taken) {
     return { username, available: false, reason: 'That username is already taken.' };
@@ -288,7 +317,7 @@ export async function checkUsernameAvailable(
 
 export async function upsertBuilder(input: UpsertBuilderInput): Promise<BuilderProfile> {
   const s = await loadOrEmpty();
-  const address = input.address.trim();
+  const address = normalizeAddress(input.address);
   const displayName = input.displayName.trim();
   const usernameCheck = await checkUsernameAvailable(input.username, address);
   const characterId = input.characterId ?? null;
@@ -331,8 +360,9 @@ export async function upsertBuilder(input: UpsertBuilderInput): Promise<BuilderP
   return builder;
 }
 
-export async function touchBuilder(address: string): Promise<BuilderProfile | null> {
+export async function touchBuilder(addressRaw: string): Promise<BuilderProfile | null> {
   const s = await loadOrEmpty();
+  const address = normalizeAddress(addressRaw);
   const builder = s.builders[address];
   if (!builder) return null;
   builder.lastSeenAt = new Date().toISOString();
@@ -342,10 +372,11 @@ export async function touchBuilder(address: string): Promise<BuilderProfile | nu
 }
 
 export async function setBuilderAvatar(
-  address: string,
+  addressRaw: string,
   avatarSporeId: string | null,
 ): Promise<BuilderProfile> {
   const s = await loadOrEmpty();
+  const address = normalizeAddress(addressRaw);
   const builder = s.builders[address];
   if (!builder?.onboarded) {
     throw new ApiError('Finish onboarding before setting an avatar.', 403);
@@ -358,10 +389,11 @@ export async function setBuilderAvatar(
 }
 
 export async function clearBuilderAvatarIfMatches(
-  address: string,
+  addressRaw: string,
   sporeId: string,
 ): Promise<BuilderProfile | null> {
   const s = await loadOrEmpty();
+  const address = normalizeAddress(addressRaw);
   const builder = s.builders[address];
   if (!builder) return null;
   if (builder.avatarSporeId !== sporeId) return builder;
@@ -371,8 +403,9 @@ export async function clearBuilderAvatarIfMatches(
   return builder;
 }
 
-export async function releaseBuilderHandle(address: string): Promise<BuilderProfile | null> {
+export async function releaseBuilderHandle(addressRaw: string): Promise<BuilderProfile | null> {
   const s = await loadOrEmpty();
+  const address = normalizeAddress(addressRaw);
   const builder = s.builders[address];
   if (!builder) return null;
   builder.username = '';
@@ -384,11 +417,12 @@ export async function releaseBuilderHandle(address: string): Promise<BuilderProf
 }
 
 export async function unlockBadge(
-  address: string,
+  addressRaw: string,
   badgeId: string,
 ): Promise<BuilderProfile> {
   const { KEEPER_BADGES } = await import('@/lib/rewards/milestones');
   const s = await loadOrEmpty();
+  const address = normalizeAddress(addressRaw);
   const builder = s.builders[address];
   if (!builder?.onboarded) {
     throw new ApiError('Onboard before unlocking badges.', 403);
@@ -407,8 +441,8 @@ export async function unlockBadge(
   return builder;
 }
 
-/** Minimal passport shape for profile UI — derived from builder, not old store. */
-export async function getPassport(address?: string): Promise<{
+/** Passport for profile UI — builder + event participation stats. */
+export async function getPassport(addressRaw?: string): Promise<{
   address: string;
   displayName: string;
   characterId: string | null;
@@ -421,7 +455,7 @@ export async function getPassport(address?: string): Promise<{
   keeperPassStreak: number;
   longestKeeperPassStreak: number;
 }> {
-  if (!address) {
+  if (!addressRaw) {
     return {
       address: '',
       displayName: 'Keeper',
@@ -436,17 +470,27 @@ export async function getPassport(address?: string): Promise<{
       longestKeeperPassStreak: 0,
     };
   }
+  const address = normalizeAddress(addressRaw);
   const builder = await getBuilder(address);
+  const stats = passportStatsForAddress(address);
+  const badgeLabels: string[] = [];
+  if (builder?.onboarded) badgeLabels.push('Joined the relay');
+  if (stats.completedRelayIds.length > 0) badgeLabels.push('Relay finisher');
+  if (stats.wins > 0) badgeLabels.push('Event winner');
+  for (const id of builder?.claimedBadgeIds ?? []) {
+    badgeLabels.push(id);
+  }
+
   return {
     address,
     displayName: builder?.displayName ?? 'Keeper',
     characterId: builder?.characterId ?? null,
-    relayStreak: 0,
-    contributionXp: builder?.pointsBalance ?? 0,
-    completedRelayIds: [],
-    artifactCount: 0,
-    badgeLabels: builder?.onboarded ? ['Joined the relay'] : [],
-    keeperTurns: 0,
+    relayStreak: Math.min(stats.completedRelayIds.length, 99),
+    contributionXp: (builder?.pointsBalance ?? 0) + stats.contributionXp,
+    completedRelayIds: stats.completedRelayIds,
+    artifactCount: builder?.claimedBadgeIds?.length ?? 0,
+    badgeLabels,
+    keeperTurns: stats.keeperTurns,
     keeperPassStreak: 0,
     longestKeeperPassStreak: 0,
   };

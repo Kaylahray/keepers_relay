@@ -1,5 +1,6 @@
 import { getBuilder, touchBuilder } from '@/lib/server/social-service';
-import { respond, respondWrite } from '@/lib/server/respond';
+import { respond, respondSocial } from '@/lib/server/respond';
+import { requireSession } from '@/lib/server/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,9 +19,11 @@ export async function GET(
 }
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ address: string }> },
 ) {
   const { address } = await params;
-  return respondWrite(() => touchBuilder(decodeURIComponent(address)));
+  const decoded = decodeURIComponent(address);
+  requireSession(request, decoded);
+  return respondSocial(() => touchBuilder(decoded));
 }

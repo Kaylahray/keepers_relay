@@ -10,6 +10,7 @@ import { EventQuestionPoolStep } from '@/components/views/EventQuestionPoolStep'
 import { useCreateEvent } from '@/hooks/useEvents';
 import { useCommunitiesQuery } from '@/hooks/useCommunity';
 import { useWallet } from '@/hooks/useWallet';
+import { useAuth } from '@/context/auth-provider';
 import { useMyBuilder } from '@/hooks/useBuilder';
 import { useUsername } from '@/hooks/useUsername';
 import { arenaCoverForSeed } from '@/lib/poster';
@@ -103,7 +104,8 @@ export function CreateEventView() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const linkedCommunity = searchParams.get('community');
-  const { address, isConnected, connect } = useWallet();
+  const { address, isConnected } = useWallet();
+  const { ensureAuth, authenticated, busy: authBusy } = useAuth();
   const me = useMyBuilder().data?.builder;
   const { username } = useUsername();
   const create = useCreateEvent();
@@ -192,13 +194,19 @@ export function CreateEventView() {
     setStep((s) => Math.max(0, s - 1));
   }
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (step < STEPS.length - 1) {
       goNext();
       return;
     }
     if (!address || !basicsOk || !poolOk) return;
+
+    try {
+      await ensureAuth();
+    } catch {
+      return;
+    }
 
     create.mutate(
       {
@@ -237,14 +245,18 @@ export function CreateEventView() {
     );
   }
 
-  if (!isConnected) {
+  if (!isConnected || !authenticated) {
     return (
       <Shell>
         <div className="max-w-lg border border-white/10 bg-black/45 p-6">
           <p className="font-mono text-[11px] uppercase text-[#99ee2d]">Create event</p>
           <h1 className="mt-2 font-poster text-4xl uppercase text-white">One game. Your rules.</h1>
-          <ArenaCta onClick={() => connect()} className="mt-8">
-            Connect wallet to host
+          <ArenaCta
+            onClick={() => void ensureAuth().catch(() => undefined)}
+            className="mt-8"
+            disabled={authBusy}
+          >
+            {authBusy ? 'Connecting…' : 'Connect wallet to host'}
           </ArenaCta>
         </div>
       </Shell>

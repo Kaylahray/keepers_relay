@@ -8,6 +8,7 @@ import { CharacterAvatar } from '@/components/CharacterPicker';
 import { useMyBuilder } from '@/hooks/useBuilder';
 import { useWallet } from '@/hooks/useWallet';
 import { useUsername } from '@/hooks/useUsername';
+import { useAuth } from '@/context/auth-provider';
 
 /** Slim bar — logo | centered links | wallet/profile */
 const NAV = [
@@ -25,7 +26,8 @@ function isActive(pathname: string, href: string): boolean {
 
 export function SiteHeader() {
   const pathname = usePathname();
-  const { connect, disconnect, isConnected, formattedAddress, isReady } = useWallet();
+  const { disconnect, formattedAddress, isReady } = useWallet();
+  const { signOut, authenticated, ensureAuth, busy: authBusy } = useAuth();
   const myBuilder = useMyBuilder();
   const builder = myBuilder.data?.builder;
   const { username: onChainUsername } = useUsername();
@@ -67,7 +69,7 @@ export function SiteHeader() {
         </nav>
 
         <div className="flex shrink-0 items-center gap-2">
-          {!isReady ? null : isConnected ? (
+          {!isReady ? null : authenticated ? (
             <div className="flex items-center gap-2">
               {builder?.characterId && (
                 <CharacterAvatar characterId={builder.characterId} size="sm" />
@@ -89,7 +91,9 @@ export function SiteHeader() {
               </Link>
               <button
                 type="button"
-                onClick={() => disconnect()}
+                onClick={() => {
+                  void signOut().finally(() => disconnect());
+                }}
                 aria-label="Disconnect"
                 className="rounded p-1.5 text-white/50 hover:bg-white/10 hover:text-white"
               >
@@ -99,11 +103,12 @@ export function SiteHeader() {
           ) : (
             <button
               type="button"
-              onClick={() => connect()}
-              className="arena-cta flex items-center gap-2 px-4 py-2 text-[11px] font-bold uppercase"
+              disabled={authBusy}
+              onClick={() => void ensureAuth().catch(() => undefined)}
+              className="arena-cta flex items-center gap-2 px-4 py-2 text-[11px] font-bold uppercase disabled:opacity-50"
             >
               <WalletMinimal className="h-4 w-4" />
-              Connect
+              {authBusy ? 'Connecting…' : 'Connect'}
             </button>
           )}
 

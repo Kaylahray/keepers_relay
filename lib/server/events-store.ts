@@ -37,7 +37,13 @@ import {
   toEventSummary,
   toPublicQuestion,
 } from '@/types/event';
+import { normalizeAddress } from '@/lib/server/auth';
+import {
+  resolveCommunityName,
+  resolveCommunitySlug,
+} from '@/lib/server/community-index';
 import { StoreError } from './errors';
+import { persistRelayQuestionsBestEffort } from '@/lib/db/events-persist';
 
 /**
  * Event engine application service.
@@ -51,6 +57,8 @@ wireNotificationBridge();
 const globalEvents = globalThis as typeof globalThis & {
   __keepersRelayEventsV1?: Map<string, RelayEvent>;
   __keepersRelayEventsDirty?: boolean;
+  __keepersRelayDirtyIds?: Set<string>;
+  __keepersRelayFlushAll?: boolean;
 };
 
 function eventsMap(): Map<string, RelayEvent> {
@@ -60,14 +68,34 @@ function eventsMap(): Map<string, RelayEvent> {
   return globalEvents.__keepersRelayEventsV1;
 }
 
-function markEventsDirty(): void {
+function markEventsDirty(eventId?: string): void {
   globalEvents.__keepersRelayEventsDirty = true;
+  if (!eventId) {
+    globalEvents.__keepersRelayFlushAll = true;
+    return;
+  }
+  if (!globalEvents.__keepersRelayDirtyIds) {
+    globalEvents.__keepersRelayDirtyIds = new Set();
+  }
+  globalEvents.__keepersRelayDirtyIds.add(eventId);
 }
 
 export function consumeEventsDirty(): boolean {
   const dirty = Boolean(globalEvents.__keepersRelayEventsDirty);
   globalEvents.__keepersRelayEventsDirty = false;
   return dirty;
+}
+
+/** Ids that need Neon upsert; 'all' when demo seed / unknown. */
+export function consumeDirtyEventIds(): string[] | 'all' {
+  if (globalEvents.__keepersRelayFlushAll) {
+    globalEvents.__keepersRelayFlushAll = false;
+    globalEvents.__keepersRelayDirtyIds?.clear();
+    return 'all';
+  }
+  const ids = [...(globalEvents.__keepersRelayDirtyIds ?? [])];
+  globalEvents.__keepersRelayDirtyIds?.clear();
+  return ids;
 }
 
 export function exportRelayEvents(): RelayEvent[] {
@@ -81,6 +109,12 @@ export function importRelayEvents(rows: RelayEvent[]): void {
   for (const event of rows) {
     if (event?.id) map.set(event.id, event);
   }
+}
+
+/** Merge one row into the working set (Neon miss recovery). */
+export function putRelayEvent(event: RelayEvent): void {
+  if (!event?.id) return;
+  eventsMap().set(event.id, event);
 }
 
 /**
@@ -161,7 +195,7 @@ function beginLive(event: RelayEvent): {
   };
   event.turns.push(turn);
   event.currentTurnId = turn.id;
-  markEventsDirty();
+  markEventsDirty(event.id);
   void relayBus.emit('event.started', {
     eventId: event.id,
     payload: { round: 1, holderId: first.id },
@@ -190,6 +224,7 @@ function beginLive(event: RelayEvent): {
 /**
  * Schedule start: if min players are seated and wall clock ≥ startAt → LIVE.
  * Host can still start early via startEvent once READY.
+ * Only call from join/write paths — never from list/get (F13).
  */
 function maybeAutoStart(event: RelayEvent): boolean {
   if (event.status === 'live' || event.status === 'finished' || event.status === 'settled') {
@@ -199,8 +234,17 @@ function maybeAutoStart(event: RelayEvent): boolean {
   if (event.players.length < event.minPlayers) return false;
   if (Date.now() < new Date(event.startAt).getTime()) return false;
   beginLive(event);
-  markEventsDirty();
+  markEventsDirty(event.id);
   return true;
+}
+
+/** Run schedule auto-starts across the working set (write-path only). */
+export function runAutoStarts(): number {
+  let started = 0;
+  for (const event of eventsMap().values()) {
+    if (maybeAutoStart(event)) started += 1;
+  }
+  return started;
 }
 
 function turnSecsForRound(event: RelayEvent, round: number): number {
@@ -279,9 +323,6 @@ function seedDemoEvents(): void {
 }
 
 export function listEvents(filter?: { status?: EventStatus }): { events: EventSummary[] } {
-  for (const event of eventsMap().values()) {
-    maybeAutoStart(event);
-  }
   let rows = [...eventsMap().values()];
   if (filter?.status) {
     rows = rows.filter((e) => e.status === filter.status);
@@ -325,7 +366,6 @@ export function getEvent(eventId: string): {
   history: EventHistoryEntry[];
 } {
   const event = requireEvent(eventId);
-  maybeAutoStart(event);
   return {
     event: {
       ...toEventSummary(event),
@@ -359,14 +399,6 @@ export function getEvent(eventId: string): {
       : null,
     history: [...event.history],
   };
-}
-
-function resolveCommunityName(_communityId?: string | null): string | null {
-  return null;
-}
-
-function resolveCommunitySlug(_communityId?: string | null): string | null {
-  return null;
 }
 
 export function createEvent(input: {
@@ -408,7 +440,8 @@ export function createEvent(input: {
       503,
     );
   }
-  if (!input.address.trim()) throw new Error('Connect a wallet to create an event.');
+  const hostAddress = normalizeAddress(input.address);
+  if (!hostAddress) throw new Error('Connect a wallet to create an event.');
   if (!input.name.trim()) throw new Error('Name the event.');
   if (!input.description.trim()) throw new Error('Add a short description.');
 
@@ -447,7 +480,7 @@ export function createEvent(input: {
     topics,
     difficulty,
     status: 'registration',
-    hostAddress: input.address,
+    hostAddress,
     hostName: input.hostName || 'Host',
     entryFee: Math.max(0, input.entryFee ?? 0),
     startingPot: Math.max(0, input.startingPot ?? 0),
@@ -476,10 +509,12 @@ export function createEvent(input: {
     lastTxHash: input.createTxHash ?? null,
   };
   eventsMap().set(event.id, event);
-  markEventsDirty();
+  markEventsDirty(event.id);
+  // Best-effort vault write (may race before event row exists; respondWrite also persists).
+  void persistRelayQuestionsBestEffort(event);
   void relayBus.emit('event.created', {
     eventId: event.id,
-    actorAddress: input.address,
+    actorAddress: hostAddress,
     payload: {
       mode: event.mode,
       name: event.name,
@@ -534,9 +569,10 @@ export function joinEvent(input: {
   onChainPending?: boolean;
 }): { event: EventSummary; player: EventPlayer } {
   const event = requireEvent(input.eventId);
+  const address = normalizeAddress(input.address);
   void relayBus.emit('player.join_requested', {
     eventId: event.id,
-    actorAddress: input.address,
+    actorAddress: address,
   });
   if (
     !canJoinEvent({
@@ -547,25 +583,32 @@ export function joinEvent(input: {
   ) {
     void relayBus.emit('player.join_failed', {
       eventId: event.id,
-      actorAddress: input.address,
+      actorAddress: address,
       payload: { reason: 'closed_or_full' },
     });
     throw new Error('This event is no longer open to join.');
   }
-  if (event.players.some((p) => p.address.toLowerCase() === input.address.toLowerCase())) {
+  if (event.players.some((p) => normalizeAddress(p.address) === address)) {
     void relayBus.emit('player.join_failed', {
       eventId: event.id,
-      actorAddress: input.address,
+      actorAddress: address,
       payload: { reason: 'already_joined' },
     });
     throw new Error('You already joined.');
   }
-  if (!input.address.trim()) throw new Error('Connect wallet to join.');
+  if (!address) throw new Error('Connect wallet to join.');
+
+  const hasChainProof = Boolean(
+    input.joinTxHash?.trim() &&
+      (input.participantOutPoint?.txHash || input.eventOutPoint?.txHash),
+  );
+  // Lobby join (no chain fields) stays pending; verified chain join clears the flag.
+  const onChainPending = hasChainProof ? false : (input.onChainPending ?? true);
 
   const player: EventPlayer = {
     id: id('pl'),
     eventId: event.id,
-    address: input.address,
+    address,
     displayName: input.displayName.trim() || 'Keeper',
     stake: event.entryFee,
     score: 0,
@@ -577,7 +620,7 @@ export function joinEvent(input: {
     joinTxHash: input.joinTxHash ?? null,
     playerCellId: input.playerCellId ?? null,
     participantOutPoint: input.participantOutPoint ?? null,
-    onChainPending: input.onChainPending ?? false,
+    onChainPending,
   };
   event.players.push(player);
   if (input.eventOutPoint) event.eventOutPoint = input.eventOutPoint;
@@ -592,12 +635,12 @@ export function joinEvent(input: {
   recomputeStatus(event);
   void relayBus.emit('player.joined', {
     eventId: event.id,
-    actorAddress: input.address,
-    payload: { playerId: player.id, stake: player.stake, onChain: Boolean(input.joinTxHash) },
+    actorAddress: address,
+    payload: { playerId: player.id, stake: player.stake, onChain: hasChainProof },
   });
   void relayBus.emit('stake.confirmed', {
     eventId: event.id,
-    actorAddress: input.address,
+    actorAddress: address,
     payload: { amount: player.stake },
   });
   void relayBus.emit('prize_pool.updated', {
@@ -611,7 +654,7 @@ export function joinEvent(input: {
     void relayBus.emit('event.registration_closed', { eventId: event.id });
   }
   maybeAutoStart(event);
-  markEventsDirty();
+  markEventsDirty(event.id);
   return { event: toEventSummary(event), player };
 }
 
@@ -620,34 +663,43 @@ export function sponsorEvent(input: {
   name: string;
   amount: number;
   note?: string;
+  txHash?: string | null;
 }): EventSummary {
   const event = requireEvent(input.eventId);
   if (!event.allowSponsorship) throw new Error('Sponsorship is off for this event.');
   if (event.status === 'finished' || event.status === 'settled') {
     throw new Error('Event already finished.');
   }
-  const amount = Math.max(1, Math.floor(input.amount));
+  const sponsorName = input.name.trim();
+  if (!sponsorName) throw new Error('Sponsor name is required.');
+  const amount = Math.max(0, Math.floor(input.amount));
+  const txHash = input.txHash?.trim() || '';
+  const pending = !txHash;
+  const noteParts = [input.note?.trim()].filter(Boolean) as string[];
+  if (pending) noteParts.push('[pending-payment]');
+  const note = noteParts.length > 0 ? noteParts.join(' ') : undefined;
+
   void relayBus.emit('sponsor.contribution_created', {
     eventId: event.id,
-    payload: { name: input.name, amount },
+    payload: { name: sponsorName, amount, pending },
   });
   event.sponsors.push({
     id: id('sp'),
-    name: input.name.trim() || 'Sponsor',
+    name: sponsorName,
     amount,
-    note: input.note,
+    note,
     at: nowIso(),
   });
   recomputePot(event);
   void relayBus.emit('sponsor.contribution_confirmed', {
     eventId: event.id,
-    payload: { amount, pot: event.pot },
+    payload: { amount, pot: event.pot, pending },
   });
   void relayBus.emit('prize_pool.updated', {
     eventId: event.id,
     payload: { pot: event.pot },
   });
-  markEventsDirty();
+  markEventsDirty(event.id);
   return toEventSummary(event);
 }
 
@@ -745,7 +797,7 @@ function settleEvent(event: RelayEvent): void {
   event.status = 'finished';
   event.endAt = nowIso();
   event.currentTurnId = null;
-  markEventsDirty();
+  markEventsDirty(event.id);
   void relayBus.emit('event.finished', { eventId: event.id });
   event.players.forEach((p) => {
     if (p.status === 'active' || p.status === 'waiting' || p.status === 'registered') {
@@ -875,7 +927,7 @@ export function submitAnswer(input: {
     answerMs,
   };
   event.history.push(hist);
-  markEventsDirty();
+  markEventsDirty(event.id);
 
   // Pass to next (PassableState — consume current, mint next)
   holder.status = holder.status === 'eliminated' ? 'eliminated' : 'waiting';
@@ -999,7 +1051,7 @@ export function timeoutTurn(input: {
     timedOut: true,
     scoreDelta: 0,
   });
-  markEventsDirty();
+  markEventsDirty(event.id);
 
   holder.status = holder.status === 'eliminated' ? 'eliminated' : 'waiting';
   turn.state = 'timed_out';
@@ -1137,4 +1189,34 @@ export function getLeaderboard(): {
   return {
     rows: [...agg.values()].sort((a, b) => b.wins - a.wins || b.score - a.score).slice(0, 20),
   };
+}
+
+/** Derived passport stats from the current events working set. */
+export function passportStatsForAddress(address: string): {
+  completedRelayIds: string[];
+  keeperTurns: number;
+  eventsPlayed: number;
+  wins: number;
+  contributionXp: number;
+} {
+  const key = normalizeAddress(address);
+  const completedRelayIds: string[] = [];
+  let keeperTurns = 0;
+  let eventsPlayed = 0;
+  let wins = 0;
+  let contributionXp = 0;
+
+  for (const event of eventsMap().values()) {
+    const player = event.players.find((p) => normalizeAddress(p.address) === key);
+    if (!player) continue;
+    eventsPlayed += 1;
+    contributionXp += player.score;
+    keeperTurns += player.answers;
+    if (player.status === 'winner') wins += 1;
+    if (event.status === 'finished' || event.status === 'settled') {
+      completedRelayIds.push(event.id);
+    }
+  }
+
+  return { completedRelayIds, keeperTurns, eventsPlayed, wins, contributionXp };
 }

@@ -1,23 +1,17 @@
 'use client';
 
 import Link from 'next/link';
-import { Loader2, UsersRound } from 'lucide-react';
-import { useWallet } from '@/hooks/useWallet';
-import { useUsername } from '@/hooks/useUsername';
-import { useMyBuilder } from '@/hooks/useBuilder';
+import { Loader2 } from 'lucide-react';
 import { useEventsQuery } from '@/hooks/useEvents';
 import { ArenaCta } from '@/components/arena/ArenaPrimitives';
 import { EventFeatureCard } from '@/components/arena/EventFeatureCard';
+import { HomeHero } from '@/components/arena/HomeHero';
 
 /**
  * Landing — one multiplayer event product.
- * Design: dark #111, lime CTAs, hero + live events (existing Arena language).
+ * Design: dark #111, lime CTAs, Figma hero + live events.
  */
 export function HomeView() {
-  const { isConnected, connect } = useWallet();
-  const { username } = useUsername();
-  const me = useMyBuilder().data?.builder;
-  const hasHandle = Boolean(username?.username || me?.onboarded);
   const eventsQ = useEventsQuery();
 
   const events = eventsQ.data?.events ?? [];
@@ -27,91 +21,13 @@ export function HomeView() {
   const upcoming = events
     .filter((e) => e.status === 'registration' || e.status === 'ready')
     .slice(0, 4);
-  const featuredEvent =
-    liveEvents.find((e) => e.status === 'live' || e.status === 'ready') ?? liveEvents[0];
+  const heroEvents = events
+    .filter((e) => e.status === 'live' || e.status === 'ready' || e.status === 'registration')
+    .slice(0, 3);
 
   return (
     <div className="min-h-full w-full bg-[#111] text-white">
-      <section className="relative overflow-hidden border-b border-white/10">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="/uismod/hero-bg.png"
-          alt=""
-          className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-40"
-        />
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-b from-transparent to-[#111]" />
-
-        <div className="relative mx-auto grid max-w-[1440px] gap-8 px-5 pb-16 pt-12 sm:px-10 lg:grid-cols-[1fr_1.1fr] lg:items-end lg:pt-16">
-          <div className="relative z-10 max-w-xl pb-4">
-            <p className="font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-[#99ee2d]">
-              Keepers Relay
-            </p>
-            <h1 className="mt-3 font-poster text-[clamp(2.75rem,7vw,4.75rem)] uppercase leading-[0.92] text-white">
-              Stake in.
-              <br />
-              Take your turn.
-              <br />
-              Pass it on.
-            </h1>
-            <p className="mt-5 max-w-md text-base font-light leading-relaxed text-white/55 sm:text-lg">
-              Live multiplayer events on CKB. Answer the challenge, leave your mark, pass the
-              state. Growing pots and shrinking clocks — one game, configurable rules.
-            </p>
-            <div className="mt-8 flex flex-wrap gap-3">
-              {!isConnected ? (
-                <ArenaCta onClick={() => connect()}>Connect & play</ArenaCta>
-              ) : !hasHandle ? (
-                <ArenaCta href="/join">Claim @handle</ArenaCta>
-              ) : (
-                <ArenaCta href="/events">
-                  <UsersRound className="h-4 w-4" />
-                  Browse events
-                </ArenaCta>
-              )}
-              <Link
-                href="/create"
-                className="inline-flex items-center border-b border-[#bef970] pb-1 pl-2 text-[15px] font-bold uppercase tracking-wide text-white"
-              >
-                Create event
-              </Link>
-            </div>
-          </div>
-
-          <div className="relative mx-auto flex w-full max-w-lg flex-col items-center lg:max-w-none">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/uismod/hero-character.png"
-              alt=""
-              className="relative z-10 max-h-[min(58vh,560px)] w-auto max-w-full object-contain object-bottom drop-shadow-2xl"
-            />
-
-            {featuredEvent ? (
-              <div className="absolute bottom-4 right-0 z-20 w-[min(100%,280px)] border border-white/10 bg-black/70 p-4 backdrop-blur-md sm:right-4">
-                <p className="font-mono text-[10px] font-bold uppercase text-[#99ee2d]">
-                  Featured event
-                </p>
-                <p className="mt-1 font-poster text-2xl uppercase leading-none text-white">
-                  {featuredEvent.name}
-                </p>
-                <p className="mt-2 text-xs text-white/55">
-                  {featuredEvent.pot} CKB · {featuredEvent.playerCount}/{featuredEvent.maxPlayers}{' '}
-                  players · {featuredEvent.status}
-                </p>
-                <ArenaCta href={`/events/${featuredEvent.id}`} className="mt-4 w-full text-center">
-                  View event →
-                </ArenaCta>
-              </div>
-            ) : (
-              <div className="absolute bottom-4 right-0 z-20 w-[min(100%,260px)] border border-white/10 bg-black/70 p-4 backdrop-blur-md sm:right-4">
-                <p className="font-poster text-xl uppercase text-white">No live pot yet</p>
-                <ArenaCta href="/create" className="mt-4 w-full text-center">
-                  Create event
-                </ArenaCta>
-              </div>
-            )}
-          </div>
-        </div>
-      </section>
+      <HomeHero events={heroEvents} />
 
       <section className="mx-auto max-w-[1440px] px-5 py-14 sm:px-10">
         <div className="mb-8 flex flex-wrap items-end justify-between gap-3">
