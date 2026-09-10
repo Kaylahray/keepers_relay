@@ -143,10 +143,15 @@ export function HomeHero({ events }: { events: EventSummary[] }) {
       />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-b from-transparent to-[#111]" />
 
-      <div className="relative mx-auto flex min-h-[560px] w-full max-w-[1440px] flex-col px-5 pb-16 pt-10 sm:min-h-[580px] sm:px-10 sm:pt-12 lg:min-h-[620px] lg:pb-14 lg:pt-14">
-        <div className="grid flex-1 grid-cols-1 items-center gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(240px,300px)] lg:gap-10 xl:grid-cols-[minmax(0,1.1fr)_minmax(260px,320px)]">
+      <div className="relative mx-auto flex min-h-[560px] w-full max-w-[1440px] flex-col px-5 pb-16 pt-10 sm:min-h-[580px] sm:px-10 sm:pt-12 xl:min-h-[620px] xl:pb-14 xl:pt-14">
+        {/*
+          - <900: stack
+          - 900–1279: character + date on one row
+          - 1280+: copy | character | date — separate, never behind
+        */}
+        <div className="grid flex-1 grid-cols-1 items-center gap-8 xl:grid-cols-[minmax(0,1fr)_minmax(260px,380px)_minmax(240px,300px)] xl:gap-6">
           {/* Copy */}
-          <div className="relative z-[1] order-1 max-w-xl lg:pb-8">
+          <div className="relative z-10 order-1 max-w-xl xl:order-1 xl:pb-8">
             <h1 className="font-poster text-[clamp(2.25rem,8vw,4.5rem)] uppercase leading-[0.92] text-white">
               <span className="block sm:whitespace-nowrap">All the cells</span>
               <span className="block sm:whitespace-nowrap">are moving</span>
@@ -156,75 +161,77 @@ export function HomeHero({ events }: { events: EventSummary[] }) {
             </p>
           </div>
 
-          {/* Character — desktop overlay toward date card; mobile between copy and card */}
-          <div className="pointer-events-none relative z-[5] order-2 flex justify-center lg:absolute lg:inset-y-0 lg:left-[38%] lg:right-[22%] lg:items-end xl:left-[42%] xl:right-[24%]">
-            <div className="relative flex h-[280px] w-full max-w-[280px] items-end justify-center sm:h-[340px] sm:max-w-[320px] lg:h-full lg:max-h-[540px] lg:max-w-[400px]">
-              <div className="absolute bottom-[20%] left-1/2 size-[180px] -translate-x-1/2 rounded-full bg-black/45 blur-[60px] sm:size-[220px] lg:size-[240px]" />
+          <div className="order-2 flex flex-col items-center gap-6 min-[900px]:flex-row min-[900px]:items-end min-[900px]:justify-center min-[900px]:gap-5 xl:contents">
+            {/* Character — never absolute / never behind date */}
+            <div className="pointer-events-none relative z-[5] flex shrink-0 justify-center xl:order-2 xl:h-full xl:self-end xl:justify-center">
+              <div className="relative flex h-[260px] w-full max-w-[240px] items-end justify-center min-[900px]:h-[300px] min-[900px]:max-w-[280px] xl:h-full xl:max-h-[540px] xl:max-w-[380px]">
+                <div className="absolute bottom-[20%] left-1/2 size-[160px] -translate-x-1/2 rounded-full bg-black/45 blur-[60px] min-[900px]:size-[200px] xl:size-[240px]" />
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/uismod/hero-character.png"
+                  alt=""
+                  className="relative h-full max-h-[260px] w-auto rotate-[6deg] object-contain object-bottom drop-shadow-[-16px_-4px_40px_rgba(0,0,0,0.55)] min-[900px]:max-h-[300px] xl:max-h-[540px]"
+                />
+              </div>
+            </div>
+
+            {/* Date + JOIN */}
+            <div className="relative z-20 w-full max-w-full min-[900px]:max-w-[360px] xl:order-3 xl:max-w-[300px] xl:justify-self-end xl:self-center">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/uismod/hero-character.png"
+                src="/uismod/polygon.svg"
                 alt=""
-                className="relative h-full max-h-[280px] w-auto rotate-[6deg] object-contain object-bottom drop-shadow-[-16px_-4px_40px_rgba(0,0,0,0.55)] sm:max-h-[340px] lg:max-h-[540px]"
+                className="pointer-events-none absolute -right-2 -top-8 size-20 opacity-40 sm:-right-4 sm:-top-10 sm:size-28 md:size-32"
               />
-            </div>
-          </div>
 
-          {/* Date card + JOIN EVENT — always one row */}
-          <div className="relative z-20 order-3 w-full max-w-full justify-self-start sm:max-w-[420px] lg:max-w-[440px] lg:justify-self-end lg:self-center">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/uismod/polygon.svg"
-              alt=""
-              className="pointer-events-none absolute -right-2 -top-8 size-20 opacity-40 sm:-right-4 sm:-top-10 sm:size-28 md:size-32"
-            />
+              <div className="relative flex flex-row flex-nowrap items-end gap-2 sm:gap-3 xl:flex-col xl:items-stretch xl:gap-4">
+                <div className="relative flex shrink-0 gap-2.5 border border-white/10 bg-[#111]/80 p-3 backdrop-blur-md sm:gap-3 sm:p-3.5 [clip-path:polygon(0_0,100%_0,100%_78%,88%_100%,0_100%)]">
+                  <div className="flex min-w-[52px] flex-col items-center text-center font-poster sm:min-w-[64px]">
+                    <p className="text-xs leading-tight text-white sm:text-sm md:text-base">
+                      {slide.month}
+                    </p>
+                    <p className="text-[2.5rem] leading-none text-[#bef970] sm:text-[3.25rem] md:text-[4rem]">
+                      {slide.day}
+                    </p>
+                    <p className="text-xs leading-tight text-white/50 tabular-nums sm:text-sm md:text-base">
+                      {timer}
+                    </p>
+                  </div>
 
-            <div className="relative flex flex-nowrap items-end gap-2 sm:gap-3">
-              <div className="relative flex shrink-0 gap-2.5 border border-white/10 bg-[#111]/80 p-3 backdrop-blur-md sm:gap-3 sm:p-3.5 [clip-path:polygon(0_0,100%_0,100%_78%,88%_100%,0_100%)]">
-                <div className="flex min-w-[52px] flex-col items-center text-center font-poster sm:min-w-[64px]">
-                  <p className="text-xs leading-tight text-white sm:text-sm md:text-base">
-                    {slide.month}
-                  </p>
-                  <p className="text-[2.5rem] leading-none text-[#bef970] sm:text-[3.25rem] md:text-[4rem]">
-                    {slide.day}
-                  </p>
-                  <p className="text-xs leading-tight text-white/50 tabular-nums sm:text-sm md:text-base">
-                    {timer}
-                  </p>
+                  <div className="relative h-[60px] w-[96px] shrink-0 overflow-hidden border border-white/20 sm:h-[72px] sm:w-[118px] md:h-[84px] md:w-[137px]">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      key={slide.videoSrc}
+                      src={slide.videoSrc}
+                      alt=""
+                      className="h-full w-full object-cover"
+                    />
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src="/uismod/play.svg"
+                      alt=""
+                      className="pointer-events-none absolute left-1/2 top-1/2 size-6 -translate-x-1/2 -translate-y-1/2 sm:size-7 md:size-8"
+                    />
+                  </div>
                 </div>
 
-                <div className="relative h-[60px] w-[96px] shrink-0 overflow-hidden border border-white/20 sm:h-[72px] sm:w-[118px] md:h-[84px] md:w-[137px]">
+                <Link
+                  href={slide.href}
+                  className="arena-cta inline-flex h-11 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap pl-4 pr-8 font-poster text-sm uppercase leading-none text-[#111] sm:h-[50px] sm:gap-2 sm:pl-6 sm:pr-10 sm:text-base md:pl-8 md:pr-12 md:text-[18px] xl:w-full xl:justify-between xl:pl-6 xl:pr-6"
+                >
+                  JOIN EVENT
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    key={slide.videoSrc}
-                    src={slide.videoSrc}
-                    alt=""
-                    className="h-full w-full object-cover"
-                  />
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src="/uismod/play.svg"
-                    alt=""
-                    className="pointer-events-none absolute left-1/2 top-1/2 size-6 -translate-x-1/2 -translate-y-1/2 sm:size-7 md:size-8"
-                  />
-                </div>
+                  <img src="/uismod/arrow-right.svg" alt="" className="size-4 shrink-0 sm:size-5 md:size-6" />
+                </Link>
               </div>
 
-              <Link
-                href={slide.href}
-                className="arena-cta inline-flex h-11 shrink-0 items-center gap-1.5 whitespace-nowrap pl-4 pr-8 font-poster text-sm uppercase leading-none text-[#111] sm:h-[50px] sm:gap-2 sm:pl-6 sm:pr-10 sm:text-base md:pl-8 md:pr-12 md:text-[18px]"
+              <p
+                title={slide.title}
+                className="mt-3 max-w-full truncate font-poster text-lg uppercase leading-none text-white sm:text-xl md:text-2xl"
               >
-                JOIN EVENT
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/uismod/arrow-right.svg" alt="" className="size-4 shrink-0 sm:size-5 md:size-6" />
-              </Link>
+                {slide.title}
+              </p>
             </div>
-
-            <p
-              title={slide.title}
-              className="mt-3 max-w-full truncate font-poster text-lg uppercase leading-none text-white sm:text-xl md:text-2xl"
-            >
-              {slide.title}
-            </p>
           </div>
         </div>
 
