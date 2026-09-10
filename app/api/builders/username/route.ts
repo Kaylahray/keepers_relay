@@ -1,4 +1,4 @@
-import { checkUsernameAvailable } from '@/lib/server/store';
+import { checkUsernameAvailable } from '@/lib/server/social-service';
 import { respond } from '@/lib/server/respond';
 
 export const dynamic = 'force-dynamic';

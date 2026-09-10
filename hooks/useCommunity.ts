@@ -1,10 +1,6 @@
 'use client';
 
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { communityKeys } from '@/lib/queryClient';
 import {
   createCommunity,
@@ -14,9 +10,7 @@ import {
   leaveCommunity,
   listCommunities,
 } from '@/lib/api/communityApi';
-import { post, request } from '@/lib/api/client';
 import { useWallet } from '@/hooks/useWallet';
-import type { HandoffRequest } from '@/types/community';
 
 export function useCommunitiesQuery() {
   const { address } = useWallet();
@@ -83,58 +77,6 @@ export function useGrantCommunityPoints() {
       void qc.invalidateQueries({
         queryKey: communityKeys.detail(vars.slug, vars.address),
       });
-    },
-  });
-}
-
-/** Legacy Chain Cell handoff queue (still used by ChainLetter / HandoffPanel). */
-export function useHandoffsQuery(journeyId: string) {
-  return useQuery({
-    queryKey: communityKeys.handoffs(journeyId),
-    queryFn: () =>
-      request<HandoffRequest[]>(
-        `/api/handoffs?journeyId=${encodeURIComponent(journeyId)}`,
-      ),
-    enabled: Boolean(journeyId),
-  });
-}
-
-export function useRequestHandoff() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (body: { address: string; journeyId: string; note?: string }) =>
-      post<HandoffRequest>('/api/handoffs', { action: 'request', ...body }),
-    onSuccess: (_data, vars) => {
-      void qc.invalidateQueries({ queryKey: communityKeys.handoffs(vars.journeyId) });
-    },
-  });
-}
-
-export function useAcceptHandoff() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (body: {
-      address: string;
-      requestId: string;
-      city?: string;
-      cellOutPoint?: { txHash: string; index: string };
-      txHash?: string;
-      expiresAt?: string;
-    }) => post('/api/handoffs', { action: 'accept', ...body }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: communityKeys.all });
-      void qc.invalidateQueries({ queryKey: ['chain'] });
-    },
-  });
-}
-
-export function useDeclineHandoff() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (body: { address: string; requestId: string }) =>
-      post('/api/handoffs', { action: 'decline', ...body }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: communityKeys.all });
     },
   });
 }

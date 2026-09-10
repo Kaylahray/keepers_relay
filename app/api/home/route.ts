@@ -1,18 +1,15 @@
-import { getHomeFeed, markHomeNoticesRead } from '@/lib/server/store';
-import { readBody, respond, respondWrite } from '@/lib/server/respond';
+import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
-export function GET(request: Request) {
-  const address = new URL(request.url).searchParams.get('address') ?? '';
-  return respond(() => getHomeFeed(address));
+/** Old Chain Letter home feed removed — use /api/events. */
+export function GET() {
+  return NextResponse.json(
+    { message: 'Home feed removed. Use /api/events and /api/communities.' },
+    { status: 410 },
+  );
 }
 
-export async function POST(request: Request) {
-  const body = await readBody<{
-    action?: 'mark_read';
-    address?: string;
-  }>(request);
-  const address = body.address ?? '';
-  return respondWrite(() => markHomeNoticesRead(address));
+export function POST() {
+  return GET();
 }

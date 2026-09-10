@@ -1,4 +1,4 @@
-import { releaseBuilderHandle } from '@/lib/server/store';
+import { releaseBuilderHandle } from '@/lib/server/social-service';
 import { respondWrite } from '@/lib/server/respond';
 
 export const dynamic = 'force-dynamic';

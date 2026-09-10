@@ -1,107 +1,100 @@
 import { NextResponse } from 'next/server';
-import {
-  StoreError,
-  applyIndexedCells,
-  applySocialState,
-  exportStoreState,
-  importStoreState,
-  type StoreState,
-} from './store';
-import { loadSnapshot, saveSnapshot, persistenceMode } from '@/lib/db/persist';
+import { loadSnapshot, persistenceMode } from '@/lib/db/persist';
 import {
   ensureSocialTables,
-  loadSocialState,
   migrateSocialFromSnapshotIfNeeded,
   repairEmptyMembershipsFromSnapshot,
-  saveSocialState,
 } from '@/lib/db/social';
 import { ensureRelayEventTables } from '@/lib/db/relay-tables';
+import { loadAllRelayEvents, saveAllRelayEvents } from '@/lib/db/events-persist';
+import { databaseConfigured } from '@/lib/db/client';
+import {
+  consumeEventsDirty,
+  ensureDemoEvents,
+  exportRelayEvents,
+  importRelayEvents,
+} from '@/lib/server/events-store';
+import { ApiError } from '@/lib/server/errors';
 
-let lastHydrateAt = 0;
-const HYDRATE_TTL_MS = 1_500;
-let lastIndexAt = 0;
-const INDEX_TTL_MS = 8_000;
+/**
+ * Always reload events from Neon when DATABASE_URL is set.
+ * No warm in-memory skip — that caused cross-instance 404s on Vercel.
+ */
+async function hydrateEvents(): Promise<void> {
+  if (!databaseConfigured()) {
+    importRelayEvents([]);
+    return;
+  }
+
+  await ensureRelayEventTables();
+  const rows = await loadAllRelayEvents();
+  if (rows.length > 0) {
+    importRelayEvents(rows);
+    return;
+  }
+
+  ensureDemoEvents();
+  const seeded = exportRelayEvents();
+  if (seeded.length > 0) {
+    await saveAllRelayEvents(seeded);
+    consumeEventsDirty();
+  }
+}
 
 async function ensureHydrated(): Promise<void> {
-  const fresh =
-    Boolean((globalThis as { __keepersRelayStoreV8?: unknown }).__keepersRelayStoreV8) &&
-    Date.now() - lastHydrateAt < HYDRATE_TTL_MS;
-  if (fresh) return;
-
-  await ensureSocialTables();
-  await ensureRelayEventTables();
-
-  const snap = await loadSnapshot();
-  if (snap && typeof snap === 'object' && 'journeys' in snap && 'communities' in snap) {
-    importStoreState(snap as unknown as StoreState);
-    await migrateSocialFromSnapshotIfNeeded(snap as Record<string, unknown>);
-  }
-  await repairEmptyMembershipsFromSnapshot(
-    snap && typeof snap === 'object' ? (snap as Record<string, unknown>) : null,
-  );
-
-  /** Proper tables win for communities / builders / members. */
-  const social = await loadSocialState();
-  if (social) applySocialState(social);
-
-  lastHydrateAt = Date.now();
-}
-
-/** Lazy-load so a bad indexer import cannot 500 builders / communities. */
-async function syncFromIndexer(): Promise<void> {
-  if (Date.now() - lastIndexAt < INDEX_TTL_MS) return;
-  lastIndexAt = Date.now();
-  try {
-    const { loadLiveChainCells } = await import('@/lib/ckb/chain-indexer');
-    const live = await loadLiveChainCells();
-    if (applyIndexedCells(live)) {
-      await flush();
+  if (databaseConfigured()) {
+    await ensureSocialTables();
+    await ensureRelayEventTables();
+    const snap = await loadSnapshot();
+    if (snap && typeof snap === 'object') {
+      await migrateSocialFromSnapshotIfNeeded(snap as Record<string, unknown>);
+      await repairEmptyMembershipsFromSnapshot(snap as Record<string, unknown>);
+    } else {
+      await repairEmptyMembershipsFromSnapshot(null);
     }
-  } catch (err) {
-    console.warn('[indexer] live cell sync failed:', err);
   }
+
+  await hydrateEvents();
 }
 
-async function flush(): Promise<void> {
+async function flushEvents(): Promise<void> {
   try {
-    const exported = exportStoreState();
-    await saveSnapshot(exported as unknown as Record<string, unknown>);
-    await saveSocialState({
-      builders: exported.builders,
-      communities: exported.communities,
-    });
-    lastHydrateAt = Date.now();
+    await saveAllRelayEvents(exportRelayEvents());
+    consumeEventsDirty();
   } catch (err) {
-    console.warn(`[persist:${persistenceMode()}] save failed:`, err);
+    console.warn(`[persist:${persistenceMode()}] event save failed:`, err);
+    throw err;
   }
 }
 
 function toErrorResponse(error: unknown): NextResponse {
-  if (error instanceof StoreError) {
+  if (error instanceof ApiError) {
     return NextResponse.json({ message: error.message }, { status: error.status });
   }
   const message = error instanceof Error ? error.message : 'Something went wrong.';
   return NextResponse.json({ message }, { status: 500 });
 }
 
-/** Read path — hydrates from Neon / local file, does not write. */
-export async function respond<T>(run: () => T): Promise<NextResponse> {
+/** Read path — hydrates from Neon, persists event mutations (e.g. auto-start). */
+export async function respond<T>(run: () => T | Promise<T>): Promise<NextResponse> {
   try {
     await ensureHydrated();
-    await syncFromIndexer();
-    return NextResponse.json(run());
+    const data = await run();
+    if (consumeEventsDirty()) {
+      await flushEvents();
+    }
+    return NextResponse.json(data);
   } catch (error) {
     return toErrorResponse(error);
   }
 }
 
-/** Write path — hydrates, runs mutation, then persists so other users share state. */
-export async function respondWrite<T>(run: () => T): Promise<NextResponse> {
+/** Write path — hydrates, runs mutation, then persists events. */
+export async function respondWrite<T>(run: () => T | Promise<T>): Promise<NextResponse> {
   try {
     await ensureHydrated();
-    await syncFromIndexer();
-    const data = run();
-    await flush();
+    const data = await run();
+    await flushEvents();
     return NextResponse.json(data);
   } catch (error) {
     return toErrorResponse(error);

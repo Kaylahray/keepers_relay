@@ -4,7 +4,7 @@ import {
   joinCommunity,
   leaveCommunity,
   listCommunities,
-} from '@/lib/server/store';
+} from '@/lib/server/social-service';
 import { readBody, respond, respondWrite } from '@/lib/server/respond';
 
 export const dynamic = 'force-dynamic';

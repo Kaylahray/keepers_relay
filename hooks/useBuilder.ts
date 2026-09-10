@@ -13,8 +13,7 @@ import {
   upsertBuilder,
   getPassport,
 } from '@/lib/api/keeperApi';
-import { assumeKeeper } from '@/lib/api/chainApi';
-import { chainKeys, keeperKeys } from '@/lib/queryClient';
+import { keeperKeys } from '@/lib/queryClient';
 import type { CharacterId } from '@/lib/characters';
 import { postRewardAutoIssue } from '@/lib/rewards/auto-issue-client';
 import type { RewardMilestone } from '@/lib/rewards/milestones';
@@ -165,16 +164,6 @@ export function useUnlockBadge() {
     onSuccess: (builder) => {
       queryClient.setQueryData(builderKeys.one(builder.address), { builder });
       queryClient.invalidateQueries({ queryKey: keeperKeys.passport });
-    },
-  });
-}
-
-export function useAssumeKeeper() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (address: string) => assumeKeeper(address),
-    onSuccess: (chain) => {
-      queryClient.setQueryData(chainKeys.detail(), chain);
     },
   });
 }

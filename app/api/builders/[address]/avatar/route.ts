@@ -1,5 +1,8 @@
-import { setBuilderAvatar, clearBuilderAvatarIfMatches } from '@/lib/server/store';
-import { readBody, respond, respondWrite } from '@/lib/server/respond';
+import {
+  setBuilderAvatar,
+  clearBuilderAvatarIfMatches,
+} from '@/lib/server/social-service';
+import { readBody, respondWrite } from '@/lib/server/respond';
 
 export const dynamic = 'force-dynamic';
 

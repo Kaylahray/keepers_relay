@@ -1,4 +1,4 @@
-import { getBuilder, listBuilders, upsertBuilder } from '@/lib/server/store';
+import { getBuilder, listBuilders, upsertBuilder } from '@/lib/server/social-service';
 import { readBody, respond, respondWrite } from '@/lib/server/respond';
 import type { CharacterId } from '@/lib/characters';
 
@@ -7,8 +7,8 @@ export const dynamic = 'force-dynamic';
 export function GET(request: Request) {
   const address = new URL(request.url).searchParams.get('address')?.trim();
   if (address) {
-    return respond(() => {
-      const builder = getBuilder(address);
+    return respond(async () => {
+      const builder = await getBuilder(address);
       return builder ? { builder } : { builder: null };
     });
   }

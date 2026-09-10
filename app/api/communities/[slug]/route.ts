@@ -1,4 +1,4 @@
-import { getCommunityBySlug } from '@/lib/server/store';
+import { getCommunityBySlug } from '@/lib/server/social-service';
 import { respond } from '@/lib/server/respond';
 
 export const dynamic = 'force-dynamic';

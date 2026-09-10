@@ -37,16 +37,61 @@ import {
   toEventSummary,
   toPublicQuestion,
 } from '@/types/event';
+import { StoreError } from './errors';
 
 /**
  * Event engine application service.
- * Domain rules live in `@/lib/relay` (SDK-shaped). This store is the app adapter:
- * in-memory SoT now → Neon tables + CKB cells next.
+ * Domain rules live in `@/lib/relay` (SDK-shaped).
+ * Neon `relay_events` is the source of truth. The Map is only a per-request
+ * working set loaded from the DB in `respond` / `respondWrite` — never a local store.
  */
 
 wireNotificationBridge();
 
-const events = new Map<string, RelayEvent>();
+const globalEvents = globalThis as typeof globalThis & {
+  __keepersRelayEventsV1?: Map<string, RelayEvent>;
+  __keepersRelayEventsDirty?: boolean;
+};
+
+function eventsMap(): Map<string, RelayEvent> {
+  if (!globalEvents.__keepersRelayEventsV1) {
+    globalEvents.__keepersRelayEventsV1 = new Map();
+  }
+  return globalEvents.__keepersRelayEventsV1;
+}
+
+function markEventsDirty(): void {
+  globalEvents.__keepersRelayEventsDirty = true;
+}
+
+export function consumeEventsDirty(): boolean {
+  const dirty = Boolean(globalEvents.__keepersRelayEventsDirty);
+  globalEvents.__keepersRelayEventsDirty = false;
+  return dirty;
+}
+
+export function exportRelayEvents(): RelayEvent[] {
+  return [...eventsMap().values()].map((e) => JSON.parse(JSON.stringify(e)) as RelayEvent);
+}
+
+/** Replace working set from Neon rows. */
+export function importRelayEvents(rows: RelayEvent[]): void {
+  const map = eventsMap();
+  map.clear();
+  for (const event of rows) {
+    if (event?.id) map.set(event.id, event);
+  }
+}
+
+/**
+ * Seed stable demos into the working set only when Neon returned zero rows.
+ * Caller must persist immediately (see respond.hydrateEvents).
+ */
+export function ensureDemoEvents(): void {
+  if (eventsMap().size > 0) return;
+  seedDemoEvents();
+  markEventsDirty();
+}
 
 function id(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
@@ -57,8 +102,8 @@ function nowIso(): string {
 }
 
 function requireEvent(eventId: string): RelayEvent {
-  const event = events.get(eventId);
-  if (!event) throw new Error('Event not found.');
+  const event = eventsMap().get(eventId);
+  if (!event) throw new StoreError('Event not found.', 404);
   return event;
 }
 
@@ -116,6 +161,7 @@ function beginLive(event: RelayEvent): {
   };
   event.turns.push(turn);
   event.currentTurnId = turn.id;
+  markEventsDirty();
   void relayBus.emit('event.started', {
     eventId: event.id,
     payload: { round: 1, holderId: first.id },
@@ -153,6 +199,7 @@ function maybeAutoStart(event: RelayEvent): boolean {
   if (event.players.length < event.minPlayers) return false;
   if (Date.now() < new Date(event.startAt).getTime()) return false;
   beginLive(event);
+  markEventsDirty();
   return true;
 }
 
@@ -179,9 +226,10 @@ function nextPlayerAfter(event: RelayEvent, currentId: string): EventPlayer | nu
 }
 
 function seedDemoEvents(): void {
-  if (events.size > 0) return;
+  if (eventsMap().size > 0) return;
   const start = new Date(Date.now() + 5 * 60 * 1000).toISOString();
   createEvent({
+    id: 'evt_demo_ckb_rapid_01',
     address: 'ckt1qdemo...host',
     hostName: 'Relay Desk',
     name: 'CKB Rapid Fire #01',
@@ -200,6 +248,7 @@ function seedDemoEvents(): void {
     allowSponsorship: true,
   });
   const anime = createEvent({
+    id: 'evt_demo_anime_rapid_01',
     address: 'ckt1qdemo...host',
     hostName: 'Relay Desk',
     name: 'Naruto × Bleach Rapid',
@@ -229,13 +278,11 @@ function seedDemoEvents(): void {
   }
 }
 
-seedDemoEvents();
-
 export function listEvents(filter?: { status?: EventStatus }): { events: EventSummary[] } {
-  for (const event of events.values()) {
+  for (const event of eventsMap().values()) {
     maybeAutoStart(event);
   }
-  let rows = [...events.values()];
+  let rows = [...eventsMap().values()];
   if (filter?.status) {
     rows = rows.filter((e) => e.status === filter.status);
   }
@@ -314,27 +361,17 @@ export function getEvent(eventId: string): {
   };
 }
 
-function resolveCommunityName(communityId?: string | null): string | null {
-  if (!communityId) return null;
-  try {
-    const { exportStoreState } = require('@/lib/server/store') as typeof import('@/lib/server/store');
-    return exportStoreState().communities[communityId]?.name ?? null;
-  } catch {
-    return null;
-  }
+function resolveCommunityName(_communityId?: string | null): string | null {
+  return null;
 }
 
-function resolveCommunitySlug(communityId?: string | null): string | null {
-  if (!communityId) return null;
-  try {
-    const { exportStoreState } = require('@/lib/server/store') as typeof import('@/lib/server/store');
-    return exportStoreState().communities[communityId]?.slug ?? null;
-  } catch {
-    return null;
-  }
+function resolveCommunitySlug(_communityId?: string | null): string | null {
+  return null;
 }
 
 export function createEvent(input: {
+  /** Optional stable id (demo seeds). */
+  id?: string;
   address: string;
   hostName: string;
   name: string;
@@ -365,6 +402,12 @@ export function createEvent(input: {
   eventOutPoint?: { txHash: string; index: string } | null;
   treasuryOutPoint?: { txHash: string; index: string } | null;
 }): RelayEvent {
+  if (!process.env.DATABASE_URL?.trim()) {
+    throw new StoreError(
+      'DATABASE_URL is required to create events. Events are stored in Neon, not locally.',
+      503,
+    );
+  }
   if (!input.address.trim()) throw new Error('Connect a wallet to create an event.');
   if (!input.name.trim()) throw new Error('Name the event.');
   if (!input.description.trim()) throw new Error('Add a short description.');
@@ -393,7 +436,7 @@ export function createEvent(input: {
   }
 
   const event: RelayEvent = {
-    id: id('evt'),
+    id: input.id?.trim() || id('evt'),
     communityId: input.communityId ?? null,
     name: input.name.trim().slice(0, 80),
     description: input.description.trim().slice(0, 400),
@@ -432,7 +475,8 @@ export function createEvent(input: {
     treasuryOutPoint: input.treasuryOutPoint ?? null,
     lastTxHash: input.createTxHash ?? null,
   };
-  events.set(event.id, event);
+  eventsMap().set(event.id, event);
+  markEventsDirty();
   void relayBus.emit('event.created', {
     eventId: event.id,
     actorAddress: input.address,
@@ -567,6 +611,7 @@ export function joinEvent(input: {
     void relayBus.emit('event.registration_closed', { eventId: event.id });
   }
   maybeAutoStart(event);
+  markEventsDirty();
   return { event: toEventSummary(event), player };
 }
 
@@ -602,6 +647,7 @@ export function sponsorEvent(input: {
     eventId: event.id,
     payload: { pot: event.pot },
   });
+  markEventsDirty();
   return toEventSummary(event);
 }
 
@@ -699,6 +745,7 @@ function settleEvent(event: RelayEvent): void {
   event.status = 'finished';
   event.endAt = nowIso();
   event.currentTurnId = null;
+  markEventsDirty();
   void relayBus.emit('event.finished', { eventId: event.id });
   event.players.forEach((p) => {
     if (p.status === 'active' || p.status === 'waiting' || p.status === 'registered') {
@@ -828,6 +875,7 @@ export function submitAnswer(input: {
     answerMs,
   };
   event.history.push(hist);
+  markEventsDirty();
 
   // Pass to next (PassableState — consume current, mint next)
   holder.status = holder.status === 'eliminated' ? 'eliminated' : 'waiting';
@@ -951,6 +999,7 @@ export function timeoutTurn(input: {
     timedOut: true,
     scoreDelta: 0,
   });
+  markEventsDirty();
 
   holder.status = holder.status === 'eliminated' ? 'eliminated' : 'waiting';
   turn.state = 'timed_out';
@@ -1070,7 +1119,7 @@ export function getLeaderboard(): {
   rows: Array<{ displayName: string; wins: number; score: number; events: number }>;
 } {
   const agg = new Map<string, { displayName: string; wins: number; score: number; events: number }>();
-  for (const event of events.values()) {
+  for (const event of eventsMap().values()) {
     for (const p of event.players) {
       const key = p.address.toLowerCase();
       const row = agg.get(key) ?? {
