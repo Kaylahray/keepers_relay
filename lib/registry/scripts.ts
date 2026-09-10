@@ -2,17 +2,14 @@
 
 import { ccc } from "@ckb-ccc/connector-react";
 import {
-  assertChainCellConfigured,
   assertEventEngineConfigured,
   assertRewardClaimsConfigured,
   assertRegistryConfigured,
   assertSudtConfigured,
-  chainCellType,
   ckbJsVm,
   eventCellType,
   eventRewardClaimType,
   eventTreasuryLock,
-  keeperLock,
   participantType,
   profileType,
   rewardClaimType,
@@ -38,46 +35,6 @@ function toCellDep(s: ScriptConfig): ccc.CellDep {
     },
     depType: s.depType,
   });
-}
-
-export function getChainCellTypeScript(): ccc.Script {
-  assertChainCellConfigured();
-  return toScript(chainCellType);
-}
-
-/**
- * The Chain Cell type script for one specific Cell. `chainId` is the type-id,
- * so each Cell gets its own script — that is what makes it unforgeable.
- */
-export function getChainCellTypeScriptFor(chainIdHex: string): ccc.Script {
-  assertChainCellConfigured();
-  return ccc.Script.from({
-    codeHash: chainCellType.codeHash,
-    hashType: chainCellType.hashType,
-    args: chainIdHex,
-  });
-}
-
-/**
- * The lock worn by a live Chain Cell: the Keeper can spend it, and once the
- * clock runs out anybody can spend it to record that it died.
- */
-export function getKeeperLockScript(
-  keeperLockHash: string,
-  chainTypeHash: string,
-): ccc.Script {
-  assertChainCellConfigured();
-  const args = `0x${keeperLockHash.replace(/^0x/, '')}${chainTypeHash.replace(/^0x/, '')}`;
-  return ccc.Script.from({
-    codeHash: keeperLock.codeHash,
-    hashType: keeperLock.hashType,
-    args,
-  });
-}
-
-export function getChainCellDeps(): ccc.CellDep[] {
-  assertChainCellConfigured();
-  return [toCellDep(chainCellType), toCellDep(keeperLock)];
 }
 
 export function getUsernameTypeScript(): ccc.Script {

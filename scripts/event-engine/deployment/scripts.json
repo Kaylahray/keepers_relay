@@ -1,11 +1,11 @@
 {
   "event-type": {
-    "code_hash": "0x57e8041505ef9d0d0a87dc0d4bda34ac5f8faaa71ed27f16d6522dabf5a61600",
+    "code_hash": "0x1bc7dc32ae79a3f1db766ba094104446bcadaeaf54bf045fb80a0acf06e4da68",
     "hash_type": "type",
-    "tx_hash": "0x55cf8e1ff36b02a5ebcd6574fcb86b7fbed03ffb5441d28dd7437e990029b9b7",
+    "tx_hash": "0x0cfe8508110c92af2f0609345670c149263b6d3d67609cc0038361f1bf97255a",
     "index": "0x0",
     "dep_type": "code",
-    "note": "Pudge v3 redeploy 2026-09-09 — join code_hash fix; type_id unchanged"
+    "note": "Pudge v3 redeploy 2026-09-10 — settle join-delta fix"
   },
   "participant-type": {
     "code_hash": "0x60a1454553846091a30699f456135fc467a2b2a6590712012029897cf71193e1",
@@ -13,15 +13,15 @@
     "tx_hash": "0xa03f80ed7f48ab008d348b7867fad05f10f0806e93e89f8e460f1722bb4f0de2",
     "index": "0x0",
     "dep_type": "code",
-    "note": "Pudge v3 2026-09-09"
+    "note": "Pudge v3 2026-09-09 (unchanged)"
   },
   "event-treasury-lock": {
-    "code_hash": "0x16134a63bce05bad4053f6f78150ca1154786cd4103d1ee32e99cd1ac4a143e6",
+    "code_hash": "0xbd865152531766f24efd4b6334321e7d2e585a0d427768f935b9eb5933c277d6",
     "hash_type": "type",
-    "tx_hash": "0xe90e1ac6245ad1220d1f6c8ab20c03c841445fe0b473436bedb1a5f2245c59dd",
+    "tx_hash": "0xcff3a13fa9083607265d23f3c9e64d81ee39bdf61d89176fe456af6c125ebd56",
     "index": "0x0",
     "dep_type": "code",
-    "note": "Pudge v3 redeploy 2026-09-09 — claim code_hash fix; type_id unchanged"
+    "note": "Pudge v3 redeploy 2026-09-10 — lock-hash group count fix"
   },
   "reward-claim-type": {
     "code_hash": "0x40cc77e82c7af03f651f41ada164f39a66f4fa9cbe95ff1b9ce9b8f294b3e8fe",
@@ -29,6 +29,6 @@
     "tx_hash": "0x33ba05cc1726b9dc941296231a61f71ddf3f8c8de9b061f4880c29018fea405b",
     "index": "0x0",
     "dep_type": "code",
-    "note": "Pudge v3 2026-09-09 — event prize claims (not old PROOF treasury)"
+    "note": "Pudge v3 2026-09-09 — event prize claims (unchanged)"
   }
 }

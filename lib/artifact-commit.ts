@@ -1,5 +1,5 @@
 import type { ArtifactKind } from '@/types/keeper';
-import { nextArtifactRoot } from '@/lib/registry/chain-cell-layout';
+import { hashPair } from '@/lib/registry/ckb-bytes';
 
 const ZERO_ROOT =
   '0x0000000000000000000000000000000000000000000000000000000000000000';
@@ -69,7 +69,7 @@ export async function computeArtifactRoot(input: {
 }): Promise<{ mark: Uint8Array; markHex: string; root: Uint8Array; rootHex: string }> {
   const { mark, markHex } = await computeMarkHash(input);
   const prev = hexToBytes(normalizeArtifactRoot(input.previousRoot));
-  const root = nextArtifactRoot(prev, mark);
+  const root = hashPair(prev, mark);
   return { mark, markHex, root, rootHex: bytesToHex(root) };
 }
 

@@ -1,6 +1,6 @@
 # Keepers Relay Event Engine — CKB scripts (v3)
 
-Build layout matches `scripts/chain-cell` (ckb-std + RISC-V + clang).
+Build layout: ckb-std + RISC-V + clang (`make prepare && make build`).
 
 | Contract | Binary | Role |
 |----------|--------|------|

@@ -108,28 +108,6 @@ export const rewardTreasuryLock: ScriptConfig = {
   depType: asDepType(process.env.NEXT_PUBLIC_REWARD_TREASURY_BYTECODE_DEP_TYPE),
 };
 
-export const chainCellType: ScriptConfig = {
-  codeHash: pick(process.env.NEXT_PUBLIC_CHAIN_CELL_CODE_HASH),
-  hashType: asHashType(process.env.NEXT_PUBLIC_CHAIN_CELL_HASH_TYPE),
-  args: pick(process.env.NEXT_PUBLIC_CHAIN_CELL_ARGS, "0x"),
-  outPoint: {
-    txHash: pick(process.env.NEXT_PUBLIC_CHAIN_CELL_TX_HASH),
-    index: pick(process.env.NEXT_PUBLIC_CHAIN_CELL_INDEX, "0x0"),
-  },
-  depType: asDepType(process.env.NEXT_PUBLIC_CHAIN_CELL_DEP_TYPE),
-};
-
-export const keeperLock: ScriptConfig = {
-  codeHash: pick(process.env.NEXT_PUBLIC_KEEPER_LOCK_CODE_HASH),
-  hashType: asHashType(process.env.NEXT_PUBLIC_KEEPER_LOCK_HASH_TYPE),
-  args: pick(process.env.NEXT_PUBLIC_KEEPER_LOCK_ARGS, "0x"),
-  outPoint: {
-    txHash: pick(process.env.NEXT_PUBLIC_KEEPER_LOCK_TX_HASH),
-    index: pick(process.env.NEXT_PUBLIC_KEEPER_LOCK_INDEX, "0x0"),
-  },
-  depType: asDepType(process.env.NEXT_PUBLIC_KEEPER_LOCK_DEP_TYPE),
-};
-
 /** Event Cell type (event-type) — v3 Pudge deploy. */
 export const eventCellType: ScriptConfig = {
   codeHash: pick(process.env.NEXT_PUBLIC_EVENT_CELL_CODE_HASH),
@@ -177,22 +155,6 @@ export const eventRewardClaimType: ScriptConfig = {
   },
   depType: asDepType(process.env.NEXT_PUBLIC_EVENT_REWARD_CLAIM_DEP_TYPE),
 };
-
-export function chainCellConfigured(): boolean {
-  return (
-    chainCellType.codeHash.length > 2 &&
-    chainCellType.outPoint.txHash.length > 2 &&
-    keeperLock.codeHash.length > 2 &&
-    keeperLock.outPoint.txHash.length > 2
-  );
-}
-
-export function assertChainCellConfigured(): void {
-  if (chainCellConfigured()) return;
-  throw new Error(
-    "Missing Chain Cell env — set NEXT_PUBLIC_CHAIN_CELL_* and NEXT_PUBLIC_KEEPER_LOCK_* in `.env.local` from scripts/chain-cell/deployment/scripts.json.",
-  );
-}
 
 export function registryConfigured(): boolean {
   return (

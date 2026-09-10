@@ -31,7 +31,7 @@ import {
   type EventCellData,
 } from './event-cell-layout';
 import { hashRules, hashTopics } from './event-commits';
-import { computeTypeId, bytesToHex, hexToBytes } from './chain-cell-layout';
+import { computeTypeId, bytesToHex, hexToBytes } from './ckb-bytes';
 
 export {
   EVENT_CELL_DATA_LEN,

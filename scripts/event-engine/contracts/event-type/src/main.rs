@@ -91,6 +91,7 @@ fn validate_update(event_id: &[u8;32], event_type_hash: &[u8;32]) -> Result<(), 
         if read_u64(&output, EVENT_OFFSET_POT)? != out_pot { return Err(ERR); }
         if read_u64(&output, EVENT_OFFSET_FINAL_POT)? != 0 { return Err(ERR); }
         if input_status >= STATUS_FINISHED && out_pot != in_pot { return Err(ERR); }
+        validate_join_delta(&input, &output, input_status, output_status, event_type_hash, event_id, in_pot, out_pot)?;
     } else {
         if in_tc != 1 || out_tc != 0 { return Err(ERR); }
         if read_u64(&input, EVENT_OFFSET_POT)? != in_pot { return Err(ERR); }
@@ -99,7 +100,6 @@ fn validate_update(event_id: &[u8;32], event_type_hash: &[u8;32]) -> Result<(), 
         if read_u64(&output, EVENT_OFFSET_FINAL_POT)? != read_u64(&input, EVENT_OFFSET_POT)? { return Err(ERR); }
     }
 
-    validate_join_delta(&input, &output, input_status, output_status, event_type_hash, event_id, in_pot, out_pot)?;
     validate_turn_transition(&input, &output, event_type_hash, event_id)?;
     if input_status == STATUS_FINISHED && output_status == STATUS_SETTLED { validate_settlement_freeze(&input, &output)?; }
     validate_result_transition(&input, &output)?;

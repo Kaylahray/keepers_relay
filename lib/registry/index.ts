@@ -6,4 +6,3 @@ export * from "./client";
 export * from "./username";
 export * from "./profile";
 export * from "./endorsement";
-export * from "./chain-cell";
