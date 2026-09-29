@@ -242,6 +242,19 @@ export function ProfileStudioView() {
     );
   }
 
+  if (!builder) {
+    return (
+      <PageShell
+        eyebrow="Profile studio"
+        title="Profile not ready"
+        intro="Your username is claimed, but the profile record is still syncing. Refresh and try again."
+        backHref="/"
+      >
+        <p className="font-mono text-xs font-bold">{formattedAddress}</p>
+      </PageShell>
+    );
+  }
+
   return (
     <PageShell
       eyebrow="Profile studio"
