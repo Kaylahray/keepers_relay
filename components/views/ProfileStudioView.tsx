@@ -65,6 +65,19 @@ export function ProfileStudioView() {
   }, [builder]);
 
   useEffect(() => {
+    const claimedUsername = onChainUsername.username?.username;
+    if (!address || !claimedUsername || builder?.onboarded || upsert.isPending) return;
+
+    void upsert.mutateAsync({
+      address,
+      username: claimedUsername,
+      displayName: claimedUsername,
+    }).catch((error) => {
+      setProfileError(error instanceof Error ? error.message : 'Profile sync failed.');
+    });
+  }, [address, builder?.onboarded, onChainUsername.username?.username, upsert]);
+
+  useEffect(() => {
     return () => {
       if (previewUrl) URL.revokeObjectURL(previewUrl);
     };
@@ -197,7 +210,20 @@ export function ProfileStudioView() {
     );
   }
 
-  if (!builder?.onboarded) {
+  if (onChainUsername.isLoading || myBuilder.isLoading || (onChainUsername.username && !builder)) {
+    return (
+      <PageShell
+        eyebrow="Profile studio"
+        title="Syncing profile"
+        intro="Your username is claimed. We are loading the rest of your profile."
+        backHref="/"
+      >
+        <p className="font-mono text-xs font-bold">{formattedAddress}</p>
+      </PageShell>
+    );
+  }
+
+  if (!builder?.onboarded && !onChainUsername.username) {
     return (
       <PageShell
         eyebrow="Profile studio"
@@ -367,7 +393,7 @@ export function ProfileStudioView() {
             value={headline}
             onChange={(e) => setHeadline(e.target.value)}
             maxLength={80}
-            className="mt-2 w-full border-[3px] border-black bg-[#fff8e7] px-3 py-2.5 text-sm font-semibold outline-none"
+            className="mt-2 w-full border-[3px] border-black bg-[#fff8e7] px-3 py-2.5 text-sm font-semibold text-black outline-none placeholder:text-black/45"
           />
         </label>
         <div className="mt-4">
@@ -401,7 +427,7 @@ export function ProfileStudioView() {
         unlocking={unlock.isPending}
       />
 
-      <section className="mt-6 border-[3px] border-black bg-[#fff8e7] p-5">
+      <section className="mt-6 border-[3px] border-black bg-[#fff8e7] p-5 text-black">
         <p className="text-[10px] font-black uppercase tracking-wider text-black/60">Danger zone</p>
         <h2 className="mt-2 font-poster text-2xl uppercase leading-none">Release @{handle}</h2>
         <p className="mt-2 max-w-xl text-sm font-semibold">

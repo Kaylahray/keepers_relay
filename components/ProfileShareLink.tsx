@@ -20,9 +20,9 @@ export function ProfileShareLink({ username }: { username: string }) {
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2 border-[3px] border-black bg-[#fff8e7] p-3">
+    <div className="flex flex-wrap items-center gap-2 border-[3px] border-black bg-[#fff8e7] p-3 text-black">
       <span className="text-[10px] font-black uppercase tracking-[0.16em]">Share</span>
-      <code className="min-w-0 flex-1 truncate font-mono text-xs font-bold">{fullUrl}</code>
+      <code className="min-w-0 flex-1 truncate font-mono text-xs font-bold text-black">{fullUrl}</code>
       <button
         type="button"
         onClick={() => void copy()}
