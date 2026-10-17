@@ -113,7 +113,7 @@ export function HomeHero() {
           - 900–1279: character + date on one row
           - 1280+: copy | character | date — separate, never behind
         */}
-        <div className="grid flex-1 grid-cols-1 items-center gap-8 xl:grid-cols-[minmax(0,1fr)_minmax(260px,380px)_minmax(240px,300px)] xl:gap-6">
+        <div className="grid flex-1 grid-cols-1 items-center gap-8 xl:grid-cols-[minmax(0,1fr)_minmax(240px,340px)_minmax(280px,360px)] xl:gap-6">
           {/* Copy */}
           <div className="relative z-10 order-1 max-w-xl xl:order-1 xl:pb-8">
             <h1 className="font-poster text-[clamp(2.25rem,8vw,4.5rem)] uppercase leading-[0.92] text-white">
@@ -140,7 +140,7 @@ export function HomeHero() {
             </div>
 
             {/* Date + JOIN */}
-            <div className="relative z-20 w-full max-w-full min-[900px]:max-w-[360px] xl:order-3 xl:max-w-[300px] xl:justify-self-end xl:self-center">
+            <div className="relative z-20 w-full max-w-full min-[900px]:max-w-[420px] xl:order-3 xl:max-w-[360px] xl:justify-self-end xl:self-center">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/uismod/polygon.svg"
@@ -149,8 +149,8 @@ export function HomeHero() {
               />
 
               <div className="relative flex flex-row flex-nowrap items-end gap-2 sm:gap-3 xl:flex-col xl:items-stretch xl:gap-4">
-                <div className="relative flex shrink-0 gap-2.5 border border-white/10 bg-[#111]/80 p-3 backdrop-blur-md sm:gap-3 sm:p-3.5 [clip-path:polygon(0_0,100%_0,100%_78%,88%_100%,0_100%)]">
-                  <div className="flex min-w-[52px] flex-col items-center text-center font-poster sm:min-w-[64px]">
+                <div className="relative flex shrink-0 items-stretch gap-2.5 border border-white/10 bg-[#111]/80 p-2.5 backdrop-blur-md sm:gap-3 sm:p-3 [clip-path:polygon(0_0,100%_0,100%_86%,90%_100%,0_100%)]">
+                  <div className="flex min-w-[52px] flex-col items-center justify-center text-center font-poster sm:min-w-[64px]">
                     <p className="text-xs leading-tight text-white sm:text-sm md:text-base">
                       {slide.month}
                     </p>
@@ -162,19 +162,19 @@ export function HomeHero() {
                     </p>
                   </div>
 
-                  <div className="relative h-[60px] w-[96px] shrink-0 overflow-hidden border border-white/20 sm:h-[72px] sm:w-[118px] md:h-[84px] md:w-[137px]">
+                  <div className="relative h-[168px] w-[112px] shrink-0 overflow-hidden border border-white/20 sm:h-[196px] sm:w-[132px] md:h-[220px] md:w-[148px]">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       key={slide.videoSrc}
                       src={slide.videoSrc}
                       alt=""
-                      className="h-full w-full object-cover"
+                      className="h-full w-full object-cover object-[center_18%]"
                     />
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src="/uismod/play.svg"
                       alt=""
-                      className="pointer-events-none absolute left-1/2 top-1/2 size-6 -translate-x-1/2 -translate-y-1/2 sm:size-7 md:size-8"
+                      className="pointer-events-none absolute bottom-2 right-2 size-6 sm:size-7"
                     />
                   </div>
                 </div>
