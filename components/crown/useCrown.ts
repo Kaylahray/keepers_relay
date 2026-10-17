@@ -11,6 +11,7 @@ function realQuestions(room: CrownRoom): boolean {
 }
 
 function ahead(local: CrownRoom, remote: CrownRoom): boolean {
+  if (local.status === 'settled' && remote.status === 'live' && remote.matchId) return false;
   if (local.status === 'settled' && remote.status !== 'settled') return true;
   if (local.status === 'live' && remote.status === 'lobby') return true;
   if (local.cursor > remote.cursor) return true;

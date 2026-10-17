@@ -15,6 +15,12 @@ import { registryConfigured } from '@/lib/registry/config';
 
 const ZERO_MATCH = new Uint8Array(32);
 const STEPS = ['Event', 'Clock', 'Bank', 'Lobby'] as const;
+const DEFAULT_MINUTES = 120;
+const MAX_MINUTES = 48 * 60;
+
+function minutesOf(durationMs?: number): number {
+  return Math.round((durationMs ?? DEFAULT_MINUTES * 60_000) / 60_000);
+}
 
 export function OpenCrownView() {
   const router = useRouter();
@@ -24,6 +30,8 @@ export function OpenCrownView() {
   const [step, setStep] = useState(0);
   const [eventId, setEventId] = useState<EventKind | null>(null);
   const [bank, setBank] = useState(() => EVENT_PRESETS[0]!.bank);
+  const [lengthText, setLengthText] = useState(() => String(minutesOf(EVENT_PRESETS[0]!.bank.durationMs)));
+  const [feeText, setFeeText] = useState(() => String(Number(EVENT_PRESETS[0]!.bank.feeShannons / 100_000_000n)));
   const [shareError, setShareError] = useState<string | null>(null);
   const [sealing, setSealing] = useState(false);
 
@@ -34,6 +42,28 @@ export function OpenCrownView() {
       return null;
     }
   }, [bank.questions]);
+
+  function commitLength(raw: string) {
+    const minutes = Math.round(Number(raw));
+    if (!raw.trim() || !Number.isFinite(minutes)) {
+      setLengthText(String(minutesOf(bank.durationMs)));
+      return;
+    }
+    const clamped = Math.min(MAX_MINUTES, Math.max(1, minutes));
+    setLengthText(String(clamped));
+    setBank((current) => ({ ...current, durationMs: clamped * 60_000 }));
+  }
+
+  function commitFee(raw: string) {
+    const ckb = Math.round(Number(raw));
+    if (!raw.trim() || !Number.isFinite(ckb)) {
+      setFeeText(String(Number(bank.feeShannons / 100_000_000n)));
+      return;
+    }
+    const clamped = Math.max(1, ckb);
+    setFeeText(String(clamped));
+    setBank((current) => ({ ...current, feeShannons: BigInt(clamped) * 100_000_000n }));
+  }
 
   function updateQuestion(index: number, next: BankQuestion) {
     setBank((current) => {
@@ -139,10 +169,11 @@ export function OpenCrownView() {
       {step === 1 ? (
         <NeonPlate className="mt-8 max-w-2xl p-6">
           <p className="text-sm leading-relaxed text-white/70">
-            You set the length. Start the clock writes that deadline into the match. Everyone sees
-            the same number. A correct answer grows the pot and shortens the clock: the first one
-            cuts 10 minutes, later ones cut less, and the floor is 72 seconds. The screen is a
-            prediction. The chain timestamp pays.
+            You set the opening length in minutes. 120 is two hours. 30 is thirty minutes. Start
+            the clock writes that deadline into the match. Everyone sees the same number. A correct
+            answer grows the pot by the entry fee and shortens the clock: the first one cuts 10
+            minutes, later ones cut less, and the floor is 72 seconds. A length already shorter
+            than the cut ends at one second. The screen is a prediction. The chain timestamp pays.
           </p>
           <label className="mt-8 block max-w-md">
             <span className="font-mono text-[10px] uppercase text-white/50">Crown title</span>
@@ -153,16 +184,15 @@ export function OpenCrownView() {
             />
           </label>
           <label className="mt-4 block max-w-xs">
-            <span className="font-mono text-[10px] uppercase text-white/50">Length (hours)</span>
+            <span className="font-mono text-[10px] uppercase text-white/50">Length (minutes)</span>
             <input
               type="number"
               min={1}
-              max={48}
-              value={Math.round((bank.durationMs ?? 2 * 60 * 60 * 1000) / 3_600_000)}
-              onChange={(event) => {
-                const hours = Math.min(48, Math.max(1, Number(event.target.value) || 2));
-                setBank((current) => ({ ...current, durationMs: hours * 3_600_000 }));
-              }}
+              max={MAX_MINUTES}
+              inputMode="numeric"
+              value={lengthText}
+              onChange={(event) => setLengthText(event.target.value)}
+              onBlur={() => commitLength(lengthText)}
               className="mt-2 w-full border border-white/15 bg-black px-3 py-3 text-white outline-none focus:border-[#99ee2d]"
             />
           </label>
@@ -171,11 +201,10 @@ export function OpenCrownView() {
             <input
               type="number"
               min={1}
-              value={Number(bank.feeShannons / 100_000_000n)}
-              onChange={(event) => {
-                const ckb = BigInt(Math.max(1, Number(event.target.value) || 1));
-                setBank((current) => ({ ...current, feeShannons: ckb * 100_000_000n }));
-              }}
+              inputMode="numeric"
+              value={feeText}
+              onChange={(event) => setFeeText(event.target.value)}
+              onBlur={() => commitFee(feeText)}
               className="mt-2 w-full border border-white/15 bg-black px-3 py-3 text-white outline-none focus:border-[#99ee2d]"
             />
           </label>
@@ -293,7 +322,13 @@ export function OpenCrownView() {
           <button
             type="button"
             disabled={step === 0 && !eventId}
-            onClick={() => setStep((current) => current + 1)}
+            onClick={() => {
+              if (step === 1) {
+                commitLength(lengthText);
+                commitFee(feeText);
+              }
+              setStep((current) => current + 1);
+            }}
             className="arena-cta px-4 py-2 font-mono text-[11px] font-bold uppercase disabled:opacity-40"
           >
             Continue

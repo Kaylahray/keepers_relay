@@ -126,7 +126,8 @@ async function refreshFromChain(room: CrownRoom): Promise<{ room: CrownRoom; see
       seen: 'match',
       room: {
         ...room,
-        status: raw[1] === 0 ? 'settled' : 'live',
+        // Byte 1 is the script status: 0 live, 1 dead. A fresh match is 0.
+        status: raw[1] === 0 ? 'live' : 'settled',
         round: decoded.round,
         cursor: Math.min(room.questions.length, Math.max(0, decoded.round - 1)),
         potShannons: decoded.pot,
