@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { Provider } from '@ckb-ccc/connector-react';
 import { QueryClientProvider } from '@tanstack/react-query';
+import { ConnectorFrame } from '@/components/ConnectorFrame';
 import { AuthProvider } from '@/context/auth-provider';
 import { WalletProvider } from '@/context/wallet-provider';
 import { getCkbClient } from '@/lib/ckb/client';
@@ -17,6 +18,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       <QueryClientProvider client={queryClient}>
         <WalletProvider>
           <AuthProvider>{children}</AuthProvider>
+          <ConnectorFrame />
         </WalletProvider>
       </QueryClientProvider>
     </Provider>

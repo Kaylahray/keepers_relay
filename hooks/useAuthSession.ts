@@ -1,5 +1,6 @@
 'use client';
 
+import { ccc } from '@ckb-ccc/connector-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useWallet } from '@/hooks/useWallet';
 import { post, request } from '@/lib/api/client';
@@ -31,6 +32,7 @@ type SignerLike = {
  */
 export function useAuthSession(): SessionState {
   const { address, signer, isConnected, isReady, connect } = useWallet();
+  const { isOpen } = ccc.useCcc();
   const [authenticated, setAuthenticated] = useState(false);
   const [checked, setChecked] = useState(false);
   const [sessionAddress, setSessionAddress] = useState<string | null>(null);
@@ -42,6 +44,8 @@ export function useAuthSession(): SessionState {
     reject: (err: Error) => void;
   } | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const connectedRef = useRef(isConnected);
+  connectedRef.current = isConnected;
 
   const refresh = useCallback(async () => {
     try {
@@ -166,6 +170,23 @@ export function useAuthSession(): SessionState {
     runChallenge,
     signer,
   ]);
+
+  /**
+   * A successful pick closes the modal, then the wallet appears.
+   * A dismiss closes it and nothing arrives. Drop the waiter so
+   * Connect is clickable again instead of sitting on “Connecting…”.
+   */
+  useEffect(() => {
+    if (isOpen || !waiterRef.current) return;
+    const timer = setTimeout(() => {
+      if (!waiterRef.current || connectedRef.current) return;
+      waiterRef.current.reject(new Error('Wallet connection cancelled.'));
+      waiterRef.current = null;
+      clearWaiter();
+      setBusy(false);
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [clearWaiter, isOpen]);
 
   /** After Connect opens the wallet modal, finish with the sign-in message. */
   useEffect(() => {

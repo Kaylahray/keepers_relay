@@ -151,17 +151,10 @@ export function ProfileStudioView() {
   async function onMint() {
     if (!selectedFile || !address) return;
     const sporeId = await spore.mintSpore(selectedFile);
-    if (sporeId) {
-      try {
-        await syncAvatarOnChain(sporeId);
-      } catch (e) {
-        setProfileError(e instanceof Error ? e.message : 'Failed to write avatar on-chain.');
-      }
-      setAvatar.mutate({ address, avatarSporeId: sporeId });
-      setSelectedFile(null);
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-      setPreviewUrl(null);
-    }
+    if (!sporeId) return;
+    setSelectedFile(null);
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPreviewUrl(null);
   }
 
   async function onDelete(sporeId: string) {
@@ -181,6 +174,7 @@ export function ProfileStudioView() {
     setProfileError(null);
     setSettingSporeId(sporeId);
     try {
+      await syncAvatarOnChain(sporeId);
       await setAvatar.mutateAsync({ address, avatarSporeId: sporeId });
     } catch (e) {
       setProfileError(e instanceof Error ? e.message : 'Could not set that as your profile picture.');
@@ -260,7 +254,7 @@ export function ProfileStudioView() {
     <PageShell
       eyebrow="Profile studio"
       title={studioTitle}
-      intro="Mint a Spore picture, then set it. It shows on your profile."
+      intro="Mint puts the picture in your wallet. Set as profile picture is the next step, and that is what shows on your profile."
       backHref="/profile"
       backLabel="Profile"
     >
@@ -276,7 +270,7 @@ export function ProfileStudioView() {
             <h2 className="font-poster text-2xl uppercase leading-none">Mint Spore avatar</h2>
           </div>
           <p className="mt-2 text-xs font-semibold text-black/70">
-            Upload a picture from this device, or pick one below if you do not have a file. Then mint it and set it as your profile picture.
+            Upload a picture, or pick one below. Mint only creates it. It is not your profile picture until you set it.
           </p>
           <div className="mt-4 grid grid-cols-4 gap-2">
             {LOOKS.map((look) => (
@@ -340,7 +334,7 @@ export function ProfileStudioView() {
             ) : (
               <Sparkles className="h-4 w-4 stroke-[3]" />
             )}
-            {spore.isMinting ? 'Mintingâ€¦' : 'Mint & set as avatar'}
+            {spore.isMinting ? 'Minting...' : 'Mint picture'}
           </button>
 
           {spore.status.message && (
@@ -362,11 +356,11 @@ export function ProfileStudioView() {
         <section className="neo-card bg-[#224cff] p-5 text-[#fff8e7]">
           <h2 className="font-poster text-2xl uppercase leading-none">Pictures in this wallet</h2>
           <p className="mt-2 text-xs font-bold text-[#d6ff00]">
-            These are Spores this wallet already holds, not other players. Use one as your profile picture, or burn it.
+            These are pictures this wallet already holds. Set as profile picture is its own step. Burn removes one.
           </p>
           <p className="mt-2 text-xs font-bold text-[#fff8e7]">
             Profile picture:{' '}
-            {profile.avatarSporeId ? `${profile.avatarSporeId.slice(0, 14)}â€¦` : 'not set'}
+            {profile.avatarSporeId ? `${profile.avatarSporeId.slice(0, 14)}...` : 'not set'}
           </p>
 
           {spore.isLoadingSpores ? (
@@ -392,7 +386,7 @@ export function ProfileStudioView() {
                       className="aspect-square w-full border-2 border-black object-cover"
                     />
                     <p className="mt-1 truncate font-mono text-[9px] font-bold">
-                      {item.ckbCapacity} CKB Â· {Math.round(item.sizeBytes / 1024)}KB
+                      {item.ckbCapacity} CKB · {Math.round(item.sizeBytes / 1024)}KB
                     </p>
                     <div className="mt-2 flex flex-wrap gap-1">
                       <button
@@ -401,7 +395,7 @@ export function ProfileStudioView() {
                         onClick={() => void onSetAvatar(item.id)}
                         className="cursor-pointer border-2 border-black bg-[#d6ff00] px-2 py-1 text-[9px] font-black uppercase disabled:cursor-default disabled:opacity-40"
                       >
-                        {settingThis ? 'Setting…' : active ? 'Profile pic' : 'Use as profile pic'}
+                        {settingThis ? 'Setting...' : active ? 'Profile picture' : 'Set as profile picture'}
                       </button>
                       <button
                         type="button"

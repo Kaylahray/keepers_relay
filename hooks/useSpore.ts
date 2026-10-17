@@ -110,7 +110,7 @@ export function useSpore() {
 
       setStatus({
         type: 'success',
-        message: `Spore minted! ${sporeId.slice(0, 12)}…`,
+        message: `Minted ${sporeId.slice(0, 12)}... It is in your wallet. Set it as your profile picture next.`,
       });
       await queryClient.invalidateQueries({ queryKey: sporeKeys.minted });
       requestWalletRefresh();
