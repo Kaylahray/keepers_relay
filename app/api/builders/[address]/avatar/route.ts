@@ -1,9 +1,6 @@
-import {
-  setBuilderAvatar,
-  clearBuilderAvatarIfMatches,
-} from '@/lib/server/social-service';
-import { readBody, respondSocial } from '@/lib/server/respond';
+import { setBuilderAvatar } from '@/lib/server/builders-store';
 import { requireSession } from '@/lib/server/auth';
+import { readBody, respond } from '@/lib/server/respond';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,13 +9,15 @@ export async function POST(
   { params }: { params: Promise<{ address: string }> },
 ) {
   const { address } = await params;
-  const decoded = decodeURIComponent(address);
-  requireSession(request, decoded);
-  const body = await readBody<{ avatarSporeId: string | null; clearIf?: string }>(request);
-  return respondSocial(() => {
+  const body = await readBody<{ avatarSporeId?: string | null; clearIf?: string }>(request);
+  return respond(async () => {
+    requireSession(request, decodeURIComponent(address));
     if (body.clearIf) {
-      return clearBuilderAvatarIfMatches(decoded, body.clearIf);
+      const { getBuilder } = await import('@/lib/server/builders-store');
+      const current = await getBuilder(address);
+      if (current?.avatarSporeId !== body.clearIf) return current;
+      return setBuilderAvatar(address, null);
     }
-    return setBuilderAvatar(decoded, body.avatarSporeId ?? null);
+    return setBuilderAvatar(address, body.avatarSporeId ?? null);
   });
 }

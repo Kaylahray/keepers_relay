@@ -108,52 +108,50 @@ export const rewardTreasuryLock: ScriptConfig = {
   depType: asDepType(process.env.NEXT_PUBLIC_REWARD_TREASURY_BYTECODE_DEP_TYPE),
 };
 
-/** Event Cell type (event-type) — v3 Pudge deploy. */
-export const eventCellType: ScriptConfig = {
-  codeHash: pick(process.env.NEXT_PUBLIC_EVENT_CELL_CODE_HASH),
-  hashType: asHashType(process.env.NEXT_PUBLIC_EVENT_CELL_HASH_TYPE),
-  args: pick(process.env.NEXT_PUBLIC_EVENT_CELL_ARGS, "0x"),
+/** Sudden Death match type. Empty until the Pudge deploy fills these env vars. */
+export const suddenDeathMatchType: ScriptConfig = {
+  codeHash: pick(process.env.NEXT_PUBLIC_SD_MATCH_CODE_HASH),
+  hashType: asHashType(process.env.NEXT_PUBLIC_SD_MATCH_HASH_TYPE),
+  args: pick(process.env.NEXT_PUBLIC_SD_MATCH_ARGS, "0x"),
   outPoint: {
-    txHash: pick(process.env.NEXT_PUBLIC_EVENT_CELL_TX_HASH),
-    index: pick(process.env.NEXT_PUBLIC_EVENT_CELL_INDEX, "0x0"),
+    txHash: pick(process.env.NEXT_PUBLIC_SD_MATCH_TX_HASH),
+    index: pick(process.env.NEXT_PUBLIC_SD_MATCH_INDEX, "0x0"),
   },
-  depType: asDepType(process.env.NEXT_PUBLIC_EVENT_CELL_DEP_TYPE),
+  depType: asDepType(process.env.NEXT_PUBLIC_SD_MATCH_DEP_TYPE),
 };
 
-/** Participant entry cell type — one per joined player. */
-export const participantType: ScriptConfig = {
-  codeHash: pick(process.env.NEXT_PUBLIC_PARTICIPANT_TYPE_CODE_HASH),
-  hashType: asHashType(process.env.NEXT_PUBLIC_PARTICIPANT_TYPE_HASH_TYPE),
-  args: pick(process.env.NEXT_PUBLIC_PARTICIPANT_TYPE_ARGS, "0x"),
+export const suddenDeathBidType: ScriptConfig = {
+  codeHash: pick(process.env.NEXT_PUBLIC_SD_BID_CODE_HASH),
+  hashType: asHashType(process.env.NEXT_PUBLIC_SD_BID_HASH_TYPE),
+  args: pick(process.env.NEXT_PUBLIC_SD_BID_ARGS, "0x"),
   outPoint: {
-    txHash: pick(process.env.NEXT_PUBLIC_PARTICIPANT_TYPE_TX_HASH),
-    index: pick(process.env.NEXT_PUBLIC_PARTICIPANT_TYPE_INDEX, "0x0"),
+    txHash: pick(process.env.NEXT_PUBLIC_SD_BID_TX_HASH),
+    index: pick(process.env.NEXT_PUBLIC_SD_BID_INDEX, "0x0"),
   },
-  depType: asDepType(process.env.NEXT_PUBLIC_PARTICIPANT_TYPE_DEP_TYPE),
+  depType: asDepType(process.env.NEXT_PUBLIC_SD_BID_DEP_TYPE),
 };
 
-/** Event treasury lock — pot CKB for one event. */
-export const eventTreasuryLock: ScriptConfig = {
-  codeHash: pick(process.env.NEXT_PUBLIC_EVENT_TREASURY_CODE_HASH),
-  hashType: asHashType(process.env.NEXT_PUBLIC_EVENT_TREASURY_HASH_TYPE),
-  args: pick(process.env.NEXT_PUBLIC_EVENT_TREASURY_ARGS, "0x"),
+/** Input Type Proxy Lock. data1 code hash of our deployed copy of the public binary. */
+export const suddenDeathProxyLock: ScriptConfig = {
+  codeHash: "0x5123908965c711b0ffd8aec642f1ede329649bda1ebdca6bd24124d3796f768a",
+  hashType: "data1",
+  args: "0x",
   outPoint: {
-    txHash: pick(process.env.NEXT_PUBLIC_EVENT_TREASURY_TX_HASH),
-    index: pick(process.env.NEXT_PUBLIC_EVENT_TREASURY_INDEX, "0x0"),
+    txHash: pick(process.env.NEXT_PUBLIC_SD_PROXY_TX_HASH),
+    index: pick(process.env.NEXT_PUBLIC_SD_PROXY_INDEX, "0x0"),
   },
-  depType: asDepType(process.env.NEXT_PUBLIC_EVENT_TREASURY_DEP_TYPE),
+  depType: "code",
 };
 
-/** Event settlement claim tickets (separate from PROOF sUDT rewardClaimType). */
-export const eventRewardClaimType: ScriptConfig = {
-  codeHash: pick(process.env.NEXT_PUBLIC_EVENT_REWARD_CLAIM_CODE_HASH),
-  hashType: asHashType(process.env.NEXT_PUBLIC_EVENT_REWARD_CLAIM_HASH_TYPE),
-  args: pick(process.env.NEXT_PUBLIC_EVENT_REWARD_CLAIM_ARGS, "0x"),
+export const suddenDeathTreasuryLock: ScriptConfig = {
+  codeHash: pick(process.env.NEXT_PUBLIC_SD_TREASURY_CODE_HASH),
+  hashType: asHashType(process.env.NEXT_PUBLIC_SD_TREASURY_HASH_TYPE),
+  args: pick(process.env.NEXT_PUBLIC_SD_TREASURY_ARGS, "0x"),
   outPoint: {
-    txHash: pick(process.env.NEXT_PUBLIC_EVENT_REWARD_CLAIM_TX_HASH),
-    index: pick(process.env.NEXT_PUBLIC_EVENT_REWARD_CLAIM_INDEX, "0x0"),
+    txHash: pick(process.env.NEXT_PUBLIC_SD_TREASURY_TX_HASH),
+    index: pick(process.env.NEXT_PUBLIC_SD_TREASURY_INDEX, "0x0"),
   },
-  depType: asDepType(process.env.NEXT_PUBLIC_EVENT_REWARD_CLAIM_DEP_TYPE),
+  depType: asDepType(process.env.NEXT_PUBLIC_SD_TREASURY_DEP_TYPE),
 };
 
 export function registryConfigured(): boolean {
@@ -209,23 +207,22 @@ export function assertRewardClaimsConfigured(): void {
   );
 }
 
-export function eventEngineConfigured(): boolean {
+export function suddenDeathConfigured(): boolean {
   return (
-    eventCellType.codeHash.length > 2 &&
-    eventCellType.outPoint.txHash.length > 2 &&
-    participantType.codeHash.length > 2 &&
-    participantType.outPoint.txHash.length > 2 &&
-    eventTreasuryLock.codeHash.length > 2 &&
-    eventTreasuryLock.outPoint.txHash.length > 2 &&
-    eventRewardClaimType.codeHash.length > 2 &&
-    eventRewardClaimType.outPoint.txHash.length > 2
+    suddenDeathMatchType.codeHash.length > 2 &&
+    suddenDeathMatchType.outPoint.txHash.length > 2 &&
+    suddenDeathBidType.codeHash.length > 2 &&
+    suddenDeathBidType.outPoint.txHash.length > 2 &&
+    suddenDeathTreasuryLock.codeHash.length > 2 &&
+    suddenDeathTreasuryLock.outPoint.txHash.length > 2 &&
+    suddenDeathProxyLock.outPoint.txHash.length > 2
   );
 }
 
-export function assertEventEngineConfigured(): void {
-  if (eventEngineConfigured()) return;
+export function assertSuddenDeathConfigured(): void {
+  if (suddenDeathConfigured()) return;
   throw new Error(
-    "Missing Event Engine env — set NEXT_PUBLIC_EVENT_CELL_*, NEXT_PUBLIC_PARTICIPANT_TYPE_*, NEXT_PUBLIC_EVENT_TREASURY_*, and NEXT_PUBLIC_EVENT_REWARD_CLAIM_* after deploy.",
+    "Missing Sudden Death env — set NEXT_PUBLIC_SD_MATCH_*, NEXT_PUBLIC_SD_BID_*, and NEXT_PUBLIC_SD_TREASURY_* after the Pudge deploy.",
   );
 }
 

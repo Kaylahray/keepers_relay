@@ -1,0 +1,13 @@
+{
+  "cell_recipes": [
+    {
+      "name": "input-type-proxy-lock",
+      "tx_hash": "0xa5ef4970ba0a4446b9cd8abb3b650cdfb68bcdf5052966e41384900a8a5ad274",
+      "index": 0,
+      "occupied_capacity": 2748600000000,
+      "data_hash": "0x5123908965c711b0ffd8aec642f1ede329649bda1ebdca6bd24124d3796f768a",
+      "type_id": "0x5ac7fe9da000b3fae92b5d29c96cce2f1247161461f167e72c7379476245a487"
+    }
+  ],
+  "dep_group_recipes": []
+}

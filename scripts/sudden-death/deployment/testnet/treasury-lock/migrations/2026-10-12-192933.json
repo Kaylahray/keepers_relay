@@ -1,0 +1,13 @@
+{
+  "cell_recipes": [
+    {
+      "name": "treasury-lock",
+      "tx_hash": "0x5124504dfde8cf137d8fb93029a5f998001aae8205f57b7d33f6c79abf5dd771",
+      "index": 0,
+      "occupied_capacity": 4443000000000,
+      "data_hash": "0x205e7f25609fafc7d7ac4a6659deaffa9e06ba4378b8fa72bcadaa93e3f8af2d",
+      "type_id": "0xe515e1501f08956760250336861be49f7dc2aff79065ae9b3c17db4d45f9abdf"
+    }
+  ],
+  "dep_group_recipes": []
+}

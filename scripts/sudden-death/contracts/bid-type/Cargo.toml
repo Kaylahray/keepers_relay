@@ -1,0 +1,14 @@
+[package]
+name = "sudden-death-bid-type"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+description = "Per-player bid cell for a Sudden Death match"
+
+[dependencies]
+ckb-std = { workspace = true }
+sudden-death-common = { path = "../common" }
+
+[[bin]]
+name = "bid-type"
+path = "src/main.rs"

@@ -1,0 +1,315 @@
+import { neon } from '@neondatabase/serverless';
+import { and, eq } from 'drizzle-orm';
+import { ccc } from '@ckb-ccc/core';
+import { getDb, databaseConfigured } from '@/lib/db/client';
+import { crownAttempts } from '@/lib/db/schema';
+import { getServerCkbClient } from '@/lib/ckb/server-client';
+import { ApiError } from '@/lib/server/errors';
+import { normalizeAddress } from '@/lib/server/auth';
+import { roomFromStored, roomToStored, type CrownRoom } from '@/lib/crown/rooms';
+import { bytesToHex, decodeMatchCell, hexToBytes, merkleRoot, stealProof } from '@/lib/sudden-death/codec';
+import type { CrownSeat } from '@/lib/crown/seats';
+
+export type { CrownSeat };
+
+type Vault = {
+  room: ReturnType<typeof roomToStored>;
+  hostAddress: string | null;
+  seats: CrownSeat[];
+};
+
+let tablesReady = false;
+
+function sqlClient() {
+  const url = process.env.DATABASE_URL?.trim();
+  if (!url) throw new ApiError('DATABASE_URL is required to share a crown.', 503);
+  return neon(url);
+}
+
+export async function ensureCrownTables(): Promise<void> {
+  if (tablesReady || !databaseConfigured()) return;
+  const sql = sqlClient();
+  await sql`
+    CREATE TABLE IF NOT EXISTS keepers_crowns (
+      id text PRIMARY KEY,
+      payload jsonb NOT NULL,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )
+  `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS keepers_crown_attempts (
+      crown_id text NOT NULL,
+      address text NOT NULL,
+      cursor integer NOT NULL,
+      choice integer NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (crown_id, address, cursor)
+    )
+  `;
+  tablesReady = true;
+}
+
+function asVault(raw: unknown): Vault {
+  const value = raw as Vault;
+  return {
+    room: value.room,
+    hostAddress: value.hostAddress ?? null,
+    seats: Array.isArray(value.seats) ? value.seats : [],
+  };
+}
+
+export function publicRoom(room: CrownRoom): CrownRoom {
+  return {
+    ...room,
+    answersOnServer: true,
+    questions: room.questions.map((question) => ({
+      ...question,
+      correct: 0 as const,
+      salt: new Uint8Array(32),
+    })),
+  };
+}
+
+function sameHex(left: string, right: string): boolean {
+  return left.trim().toLowerCase().replace(/^0x/, '') === right.trim().toLowerCase().replace(/^0x/, '');
+}
+
+export async function listCrownVaults(): Promise<CrownRoom[]> {
+  if (!databaseConfigured()) return [];
+  await ensureCrownTables();
+  const sql = sqlClient();
+  const rows = await sql`SELECT payload FROM keepers_crowns ORDER BY updated_at DESC LIMIT 40`;
+  return rows.map((row) => publicRoom(roomFromStored(asVault(row.payload).room)));
+}
+
+export async function readVault(id: string): Promise<Vault | null> {
+  if (!databaseConfigured()) return null;
+  await ensureCrownTables();
+  const sql = sqlClient();
+  const rows = await sql`SELECT payload FROM keepers_crowns WHERE id = ${id} LIMIT 1`;
+  const row = rows[0];
+  if (!row) return null;
+  return asVault(row.payload);
+}
+
+async function writeVault(vault: Vault): Promise<void> {
+  await ensureCrownTables();
+  const sql = sqlClient();
+  const payload = JSON.stringify(vault);
+  await sql`
+    INSERT INTO keepers_crowns (id, payload, updated_at)
+    VALUES (${vault.room.id}, ${payload}::jsonb, now())
+    ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = now()
+  `;
+}
+
+/** Read the match cell when it is on chain. Pending transactions stay as the last saved room. */
+async function refreshFromChain(room: CrownRoom): Promise<{ room: CrownRoom; seen: 'match' | 'pending' | 'reject' }> {
+  if (!room.matchOutPoint || !room.matchId) return { room, seen: 'pending' };
+  try {
+    const client = getServerCkbClient();
+    const cell = await client.getCell({
+      txHash: room.matchOutPoint.txHash,
+      index: room.matchOutPoint.index,
+    });
+    if (!cell) return { room, seen: 'pending' };
+    const raw = hexToBytes(cell.outputData);
+    if (raw.length < 2) return { room, seen: 'reject' };
+    const decoded = decodeMatchCell(raw);
+    const root = merkleRoot(hexToBytes(room.matchId), room.questions);
+    if (!sameHex(bytesToHex(root), bytesToHex(decoded.root))) return { room, seen: 'reject' };
+    const kingHex = bytesToHex(decoded.king);
+    const kingMatches = room.kingLock
+      ? sameHex(ccc.Script.from(room.kingLock).hash(), kingHex)
+      : false;
+    return {
+      seen: 'match',
+      room: {
+        ...room,
+        status: raw[1] === 0 ? 'settled' : 'live',
+        round: decoded.round,
+        cursor: Math.min(room.questions.length, Math.max(0, decoded.round - 1)),
+        potShannons: decoded.pot,
+        feeShannons: decoded.fee,
+        deadlineAt: Number(decoded.deadlineMs),
+        king: kingMatches ? room.king : null,
+        kingLock: kingMatches ? room.kingLock : null,
+      },
+    };
+  } catch {
+    return { room, seen: 'pending' };
+  }
+}
+
+export async function readPublicCrown(id: string): Promise<{ room: CrownRoom; seats: CrownSeat[] } | null> {
+  const existing = await readVault(id);
+  if (!existing) return null;
+  const current = roomFromStored(existing.room);
+  const refreshed = await refreshFromChain(current);
+  if (refreshed.seen === 'match') {
+    await writeVault({ ...existing, room: roomToStored(refreshed.room) });
+  }
+  return { room: publicRoom(refreshed.room), seats: existing.seats };
+}
+
+export async function createCrown(room: CrownRoom, hostAddress: string): Promise<void> {
+  if (!databaseConfigured()) throw new ApiError('DATABASE_URL is required to share a crown.', 503);
+  const host = normalizeAddress(hostAddress);
+  const stored = roomToStored({ ...room, hostAddress: host, answersOnServer: false });
+  await writeVault({ room: stored, hostAddress: host, seats: [] });
+}
+
+export async function syncCrown(incoming: CrownRoom, sessionAddress: string): Promise<CrownRoom> {
+  const existing = await readVault(incoming.id);
+  if (!existing) throw new ApiError('Crown not found.', 404);
+  const session = normalizeAddress(sessionAddress);
+  const host = existing.hostAddress ? normalizeAddress(existing.hostAddress) : null;
+  const seated = existing.seats.some((seat) => seat.address === session);
+  if (session !== host && !seated) {
+    throw new ApiError('Only the host or a seated player can update this crown.', 403);
+  }
+  const current = roomFromStored(existing.room);
+  let next: CrownRoom = {
+    ...current,
+    hostAddress: host,
+  };
+  if (session === host && incoming.matchOutPoint) {
+    const trial: CrownRoom = {
+      ...next,
+      matchOutPoint: incoming.matchOutPoint,
+      treasuryOutPoint: incoming.treasuryOutPoint ?? next.treasuryOutPoint,
+      matchId: incoming.matchId ?? next.matchId,
+      hostLock: incoming.hostLock ?? next.hostLock,
+      hostLockHash: incoming.hostLockHash ?? next.hostLockHash,
+      openedAt: incoming.openedAt ?? next.openedAt,
+    };
+    const checked = await refreshFromChain(trial);
+    if (checked.seen === 'reject') {
+      throw new ApiError('That match cell does not belong to this bank.', 400);
+    }
+    next = checked.seen === 'match' ? checked.room : trial;
+  }
+  if (incoming.kingLock) {
+    next = { ...next, kingLock: incoming.kingLock, king: incoming.king ?? next.king };
+    const checked = await refreshFromChain(next);
+    if (checked.seen === 'match') next = checked.room;
+  }
+  await writeVault({
+    room: roomToStored(next),
+    hostAddress: host,
+    seats: existing.seats,
+  });
+  return publicRoom(next);
+}
+
+export async function joinCrown(
+  id: string,
+  seat: { address: string; displayName: string; bidOutPoint?: CrownSeat['bidOutPoint']; clearBid?: boolean },
+): Promise<{ room: CrownRoom; seats: CrownSeat[] }> {
+  const existing = await readVault(id);
+  if (!existing) throw new ApiError('Crown not found.', 404);
+  const now = Date.now();
+  const address = normalizeAddress(seat.address);
+  const seats = existing.seats.slice();
+  const found = seats.find((item) => item.address === address);
+  if (found) {
+    found.displayName = seat.displayName || found.displayName;
+    found.lastSeenAt = now;
+    if (seat.clearBid) found.bidOutPoint = null;
+    else if (seat.bidOutPoint) found.bidOutPoint = seat.bidOutPoint;
+  } else {
+    seats.push({
+      address,
+      displayName: seat.displayName || `${address.slice(0, 8)}…`,
+      joinedAt: now,
+      lastSeenAt: now,
+      bidOutPoint: seat.bidOutPoint ?? null,
+    });
+    const room = roomFromStored(existing.room);
+    room.feed = [
+      { id: `${now}`, text: `${seat.displayName || 'A player'} joined the lobby.`, good: true },
+      ...room.feed,
+    ].slice(0, 8);
+    existing.room = roomToStored(room);
+  }
+  await writeVault({ ...existing, seats });
+  const refreshed = await refreshFromChain(roomFromStored(existing.room));
+  return { room: publicRoom(refreshed.room), seats };
+}
+
+/** Host removes a lobby that never started, or a crown that is already closed. */
+export async function deleteCrown(id: string, sessionAddress: string): Promise<void> {
+  const existing = await readVault(id);
+  if (!existing) throw new ApiError('Crown not found.', 404);
+  const host = existing.hostAddress ? normalizeAddress(existing.hostAddress) : null;
+  if (!host || normalizeAddress(sessionAddress) !== host) {
+    throw new ApiError('Only the host can delete this crown.', 403);
+  }
+  const refreshed = await refreshFromChain(roomFromStored(existing.room));
+  const room = refreshed.room;
+  const stillOpen = room.status === 'live' || (room.matchOutPoint != null && room.status !== 'settled');
+  if (stillOpen) {
+    throw new ApiError('Close the crown before deleting it. The cell is still on chain.', 400);
+  }
+  const sql = sqlClient();
+  await sql`DELETE FROM keepers_crown_attempts WHERE crown_id = ${id}`;
+  await sql`DELETE FROM keepers_crowns WHERE id = ${id}`;
+}
+
+export async function proofForChoice(
+  id: string,
+  choice: number,
+  address: string,
+): Promise<{ ok: false; closed?: boolean } | { ok: true; proof: string }> {
+  if (!Number.isInteger(choice) || choice < 0 || choice > 3) {
+    throw new ApiError('Pick one of the four options.', 400);
+  }
+  const existing = await readVault(id);
+  if (!existing) throw new ApiError('Crown not found.', 404);
+  const refreshed = await refreshFromChain(roomFromStored(existing.room));
+  const room = refreshed.room;
+  if (room.status !== 'live') throw new ApiError('The clock is not open for answers.', 400);
+  const question = room.questions[room.cursor];
+  if (!question) throw new ApiError('That question is not in this crown.', 404);
+  const player = normalizeAddress(address);
+  await ensureCrownTables();
+  const db = getDb();
+  const inserted = await db
+    .insert(crownAttempts)
+    .values({ crownId: id, address: player, cursor: room.cursor, choice })
+    .onConflictDoNothing()
+    .returning();
+  const stored =
+    inserted[0] ??
+    (
+      await db
+        .select()
+        .from(crownAttempts)
+        .where(
+          and(
+            eq(crownAttempts.crownId, id),
+            eq(crownAttempts.address, player),
+            eq(crownAttempts.cursor, room.cursor),
+          ),
+        )
+    )[0];
+  if (!stored) throw new ApiError('The attempt could not be saved.', 500);
+  if (stored.choice !== choice) return { ok: false, closed: true };
+  if (choice !== question.correct) {
+    if (inserted[0]) {
+      room.feed = [
+        {
+          id: `${Date.now()}`,
+          text: 'Miss. That question is closed for this wallet. The cell does not move.',
+          good: false,
+        },
+        ...room.feed,
+      ].slice(0, 8);
+      await writeVault({ ...existing, room: roomToStored(room) });
+    }
+    return { ok: false, closed: true };
+  }
+  const matchId = room.matchId ? hexToBytes(room.matchId) : new Uint8Array(32);
+  const proof = stealProof(matchId, room.questions, room.cursor);
+  return { ok: true, proof: bytesToHex(proof) };
+}

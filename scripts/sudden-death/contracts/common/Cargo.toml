@@ -1,0 +1,10 @@
+[package]
+name = "sudden-death-common"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+description = "Sudden Death match layouts, decay, and Merkle steal proofs"
+
+[dependencies]
+ckb-std = { workspace = true }
+blake2b-ref = { workspace = true }

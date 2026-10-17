@@ -46,7 +46,7 @@ export function usePublicProfile(usernameRaw: string | undefined) {
   });
 }
 
-async function loadAvatarSpore(id: string): Promise<PublicAvatar | null> {
+export async function loadAvatarSpore(id: string): Promise<PublicAvatar | null> {
   try {
     const client = getClient();
     const found = await ccc.spore.findSpore(client, id);

@@ -1,6 +1,5 @@
-'use client';
+﻿'use client';
 
-import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
@@ -12,12 +11,12 @@ import {
   UploadCloud,
 } from 'lucide-react';
 import { useSpore } from '@/hooks/useSpore';
-import { useClearAvatarOnMelt, useMyBuilder, useReleaseBuilderHandle, useSetAvatar } from '@/hooks/useBuilder';
+import { useClearAvatarOnMelt, useMyBuilder, useSetAvatar } from '@/hooks/useBuilder';
 import { useProfile } from '@/hooks/useProfile';
 import { useUsername } from '@/hooks/useUsername';
 import { useWallet } from '@/hooks/useWallet';
+import { useAuth } from '@/context/auth-provider';
 import { compressForProfile } from '@/lib/image/compress';
-import Link from 'next/link';
 import { PageShell } from '@/components/PageShell';
 import { ProfileShareLink } from '@/components/ProfileShareLink';
 import { CharacterPicker } from '@/components/CharacterPicker';
@@ -30,9 +29,34 @@ import {
 import { useUnlockBadge, useUpsertBuilder } from '@/hooks/useBuilder';
 import type { CharacterId } from '@/lib/characters';
 
+const LOOKS = [
+  { id: 'lime', label: 'Lime', color: '#99ee2d', ink: '#111111' },
+  { id: 'red', label: 'Red', color: '#af2a3a', ink: '#fff8e7' },
+  { id: 'amber', label: 'Amber', color: '#e1bf47', ink: '#111111' },
+  { id: 'night', label: 'Night', color: '#111111', ink: '#99ee2d' },
+] as const;
+
+async function portraitFile(look: (typeof LOOKS)[number]): Promise<File> {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Could not draw a picture.');
+  ctx.fillStyle = look.color;
+  ctx.fillRect(0, 0, 256, 256);
+  ctx.fillStyle = look.ink;
+  ctx.font = '700 140px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(look.label.slice(0, 1), 128, 140);
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+  if (!blob) throw new Error('Could not prepare that picture.');
+  return new File([blob], `${look.id}.png`, { type: 'image/png' });
+}
+
 export function ProfileStudioView() {
-  const router = useRouter();
-  const { address, isConnected, connect, formattedAddress } = useWallet();
+  const { address, isConnected, formattedAddress } = useWallet();
+  const { ensureAuth, authenticated, address: sessionAddress } = useAuth();
   const myBuilder = useMyBuilder();
   const builder = myBuilder.data?.builder;
   const spore = useSpore();
@@ -42,7 +66,6 @@ export function ProfileStudioView() {
   const upsert = useUpsertBuilder();
   const onChainProfile = useProfile();
   const onChainUsername = useUsername();
-  const releaseRoster = useReleaseBuilderHandle();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -53,7 +76,7 @@ export function ProfileStudioView() {
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profileBusy, setProfileBusy] = useState(false);
   const [releaseOpen, setReleaseOpen] = useState(false);
-  const [releaseError, setReleaseError] = useState<string | null>(null);
+  const [settingSporeId, setSettingSporeId] = useState<string | null>(null);
 
   const handle = builder?.username || onChainUsername.username?.username;
 
@@ -64,18 +87,35 @@ export function ProfileStudioView() {
     }
   }, [builder]);
 
-  useEffect(() => {
-    const claimedUsername = onChainUsername.username?.username;
-    if (!address || !claimedUsername || builder?.onboarded || upsert.isPending) return;
+  const profileAttempt = useRef<string | null>(null);
 
-    void upsert.mutateAsync({
-      address,
-      username: claimedUsername,
-      displayName: claimedUsername,
-    }).catch((error) => {
-      setProfileError(error instanceof Error ? error.message : 'Profile sync failed.');
-    });
-  }, [address, builder?.onboarded, onChainUsername.username?.username, upsert]);
+  useEffect(() => {
+    if (!address || !authenticated || sessionAddress !== address.toLowerCase()) return;
+    if (!myBuilder.isFetched || upsert.isPending) return;
+    const claimed = onChainUsername.username?.username || '';
+    if (builder && (builder.onboarded || !claimed)) return;
+    const key = `${address.toLowerCase()}|${claimed}|${builder ? '1' : '0'}`;
+    if (profileAttempt.current === key) return;
+    profileAttempt.current = key;
+    void upsert
+      .mutateAsync({
+        address,
+        username: claimed || builder?.username || '',
+        displayName: claimed || builder?.displayName || formattedAddress || 'Player',
+      })
+      .catch((error) => {
+        setProfileError(error instanceof Error ? error.message : 'Profile sync failed.');
+      });
+  }, [
+    address,
+    authenticated,
+    builder,
+    formattedAddress,
+    myBuilder.isFetched,
+    onChainUsername.username?.username,
+    sessionAddress,
+    upsert,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -109,7 +149,7 @@ export function ProfileStudioView() {
   }
 
   async function onMint() {
-    if (!selectedFile || !address || !builder) return;
+    if (!selectedFile || !address) return;
     const sporeId = await spore.mintSpore(selectedFile);
     if (sporeId) {
       try {
@@ -125,26 +165,27 @@ export function ProfileStudioView() {
   }
 
   async function onDelete(sporeId: string) {
-    if (!address || !builder) return;
-    if (builder.avatarSporeId === sporeId) {
+    if (!address) return;
+    if (builder?.avatarSporeId === sporeId) {
       try {
-        await syncAvatarOnChain(null);
+        await clearAvatar.mutateAsync({ address, sporeId });
       } catch (e) {
-        setProfileError(e instanceof Error ? e.message : 'Failed to clear avatar on-chain.');
+        setProfileError(e instanceof Error ? e.message : 'The picture was burned, but the profile still pointed at it.');
       }
-      await clearAvatar.mutateAsync({ address, sporeId });
     }
     await spore.deleteImage(sporeId);
   }
 
   async function onSetAvatar(sporeId: string) {
-    if (!address || !builder) return;
+    if (!address || settingSporeId) return;
     setProfileError(null);
+    setSettingSporeId(sporeId);
     try {
-      await syncAvatarOnChain(sporeId);
-      setAvatar.mutate({ address, avatarSporeId: sporeId });
+      await setAvatar.mutateAsync({ address, avatarSporeId: sporeId });
     } catch (e) {
-      setProfileError(e instanceof Error ? e.message : 'Failed to set avatar on-chain.');
+      setProfileError(e instanceof Error ? e.message : 'Could not set that as your profile picture.');
+    } finally {
+      setSettingSporeId(null);
     }
   }
 
@@ -180,28 +221,16 @@ export function ProfileStudioView() {
     }
   }
 
-  async function onReleaseHandle() {
-    if (!address) return;
-    setReleaseError(null);
-    try {
-      await onChainUsername.release();
-      await releaseRoster.mutateAsync(address);
-      router.push('/join');
-    } catch (e) {
-      setReleaseError(e instanceof Error ? e.message : 'Could not release username.');
-    }
-  }
-
   if (!isConnected) {
     return (
       <PageShell
         eyebrow="Profile studio"
         title="Mint who you are"
-        intro="Connect your wallet to mint an avatar and unlock badges."
+        intro="Connect your wallet to mint an avatar. The picture shows on your profile after you set it."
       >
         <button
           type="button"
-          onClick={() => connect()}
+          onClick={() => void ensureAuth().catch(() => undefined)}
           className="neo-button bg-[#d6ff00] px-5 py-3 text-sm font-black uppercase"
         >
           Connect wallet
@@ -210,62 +239,36 @@ export function ProfileStudioView() {
     );
   }
 
-  if (onChainUsername.isLoading || myBuilder.isLoading || (onChainUsername.username && !builder)) {
-    return (
-      <PageShell
-        eyebrow="Profile studio"
-        title="Syncing profile"
-        intro="Your username is claimed. We are loading the rest of your profile."
-        backHref="/"
-      >
-        <p className="font-mono text-xs font-bold">{formattedAddress}</p>
-      </PageShell>
-    );
-  }
+  const profile = builder ?? {
+    address,
+    username: '',
+    displayName: formattedAddress || 'You',
+    characterId: null,
+    avatarSporeId: null,
+    headline: '',
+    joinedAt: '',
+    lastSeenAt: '',
+    onboarded: false,
+    pointsBalance: 0,
+    claimedMilestones: [],
+    claimedBadgeIds: [],
+  };
 
-  if (!builder?.onboarded && !onChainUsername.username) {
-    return (
-      <PageShell
-        eyebrow="Profile studio"
-        title="Join first"
-        intro="Claim your handle, then come back to mint an avatar."
-        backHref="/"
-      >
-        <p className="font-mono text-xs font-bold">{formattedAddress}</p>
-        <Link
-          href="/join?next=/profile/edit"
-          className="neo-button mt-4 inline-block bg-[#224cff] px-4 py-3 text-xs font-black uppercase text-[#fff8e7]"
-        >
-          Claim @handle
-        </Link>
-      </PageShell>
-    );
-  }
-
-  if (!builder) {
-    return (
-      <PageShell
-        eyebrow="Profile studio"
-        title="Profile not ready"
-        intro="Your username is claimed, but the profile record is still syncing. Refresh and try again."
-        backHref="/"
-      >
-        <p className="font-mono text-xs font-bold">{formattedAddress}</p>
-      </PageShell>
-    );
-  }
+  const studioTitle = profile.username ? `@${profile.username}` : 'Your picture';
 
   return (
     <PageShell
       eyebrow="Profile studio"
-      title={`@${builder.username}`}
-      intro="Mint a Spore avatar, set it live, and earn points."
+      title={studioTitle}
+      intro="Mint a Spore picture, then set it. It shows on your profile."
       backHref="/profile"
       backLabel="Profile"
     >
-      <div className="mb-6">
-        <ProfileShareLink username={builder.username} />
-      </div>
+      {profile.username ? (
+        <div className="mb-6">
+          <ProfileShareLink username={profile.username} />
+        </div>
+      ) : null}
       <div className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
         <section className="neo-card bg-[#fff8e7] p-5">
           <div className="flex items-center gap-2">
@@ -273,8 +276,32 @@ export function ProfileStudioView() {
             <h2 className="font-poster text-2xl uppercase leading-none">Mint Spore avatar</h2>
           </div>
           <p className="mt-2 text-xs font-semibold text-black/70">
-            Images mint as on-chain Spores. Melt a Spore to remove it.
+            Upload a picture from this device, or pick one below if you do not have a file. Then mint it and set it as your profile picture.
           </p>
+          <div className="mt-4 grid grid-cols-4 gap-2">
+            {LOOKS.map((look) => (
+              <button
+                key={look.id}
+                type="button"
+                onClick={() => {
+                  void portraitFile(look)
+                    .then((file) => {
+                      if (previewUrl) URL.revokeObjectURL(previewUrl);
+                      setSelectedFile(file);
+                      setPreviewUrl(URL.createObjectURL(file));
+                      setCompressionNote(null);
+                    })
+                    .catch((error) => {
+                      setProfileError(error instanceof Error ? error.message : 'Could not use that picture.');
+                    });
+                }}
+                className="aspect-square border-[3px] border-black text-xs font-black uppercase"
+                style={{ background: look.color, color: look.ink }}
+              >
+                {look.label}
+              </button>
+            ))}
+          </div>
 
           <button
             type="button"
@@ -313,7 +340,7 @@ export function ProfileStudioView() {
             ) : (
               <Sparkles className="h-4 w-4 stroke-[3]" />
             )}
-            {spore.isMinting ? 'Minting…' : 'Mint & set as avatar'}
+            {spore.isMinting ? 'Mintingâ€¦' : 'Mint & set as avatar'}
           </button>
 
           {spore.status.message && (
@@ -333,12 +360,13 @@ export function ProfileStudioView() {
         </section>
 
         <section className="neo-card bg-[#224cff] p-5 text-[#fff8e7]">
-          <h2 className="font-poster text-2xl uppercase leading-none">Your Spores</h2>
+          <h2 className="font-poster text-2xl uppercase leading-none">Pictures in this wallet</h2>
           <p className="mt-2 text-xs font-bold text-[#d6ff00]">
-            Active avatar:{' '}
-            {builder.avatarSporeId
-              ? `${builder.avatarSporeId.slice(0, 14)}…`
-              : 'none'}
+            These are Spores this wallet already holds, not other players. Use one as your profile picture, or burn it.
+          </p>
+          <p className="mt-2 text-xs font-bold text-[#fff8e7]">
+            Profile picture:{' '}
+            {profile.avatarSporeId ? `${profile.avatarSporeId.slice(0, 14)}â€¦` : 'not set'}
           </p>
 
           {spore.isLoadingSpores ? (
@@ -348,7 +376,8 @@ export function ProfileStudioView() {
           ) : (
             <div className="mt-4 grid grid-cols-2 gap-3">
               {spore.mintedSpores.map((item) => {
-                const active = builder.avatarSporeId === item.id;
+                const active = profile.avatarSporeId === item.id;
+                const settingThis = settingSporeId === item.id;
                 return (
                   <article
                     key={item.id}
@@ -363,25 +392,25 @@ export function ProfileStudioView() {
                       className="aspect-square w-full border-2 border-black object-cover"
                     />
                     <p className="mt-1 truncate font-mono text-[9px] font-bold">
-                      {item.ckbCapacity} CKB · {Math.round(item.sizeBytes / 1024)}KB
+                      {item.ckbCapacity} CKB Â· {Math.round(item.sizeBytes / 1024)}KB
                     </p>
                     <div className="mt-2 flex flex-wrap gap-1">
                       <button
                         type="button"
-                        disabled={active || setAvatar.isPending || onChainProfile.isSaving}
+                        disabled={active || settingThis}
                         onClick={() => void onSetAvatar(item.id)}
-                        className="border-2 border-black bg-[#d6ff00] px-2 py-1 text-[9px] font-black uppercase disabled:opacity-40"
+                        className="cursor-pointer border-2 border-black bg-[#d6ff00] px-2 py-1 text-[9px] font-black uppercase disabled:cursor-default disabled:opacity-40"
                       >
-                        {active ? 'Active' : 'Use'}
+                        {settingThis ? 'Setting…' : active ? 'Profile pic' : 'Use as profile pic'}
                       </button>
                       <button
                         type="button"
                         disabled={spore.deletingSporeId === item.id}
                         onClick={() => void onDelete(item.id)}
-                        className="flex items-center gap-1 border-2 border-black bg-[#ff4cbd] px-2 py-1 text-[9px] font-black uppercase disabled:opacity-40"
+                        className="flex cursor-pointer items-center gap-1 border-2 border-black bg-[#ff4cbd] px-2 py-1 text-[9px] font-black uppercase disabled:cursor-default disabled:opacity-40"
                       >
                         <Trash2 className="h-3 w-3" />
-                        Melt
+                        Burn
                       </button>
                     </div>
                   </article>
@@ -391,188 +420,7 @@ export function ProfileStudioView() {
           )}
         </section>
       </div>
-
-      <form
-        onSubmit={(e) => void saveProfile(e)}
-        className="mt-6 neo-card bg-[#ffe454] p-5"
-      >
-        <h2 className="font-poster text-2xl uppercase leading-none">Edit profile</h2>
-        <p className="mt-2 text-xs font-semibold">
-          Saves your on-chain profile for <strong>@{builder.username}</strong>.
-        </p>
-        <label className="mt-4 block">
-          <span className="text-[10px] font-black uppercase tracking-wider">Headline</span>
-          <input
-            value={headline}
-            onChange={(e) => setHeadline(e.target.value)}
-            maxLength={80}
-            className="mt-2 w-full border-[3px] border-black bg-[#fff8e7] px-3 py-2.5 text-sm font-semibold text-black outline-none placeholder:text-black/45"
-          />
-        </label>
-        <div className="mt-4">
-          <p className="mb-2 text-[10px] font-black uppercase tracking-wider">Cast vibe</p>
-          <CharacterPicker value={characterId} onChange={setCharacterId} />
-        </div>
-        {profileError && (
-          <p role="alert" className="mt-3 text-sm font-bold text-red-800">
-            {profileError}
-          </p>
-        )}
-        <button
-          type="submit"
-          disabled={profileBusy || upsert.isPending || onChainProfile.isSaving}
-          className="neo-button mt-4 flex items-center gap-2 bg-[#224cff] px-4 py-3 text-xs font-black uppercase text-[#fff8e7] disabled:opacity-40"
-        >
-          {(profileBusy || onChainProfile.isSaving) && (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          )}
-          {profileBusy || onChainProfile.isSaving
-            ? 'Signing profile tx…'
-            : 'Save profile on-chain'}
-        </button>
-      </form>
-
-      <RewardsPanel
-        pointsBalance={builder.pointsBalance}
-        claimedMilestones={builder.claimedMilestones}
-        claimedBadgeIds={builder.claimedBadgeIds}
-        onUnlock={(badgeId) => address && unlock.mutate({ address, badgeId })}
-        unlocking={unlock.isPending}
-      />
-
-      <section className="mt-6 border-[3px] border-black bg-[#fff8e7] p-5 text-black">
-        <p className="text-[10px] font-black uppercase tracking-wider text-black/60">Danger zone</p>
-        <h2 className="mt-2 font-poster text-2xl uppercase leading-none">Release @{handle}</h2>
-        <p className="mt-2 max-w-xl text-sm font-semibold">
-          Burns your username Cell. The CKB locked in it comes back to this wallet. Anyone can claim
-          @{handle} after that. You will need to join again.
-        </p>
-        {!releaseOpen ? (
-          <button
-            type="button"
-            onClick={() => setReleaseOpen(true)}
-            className="neo-button mt-4 bg-[#ffe454] px-4 py-3 text-xs font-black uppercase"
-          >
-            Release username
-          </button>
-        ) : (
-          <div className="mt-4 border-[3px] border-black bg-[#ff4cbd] p-4 text-black">
-            <p className="text-sm font-bold">
-              This signs a transaction that spends (burns) the @{handle} Cell. It cannot be undone
-              unless you — or someone else — claims it later.
-            </p>
-            {releaseError && (
-              <p role="alert" className="mt-2 text-sm font-bold">
-                {releaseError}
-              </p>
-            )}
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={onChainUsername.isClaiming || releaseRoster.isPending}
-                onClick={() => void onReleaseHandle()}
-                className="neo-button flex items-center gap-2 bg-black px-4 py-3 text-xs font-black uppercase text-[#d6ff00] disabled:opacity-40"
-              >
-                {(onChainUsername.isClaiming || releaseRoster.isPending) && (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                )}
-                {onChainUsername.isClaiming || releaseRoster.isPending
-                  ? 'Waiting for wallet…'
-                  : 'Burn username cell'}
-              </button>
-              <button
-                type="button"
-                disabled={onChainUsername.isClaiming || releaseRoster.isPending}
-                onClick={() => setReleaseOpen(false)}
-                className="border-[3px] border-black bg-[#fff8e7] px-4 py-3 text-xs font-black uppercase"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
-      </section>
+      {profileError ? <p className="mt-4 text-sm font-bold text-[#af2a3a]">{profileError}</p> : null}
     </PageShell>
-  );
-}
-
-function RewardsPanel({
-  pointsBalance,
-  claimedMilestones,
-  claimedBadgeIds,
-  onUnlock,
-  unlocking,
-}: {
-  pointsBalance: number;
-  claimedMilestones: RewardMilestone[];
-  claimedBadgeIds: string[];
-  onUnlock: (badgeId: string) => void;
-  unlocking: boolean;
-}) {
-  return (
-    <section className="mt-6 neo-card bg-black p-5 text-[#fff8e7]">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#d6ff00]">
-            Keepers points
-          </p>
-          <h2 className="mt-1 font-poster text-4xl uppercase leading-none">{pointsBalance} pts</h2>
-          <p className="mt-2 max-w-xl text-xs font-semibold text-[#fff8e7]/80">
-            Earned by keeping Cells alive and completing relays.
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-5 grid gap-2 sm:grid-cols-2">
-        {(Object.keys(REWARD_POINTS) as RewardMilestone[]).map((milestone) => {
-          const earned = claimedMilestones.includes(milestone);
-          return (
-            <div
-              key={milestone}
-              className={`border-2 border-[#fff8e7] p-3 ${earned ? 'bg-[#d6ff00] text-black' : 'bg-transparent'}`}
-            >
-              <p className="text-[10px] font-black uppercase">{REWARD_LABELS[milestone]}</p>
-              <p className="mt-1 font-mono text-sm font-bold">
-                +{REWARD_POINTS[milestone]} · {earned ? 'Earned' : 'Locked'}
-              </p>
-            </div>
-          );
-        })}
-      </div>
-
-      <h3 className="mt-6 font-poster text-2xl uppercase leading-none text-[#d6ff00]">Badges</h3>
-      <div className="mt-3 grid gap-3 sm:grid-cols-3">
-        {KEEPER_BADGES.map((badge) => {
-          const owned = claimedBadgeIds.includes(badge.id);
-          const canUnlock = !owned && pointsBalance >= badge.requiredPoints;
-          return (
-            <motion.div
-              key={badge.id}
-              className="border-[3px] border-black p-3 text-black"
-              style={{ backgroundColor: badge.accent }}
-            >
-              <p className="font-poster text-xl uppercase leading-none">{badge.name}</p>
-              <p className="mt-1 font-mono text-[10px] font-bold">
-                Unlock at {badge.requiredPoints} pts
-              </p>
-              {owned ? (
-                <span className="mt-2 inline-block border-2 border-black bg-black px-2 py-1 text-[9px] font-black uppercase text-[#d6ff00]">
-                  Owned
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  disabled={!canUnlock || unlocking}
-                  onClick={() => onUnlock(badge.id)}
-                  className="neo-button mt-2 bg-black px-2.5 py-1.5 text-[9px] font-black uppercase text-[#fff8e7] disabled:opacity-40"
-                >
-                  Unlock
-                </button>
-              )}
-            </motion.div>
-          );
-        })}
-      </div>
-    </section>
   );
 }

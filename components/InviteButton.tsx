@@ -6,8 +6,8 @@ import { Check, Link2, Share2 } from 'lucide-react';
 /** Copy/share a join link. We do not send email — you send this however you already talk. */
 export function InviteButton({
   url,
-  title = 'Keepers Relay',
-  text = 'Jump in with me on Keepers Relay.',
+  title = 'Crowns',
+  text = 'Jump in with me on Crowns.',
   compact = false,
   variant = 'default',
 }: {

@@ -48,7 +48,7 @@ export function buildLoginMessage(input: {
   expiresAt: number;
 }): string {
   // Short copy — wallets show this as a signature step of Connect, not a second login.
-  return `Connect to Keepers Relay\n${input.address.trim()}\n${input.nonce}\n${input.expiresAt}`;
+  return `Connect to Crowns\n${input.address.trim()}\n${input.nonce}\n${input.expiresAt}`;
 }
 
 export function createChallenge(address: string): {

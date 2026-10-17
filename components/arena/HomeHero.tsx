@@ -1,11 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { EventSummary } from '@/types/event';
+import { useCallback, useEffect, useState } from 'react';
 
 const HERO_BLURB =
-  'Live multiplayer events on CKB. Answer the challenge, leave your mark, pass the state. Growing pots and shrinking clocks — one game, configurable rules.';
+  'Pick a friend, open a lobby, and play the same clock. You might not know the next question. A right answer grows the pot and shrinks the time.';
 
 type HeroSlide = {
   id: string;
@@ -23,9 +22,9 @@ const FALLBACK_SLIDES: HeroSlide[] = [
     id: 'slide-1',
     month: 'MARCH',
     day: '02',
-    title: 'Featured event',
-    videoSrc: '/uismod/hero-card.png',
-    href: '/events',
+    title: 'Quiz',
+    videoSrc: '/uismod/event-quiz.jpg',
+    href: '/play',
     endsAtMs: null,
     staticTimer: '14:32:38',
   },
@@ -33,9 +32,9 @@ const FALLBACK_SLIDES: HeroSlide[] = [
     id: 'slide-2',
     month: 'APRIL',
     day: '18',
-    title: 'Open pot',
-    videoSrc: '/uismod/game-1.png',
-    href: '/create',
+    title: 'Lyrics',
+    videoSrc: '/uismod/event-lyric.jpg',
+    href: '/play',
     endsAtMs: null,
     staticTimer: '09:14:22',
   },
@@ -43,9 +42,9 @@ const FALLBACK_SLIDES: HeroSlide[] = [
     id: 'slide-3',
     month: 'MAY',
     day: '07',
-    title: 'Community night',
-    videoSrc: '/uismod/game-2.png',
-    href: '/events',
+    title: 'Where is this',
+    videoSrc: '/uismod/event-place.jpg',
+    href: '/play',
     endsAtMs: null,
     staticTimer: '21:05:44',
   },
@@ -53,31 +52,6 @@ const FALLBACK_SLIDES: HeroSlide[] = [
 
 function pad2(n: number) {
   return n.toString().padStart(2, '0');
-}
-
-function formatMonthDay(iso: string): { month: string; day: string } {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return { month: 'SOON', day: '--' };
-  return {
-    month: d.toLocaleString('en-US', { month: 'short' }).toUpperCase(),
-    day: pad2(d.getDate()),
-  };
-}
-
-function eventToSlide(event: EventSummary, videoSrc: string): HeroSlide {
-  const { month, day } = formatMonthDay(event.startAt);
-  const startMs = new Date(event.startAt).getTime();
-  const endsAtMs = Number.isFinite(startMs) && startMs > Date.now() ? startMs : null;
-  return {
-    id: event.id,
-    month,
-    day,
-    title: event.name,
-    videoSrc,
-    href: `/events/${event.id}`,
-    endsAtMs,
-    staticTimer: '00:00:00',
-  };
 }
 
 function useSlideTimer(slide: HeroSlide) {
@@ -103,18 +77,8 @@ function useSlideTimer(slide: HeroSlide) {
   return label;
 }
 
-function buildSlides(events: EventSummary[]): HeroSlide[] {
-  const thumbs = ['/uismod/hero-card.png', '/uismod/game-1.png', '/uismod/game-2.png'];
-  const fromEvents = events.slice(0, 3).map((e, i) => eventToSlide(e, thumbs[i] ?? thumbs[0]));
-  if (fromEvents.length >= 3) return fromEvents;
-  return [...fromEvents, ...FALLBACK_SLIDES].slice(0, 3);
-}
-
-/**
- * Home hero — Figma language, responsive stack on small screens.
- */
-export function HomeHero({ events }: { events: EventSummary[] }) {
-  const slides = useMemo(() => buildSlides(events), [events]);
+export function HomeHero() {
+  const slides = FALLBACK_SLIDES;
   const [active, setActive] = useState(0);
   const [paused, setPaused] = useState(false);
   const slide = slides[Math.min(active, slides.length - 1)] ?? slides[0];
@@ -153,8 +117,8 @@ export function HomeHero({ events }: { events: EventSummary[] }) {
           {/* Copy */}
           <div className="relative z-10 order-1 max-w-xl xl:order-1 xl:pb-8">
             <h1 className="font-poster text-[clamp(2.25rem,8vw,4.5rem)] uppercase leading-[0.92] text-white">
-              <span className="block sm:whitespace-nowrap">All the cells</span>
-              <span className="block sm:whitespace-nowrap">are moving</span>
+              <span className="block sm:whitespace-nowrap">Dare a friend.</span>
+              <span className="block sm:whitespace-nowrap">Take the crown.</span>
             </h1>
             <p className="mt-4 max-w-md text-sm font-thin leading-relaxed text-white/80 sm:mt-5 sm:text-[15px] md:text-base">
               {HERO_BLURB}
@@ -219,7 +183,7 @@ export function HomeHero({ events }: { events: EventSummary[] }) {
                   href={slide.href}
                   className="arena-cta inline-flex h-11 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap pl-4 pr-8 font-poster text-sm uppercase leading-none text-[#111] sm:h-[50px] sm:gap-2 sm:pl-6 sm:pr-10 sm:text-base md:pl-8 md:pr-12 md:text-[18px] xl:w-full xl:justify-between xl:pl-6 xl:pr-6"
                 >
-                  JOIN EVENT
+                  ENTER
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src="/uismod/arrow-right.svg" alt="" className="size-4 shrink-0 sm:size-5 md:size-6" />
                 </Link>

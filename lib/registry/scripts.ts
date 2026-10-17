@@ -2,18 +2,18 @@
 
 import { ccc } from "@ckb-ccc/connector-react";
 import {
-  assertEventEngineConfigured,
   assertRewardClaimsConfigured,
   assertRegistryConfigured,
+  assertSuddenDeathConfigured,
   assertSudtConfigured,
   ckbJsVm,
-  eventCellType,
-  eventRewardClaimType,
-  eventTreasuryLock,
-  participantType,
   profileType,
   rewardClaimType,
   rewardTreasuryLock,
+  suddenDeathBidType,
+  suddenDeathMatchType,
+  suddenDeathProxyLock,
+  suddenDeathTreasuryLock,
   sudtType,
   type ScriptConfig,
   usernameType,
@@ -87,77 +87,55 @@ export function getRewardTreasuryCellDeps(): ccc.CellDep[] {
   return [toCellDep(rewardTreasuryLock)];
 }
 
-export function getEventCellTypeScript(): ccc.Script {
-  assertEventEngineConfigured();
-  return toScript(eventCellType);
-}
-
-/** Event Cell type for one event — args = type-id (eventId). */
-export function getEventCellTypeScriptFor(eventIdHex: string): ccc.Script {
-  assertEventEngineConfigured();
-  return ccc.Script.from({
-    codeHash: eventCellType.codeHash,
-    hashType: eventCellType.hashType,
-    args: eventIdHex,
-  });
-}
-
-export function getEventCellDeps(): ccc.CellDep[] {
-  assertEventEngineConfigured();
-  return [toCellDep(eventCellType)];
-}
-
-/** Treasury lock for one event — args = event_type_hash || event_id (64 bytes). */
-export function getEventTreasuryLockScript(argsHex: string): ccc.Script {
-  assertEventEngineConfigured();
-  return ccc.Script.from({
-    codeHash: eventTreasuryLock.codeHash,
-    hashType: eventTreasuryLock.hashType,
-    args: argsHex,
-  });
-}
-
-export function getEventTreasuryDeps(): ccc.CellDep[] {
-  assertEventEngineConfigured();
-  return [toCellDep(eventTreasuryLock)];
-}
-
-/** Participant type — args = event_type_hash || event_id || player_lock_hash (96 bytes). */
-export function getParticipantTypeScriptFor(argsHex: string): ccc.Script {
-  assertEventEngineConfigured();
-  return ccc.Script.from({
-    codeHash: participantType.codeHash,
-    hashType: participantType.hashType,
-    args: argsHex,
-  });
-}
-
-export function getParticipantDeps(): ccc.CellDep[] {
-  assertEventEngineConfigured();
-  return [toCellDep(participantType)];
-}
-
-/** Event reward claim type — args = event_type_hash || event_id (64 bytes). */
-export function getEventRewardClaimTypeScriptFor(argsHex: string): ccc.Script {
-  assertEventEngineConfigured();
-  return ccc.Script.from({
-    codeHash: eventRewardClaimType.codeHash,
-    hashType: eventRewardClaimType.hashType,
-    args: argsHex,
-  });
-}
-
-export function getEventRewardClaimDeps(): ccc.CellDep[] {
-  assertEventEngineConfigured();
-  return [toCellDep(eventRewardClaimType)];
-}
-
-export function getEventEngineCellDeps(): ccc.CellDep[] {
-  assertEventEngineConfigured();
+export function getSuddenDeathCellDeps(): ccc.CellDep[] {
+  assertSuddenDeathConfigured();
   return [
-    toCellDep(eventCellType),
-    toCellDep(participantType),
-    toCellDep(eventTreasuryLock),
-    toCellDep(eventRewardClaimType),
+    toCellDep(suddenDeathMatchType),
+    toCellDep(suddenDeathBidType),
+    toCellDep(suddenDeathTreasuryLock),
+    toCellDep(suddenDeathProxyLock),
   ];
+}
+
+/** Proxy lock. Args are exactly the 32-byte match type hash. Hash type is data1. */
+export function getSuddenDeathProxyLock(matchTypeHashHex: string): ccc.Script {
+  assertSuddenDeathConfigured();
+  return ccc.Script.from({
+    codeHash: suddenDeathProxyLock.codeHash,
+    hashType: suddenDeathProxyLock.hashType,
+    args: matchTypeHashHex,
+  });
+}
+
+/** Match type for one room. Args are 64 bytes: type id, then the host lock hash. */
+export function getSuddenDeathMatchScript(matchArgsHex: string): ccc.Script {
+  assertSuddenDeathConfigured();
+  return ccc.Script.from({
+    codeHash: suddenDeathMatchType.codeHash,
+    hashType: suddenDeathMatchType.hashType,
+    args: matchArgsHex,
+  });
+}
+
+/** Bid type. Args are 64 bytes: match type hash, then the owner lock hash. */
+export function getSuddenDeathBidScript(matchTypeHashHex: string, ownerLockHashHex: string): ccc.Script {
+  assertSuddenDeathConfigured();
+  const args = new Uint8Array(64);
+  args.set(ccc.bytesFrom(matchTypeHashHex), 0);
+  args.set(ccc.bytesFrom(ownerLockHashHex), 32);
+  return ccc.Script.from({
+    codeHash: suddenDeathBidType.codeHash,
+    hashType: suddenDeathBidType.hashType,
+    args: ccc.hexFrom(args),
+  });
+}
+
+/** Treasury lock. Args are the match type hash. */
+export function getSuddenDeathTreasuryScript(matchTypeHashHex: string): ccc.Script {
+  assertSuddenDeathConfigured();
+  return ccc.Script.from({
+    codeHash: suddenDeathTreasuryLock.codeHash,
+    hashType: suddenDeathTreasuryLock.hashType,
+    args: matchTypeHashHex,
+  });
 }

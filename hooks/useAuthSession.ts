@@ -6,6 +6,8 @@ import { post, request } from '@/lib/api/client';
 
 type SessionState = {
   authenticated: boolean;
+  /** First session check has finished. Until then, authenticated is still unknown. */
+  checked: boolean;
   address: string | null;
   busy: boolean;
   error: string | null;
@@ -30,6 +32,7 @@ type SignerLike = {
 export function useAuthSession(): SessionState {
   const { address, signer, isConnected, isReady, connect } = useWallet();
   const [authenticated, setAuthenticated] = useState(false);
+  const [checked, setChecked] = useState(false);
   const [sessionAddress, setSessionAddress] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,6 +60,8 @@ export function useAuthSession(): SessionState {
       setAuthenticated(false);
       setSessionAddress(null);
       return { authenticated: false, address: null };
+    } finally {
+      setChecked(true);
     }
   }, []);
 
@@ -176,17 +181,11 @@ export function useAuthSession(): SessionState {
     });
   }, [address, clearWaiter, isConnected, runChallenge, signer]);
 
-  useEffect(() => {
-    if (!isReady) return;
-    if (!isConnected && authenticated) {
-      void signOut();
-    }
-  }, [authenticated, isConnected, isReady, signOut]);
-
   useEffect(() => () => clearWaiter(), [clearWaiter]);
 
   return {
     authenticated,
+    checked,
     address: sessionAddress,
     busy,
     error,

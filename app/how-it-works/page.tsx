@@ -1,57 +1,56 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { PageShell } from '@/components/PageShell';
-import { ArenaCta, KindCard } from '@/components/arena/ArenaPrimitives';
+import { ArenaCta } from '@/components/arena/ArenaPrimitives';
 
 export const metadata: Metadata = {
-  title: 'How it works — Keepers Relay',
+  title: 'How it works — Crowns',
   description:
-    'A living CKB Cell passes from hand to hand, collects a mark from every Keeper, and dies if nobody passes it in time.',
+    'One match cell, one treasury, one king. A correct steal grows the pot and cuts the clock. One wallet gets one try on the question in front of it.',
 };
 
 const ACTS = [
   {
     act: 'Act one',
-    title: 'Take it',
+    title: 'Host the bank',
     lines: [
-      'A Cell is a single scarce object on CKB. Only one Keeper holds it at a time — there is no shared copy and no second edition.',
-      'Cells live inside rooms. Join one for the pots and the line — watching is free; holding needs an @handle.',
+      'A host writes four-option questions or lyric blanks. The chain stores a Merkle root, not the answer key.',
+      'Opening the room creates one match cell and one treasury cell. The pot starts empty.',
     ],
   },
   {
     act: 'Act two',
-    title: 'Mark it',
+    title: 'Steal',
     lines: [
-      'Every Cell carries a prompt. Before you can pass it on, you answer that prompt once — a line, a view, a place, a stamp.',
-      'Your mark is sealed into the Cell permanently and travels with it. After twenty Keepers, the Cell is worth more than when it left.',
+      'A player locks a bid, then gets one try on the question in front of them. A correct answer spends that bid, adds the entry fee to the treasury, and writes their lock as king.',
     ],
   },
   {
     act: 'Act three',
-    title: 'Pass it',
+    title: 'The clock pays',
     lines: [
-      'You get a window. Hand the Cell to another @handle before it closes and the line continues with your name in it.',
-      'Miss the window and the Cell dies — not just for you, for everyone who ever carried it.',
+      'The screen clock is a prediction. The match cell stores the deadline. Zero is the earliest moment the host may close.',
+      'The close pays whoever holds the crown. A correct steal can still land until that transaction confirms. A miss does not spend the bid.',
     ],
   },
 ];
 
 const RULES = [
   {
-    title: 'Stakes & pots',
-    body: 'Event seats cost CKB. The pot is the sum of stakes plus sponsors. Score points to rank — winners take CKB. Chain stakes use the same money language on the Arena.',
+    title: 'The pot',
+    body: 'Treasury capacity is the prize. Each steal increases it by the exact entry fee. The match data records the same number as the pot.',
   },
   {
-    title: 'Quests & archives',
-    body: 'Return-home Quests have a finish line. Archives are the long game — one Keeper can make a tradition legendary. Different energy, same Cell engine.',
+    title: 'The clock',
+    body: 'The first steal cuts 10 minutes. Every two rounds the cut halves, and it never goes below 72 seconds. The script computes it. The cell stores the new deadline.',
   },
   {
-    title: 'The line',
-    body: 'Every Keeper who held it becomes a figure in the cast. The carousel grows. That is the memorial and the brag.',
+    title: 'The king',
+    body: 'The king is a lock hash, not a username. Only the bid that was consumed in the steal can become king.',
   },
   {
-    title: 'Rescue',
-    body: 'When a Cell is critical, roommates can buy it more time. Somebody still has to take it.',
+    title: 'One try',
+    body: 'The server records the first option a signed-in wallet picks on the current question. A second option gets no proof, so it cannot move the cell. The bid stays with that player for a later question.',
   },
 ];
 
@@ -60,16 +59,10 @@ export default function HowItWorksPage() {
     <PageShell
       eyebrow="The rules"
       title="How it works"
-      intro="Something alive gets handed to you. Keep it alive and leave your mark — or it dies on your watch."
+      intro="One cell holds the crown. Capacity holds the pot. Since decides who is paid."
       backHref="/"
       backLabel="Arena"
     >
-      <div className="mb-10 grid gap-4 sm:grid-cols-3">
-        <KindCard kind="blitz" />
-        <KindCard kind="quest" />
-        <KindCard kind="archive" />
-      </div>
-
       <div className="space-y-4">
         {ACTS.map((act) => (
           <section
@@ -112,12 +105,12 @@ export default function HowItWorksPage() {
       </div>
 
       <div className="mt-8 flex flex-wrap gap-3">
-        <ArenaCta href="/events">Browse events</ArenaCta>
+        <ArenaCta href="/play">Crowns</ArenaCta>
         <Link
           href="/create"
           className="inline-flex items-center rounded-md border border-white/20 bg-white/5 px-4 py-3 text-xs font-bold uppercase text-white hover:bg-white/10"
         >
-          Create event
+          Open a crown
         </Link>
       </div>
     </PageShell>

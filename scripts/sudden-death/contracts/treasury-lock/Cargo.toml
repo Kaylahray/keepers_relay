@@ -1,0 +1,14 @@
+[package]
+name = "sudden-death-treasury-lock"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+description = "Sudden Death pot lock: fee in, king out after since"
+
+[dependencies]
+ckb-std = { workspace = true }
+sudden-death-common = { path = "../common" }
+
+[[bin]]
+name = "treasury-lock"
+path = "src/main.rs"

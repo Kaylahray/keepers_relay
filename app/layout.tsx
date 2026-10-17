@@ -1,14 +1,12 @@
 import type { Metadata } from 'next';
 import { Providers } from '@/components/Providers';
 import { SiteHeader } from '@/components/SiteHeader';
-import { JoinNudge } from '@/components/JoinNudge';
-import { OnChainIdentitySync } from '@/components/OnChainIdentitySync';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Keepers Relay — take it, mark it, pass it on',
+  title: 'Crowns',
   description:
-    'A living CKB Cell passes from hand to hand. Every Keeper leaves a mark and has a clock. Pass it in time or it dies on your watch.',
+    'One deadline, one pot, one king. A host writes the bank. A correct steal spends one bid, grows the pot, and cuts the clock.',
 };
 
 export default function RootLayout({
@@ -28,9 +26,7 @@ export default function RootLayout({
       </head>
       <body className="min-h-full bg-[#15121d] text-[#f5f5f5]">
         <Providers>
-          <OnChainIdentitySync />
           <SiteHeader />
-          <JoinNudge />
           {children}
         </Providers>
       </body>

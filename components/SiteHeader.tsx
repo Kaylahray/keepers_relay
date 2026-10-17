@@ -4,34 +4,34 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { LogOut, Menu, WalletMinimal, X } from 'lucide-react';
-import { CharacterAvatar } from '@/components/CharacterPicker';
-import { useMyBuilder } from '@/hooks/useBuilder';
 import { useWallet } from '@/hooks/useWallet';
-import { useUsername } from '@/hooks/useUsername';
 import { useAuth } from '@/context/auth-provider';
 
 /** Slim bar — logo | centered links | wallet/profile */
 const NAV = [
   { href: '/', label: 'Home' },
-  { href: '/events', label: 'Events' },
-  { href: '/communities', label: 'Communities' },
-  { href: '/create', label: 'Create' },
+  { href: '/play', label: 'Crowns' },
+  { href: '/create', label: 'Host' },
+  { href: '/players', label: 'Players' },
   { href: '/profile', label: 'Profile' },
 ];
 
 function isActive(pathname: string, href: string): boolean {
   if (href === '/') return pathname === '/';
-  return pathname.startsWith(href);
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+function formatWalletCkb(balance: string): string {
+  const value = Number(balance);
+  if (!balance || !Number.isFinite(value)) return '…';
+  return `${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} CKB`;
 }
 
 export function SiteHeader() {
   const pathname = usePathname();
-  const { disconnect, formattedAddress, isReady } = useWallet();
-  const { signOut, authenticated, ensureAuth, busy: authBusy } = useAuth();
-  const myBuilder = useMyBuilder();
-  const builder = myBuilder.data?.builder;
-  const { username: onChainUsername } = useUsername();
-  const shownHandle = builder?.username || onChainUsername?.username || null;
+  const { disconnect, formattedAddress, isReady, isConnected, balance } = useWallet();
+  const walletCkb = formatWalletCkb(balance);
+  const { signOut, ensureAuth, busy: authBusy } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
@@ -39,10 +39,7 @@ export function SiteHeader() {
       <div className="mx-auto flex h-16 max-w-[1440px] items-center justify-between gap-4 px-4 sm:px-10">
         <Link href="/" className="flex shrink-0 items-center gap-1.5">
           <span className="font-poster text-lg uppercase tracking-wide text-white sm:text-xl">
-            Keepers
-          </span>
-          <span className="font-poster text-lg uppercase tracking-wide text-[#99ee2d] sm:text-xl">
-            Relay
+            Crowns
           </span>
         </Link>
 
@@ -69,24 +66,16 @@ export function SiteHeader() {
         </nav>
 
         <div className="flex shrink-0 items-center gap-2">
-          {!isReady ? null : authenticated ? (
+          {!isReady ? null : isConnected ? (
             <div className="flex items-center gap-2">
-              {builder?.characterId && (
-                <CharacterAvatar characterId={builder.characterId} size="sm" />
-              )}
               <Link
-                href={
-                  shownHandle
-                    ? `/profile`
-                    : `/join?next=${encodeURIComponent(pathname || '/')}`
-                }
-                className="hidden text-right leading-none sm:block"
+                href="/profile"
+                className="text-right leading-none"
+                title="CKB in this wallet"
               >
-                <p className="text-[11px] font-bold uppercase text-white">
-                  {shownHandle ? `@${shownHandle}` : 'View profile'}
-                </p>
-                <p className="mt-0.5 max-w-[7rem] truncate font-mono text-[9px] text-white/40">
-                  {formattedAddress}
+                <p className="font-mono text-[12px] font-bold text-[#99ee2d]">{walletCkb}</p>
+                <p className="mt-0.5 max-w-[9rem] truncate font-mono text-[9px] text-white/40">
+                  {formattedAddress || 'Wallet'}
                 </p>
               </Link>
               <button

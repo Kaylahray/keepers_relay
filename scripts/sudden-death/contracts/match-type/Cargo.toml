@@ -1,0 +1,14 @@
+[package]
+name = "sudden-death-match-type"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+description = "Sudden Death match cell: root, king, integer decay, bundled steal"
+
+[dependencies]
+ckb-std = { workspace = true }
+sudden-death-common = { path = "../common" }
+
+[[bin]]
+name = "match-type"
+path = "src/main.rs"

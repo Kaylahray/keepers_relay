@@ -191,6 +191,17 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
+button,
+a,
+summary,
+[role='button'] {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+}
+
 .neo-button {
   border-radius: 0 !important;
   border: none !important;

@@ -36,13 +36,12 @@ yarn-error.log*
 # local durable store when DATABASE_URL is unset
 .data/
 
-# chain cell contract build artifacts / deps
-/scripts/chain-cell/target/
-/scripts/chain-cell/build/
-/scripts/chain-cell/tests/failed_txs/
-
-# event-engine cargo build cache (keep build/release binaries)
+# cargo build cache
 /scripts/event-engine/target/
+/scripts/sudden-death/target/
+/scripts/sudden-death/tests/failed_txs/
+/scripts/event-engine/tests/failed_txs/
+/scripts/event-engine/deployment/**/info.json.bak*
 
 # vercel
 .vercel

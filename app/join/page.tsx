@@ -1,41 +1,32 @@
 'use client';
 
-import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
-import { PageShell } from '@/components/PageShell';
+import { useSearchParams } from 'next/navigation';
+import { ArenaStage } from '@/components/arena/ArenaStage';
 import { JoinHandleForm } from '@/components/JoinHandleForm';
 
-function JoinInner() {
-  const search = useSearchParams();
-  const next = search.get('next');
-  const nextHref =
-    next && next.startsWith('/') && !next.startsWith('//') ? next : '/';
-
+function JoinForm() {
+  const next = useSearchParams().get('next') || '/play';
   return (
-    <PageShell
-      eyebrow="Onboarding"
-      title="Claim your handle."
-      intro="Watching is free. To take, mark, or pass a Cell you need an on-chain @username — one wallet signature, and it is yours."
-      backHref="/"
-      backLabel="Home"
-    >
-      <section className="border-[3px] border-black bg-[#ffe454] p-5 text-black shadow-[8px_8px_0_#101010] sm:p-7">
-        <JoinHandleForm nextHref={nextHref} />
-      </section>
-    </PageShell>
+    <ArenaStage backHref="/play" backLabel="Crowns">
+      <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">
+        Username
+      </p>
+      <h1 className="mt-3 font-poster text-5xl uppercase text-white">Claim your name</h1>
+      <p className="mt-3 max-w-md text-sm text-white/60">
+        Connect once from the header, then claim a handle. Hosting and playing use that name.
+      </p>
+      <div className="mt-8 max-w-md">
+        <JoinHandleForm nextHref={next} />
+      </div>
+    </ArenaStage>
   );
 }
 
 export default function JoinPage() {
   return (
-    <Suspense
-      fallback={
-        <PageShell eyebrow="Onboarding" title="Claim your handle.">
-          <div className="h-40 animate-pulse border-[3px] border-black bg-[#ffe454]" />
-        </PageShell>
-      }
-    >
-      <JoinInner />
+    <Suspense>
+      <JoinForm />
     </Suspense>
   );
 }

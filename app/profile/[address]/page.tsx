@@ -1,16 +1,10 @@
-import type { Metadata } from 'next';
+'use client';
+
+import { useParams } from 'next/navigation';
 import { ProfileView } from '@/components/views/ProfileView';
 
-export const metadata: Metadata = {
-  title: 'Profile — Keepers Relay',
-  description: 'Your avatar, stats, communities, and event history.',
-};
-
-export default async function ProfileAddressPage({
-  params,
-}: {
-  params: Promise<{ address: string }>;
-}) {
-  const { address } = await params;
+export default function ProfileAddressPage() {
+  const params = useParams<{ address: string }>();
+  const address = typeof params.address === 'string' ? params.address : 'me';
   return <ProfileView address={address} />;
 }
