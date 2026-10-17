@@ -71,6 +71,7 @@ export function CrownPlayView({ id }: { id: string }) {
   const [chainError, setChainError] = useState<string | null>(null);
   const [myLockHash, setMyLockHash] = useState<string | null>(null);
   const [others, setOthers] = useState<CrownRoom[]>([]);
+  const [matchReady, setMatchReady] = useState(false);
   const now = useNow(room?.status === 'live');
 
   useEffect(() => {
@@ -92,6 +93,33 @@ export function CrownPlayView({ id }: { id: string }) {
   useEffect(() => {
     setOthers(listCrowns().filter((item) => item.id !== id).slice(0, 4));
   }, [id, room]);
+
+  useEffect(() => {
+    if (!chain || !room?.matchOutPoint || room.status !== 'live') {
+      setMatchReady(!chain);
+      return;
+    }
+    const txHash = room.matchOutPoint.txHash;
+    if (!signer) {
+      setMatchReady(false);
+      return;
+    }
+    let stop = false;
+    const look = async () => {
+      try {
+        const tx = await signer.client.getTransaction(txHash);
+        if (!stop) setMatchReady(tx?.status === 'committed');
+      } catch {
+        if (!stop) setMatchReady(false);
+      }
+    };
+    void look();
+    const timer = window.setInterval(() => void look(), 2000);
+    return () => {
+      stop = true;
+      window.clearInterval(timer);
+    };
+  }, [chain, room?.matchOutPoint?.txHash, room?.status, signer]);
 
   useEffect(() => {
     if (!room || room.status !== 'live' || room.deadlineAt == null) return;
@@ -248,6 +276,7 @@ export function CrownPlayView({ id }: { id: string }) {
 
   async function answer(index: number) {
     if (!room || !prompt || room.status !== 'live' || picked !== null || busy) return;
+    if (chain && !matchReady) return;
     if (!address.trim()) {
       setChainError('Connect a wallet to answer. A spectator uses the watch screen.');
       return;
@@ -514,7 +543,12 @@ export function CrownPlayView({ id }: { id: string }) {
                     Wrong answer. That was your one try on this question.
                   </p>
                 ) : null}
-                {chain && room.matchId && isConnected && !entryBid && !iHold && flash !== 'miss' ? (
+                {chain && room.matchId && isConnected && !matchReady ? (
+                  <p className="mb-4 text-sm text-white/70">
+                    You will be able to play once the match cell confirms.
+                  </p>
+                ) : null}
+                {chain && room.matchId && isConnected && matchReady && !entryBid && !iHold && flash !== 'miss' ? (
                   <div className="mb-4">
                     {room.cursor > 0 ? (
                       <p className="mb-3 text-sm text-white/55">
@@ -569,7 +603,7 @@ export function CrownPlayView({ id }: { id: string }) {
                     <button
                       key={option}
                       type="button"
-                      disabled={picked !== null || !isConnected || (iHold && !entryBid)}
+                      disabled={picked !== null || !isConnected || (iHold && !entryBid) || (chain && !matchReady)}
                       onClick={() => answer(index)}
                       className={`border px-4 py-4 text-left transition disabled:opacity-50 ${
                         good

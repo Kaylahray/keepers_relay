@@ -11,10 +11,10 @@ function realQuestions(room: CrownRoom): boolean {
 }
 
 function ahead(local: CrownRoom, remote: CrownRoom): boolean {
-  if (local.status === 'settled' && remote.status === 'live' && remote.matchId) return false;
+  // A live match cell is the clock. A browser that already moved on must not keep its own time.
+  if (remote.matchId && remote.deadlineAt != null) return false;
   if (local.status === 'settled' && remote.status !== 'settled') return true;
   if (local.status === 'live' && remote.status === 'lobby') return true;
-  if (local.cursor > remote.cursor) return true;
   if (local.matchId && !remote.matchId) return true;
   return false;
 }

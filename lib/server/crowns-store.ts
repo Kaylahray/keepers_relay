@@ -7,6 +7,7 @@ import { getServerCkbClient } from '@/lib/ckb/server-client';
 import { ApiError } from '@/lib/server/errors';
 import { normalizeAddress } from '@/lib/server/auth';
 import { roomFromStored, roomToStored, type CrownRoom } from '@/lib/crown/rooms';
+import { suddenDeathMatchType } from '@/lib/registry/config';
 import { bytesToHex, decodeMatchCell, hexToBytes, merkleRoot, stealProof } from '@/lib/sudden-death/codec';
 import type { CrownSeat } from '@/lib/crown/seats';
 
@@ -103,15 +104,47 @@ async function writeVault(vault: Vault): Promise<void> {
   `;
 }
 
+function pointIndex(index: unknown): string {
+  if (typeof index === 'string') return index.startsWith('0x') ? index : `0x${Number(index).toString(16)}`;
+  if (typeof index === 'number' || typeof index === 'bigint') return `0x${index.toString(16)}`;
+  return '0x0';
+}
+
+/** The stored outpoint is spent on every steal. The live cell is the one with this match type. */
+async function loadMatchCell(room: CrownRoom): Promise<ccc.Cell | null> {
+  const client = getServerCkbClient();
+  if (room.matchOutPoint) {
+    try {
+      const stored = await client.getCell({
+        txHash: room.matchOutPoint.txHash,
+        index: room.matchOutPoint.index,
+      });
+      if (stored?.outputData) return stored;
+    } catch {
+      // Spent or not indexed yet. Fall through to the type search.
+    }
+  }
+  if (!room.matchId || !room.hostLockHash || suddenDeathMatchType.codeHash.length <= 2) return null;
+  const script = ccc.Script.from({
+    codeHash: suddenDeathMatchType.codeHash,
+    hashType: suddenDeathMatchType.hashType,
+    args: `0x${room.matchId.replace(/^0x/, '')}${room.hostLockHash.replace(/^0x/, '')}`,
+  });
+  for await (const cell of client.findCells(
+    { script, scriptType: 'type', scriptSearchMode: 'exact', withData: true },
+    'desc',
+    1,
+  )) {
+    return cell;
+  }
+  return null;
+}
+
 /** Read the match cell when it is on chain. Pending transactions stay as the last saved room. */
 async function refreshFromChain(room: CrownRoom): Promise<{ room: CrownRoom; seen: 'match' | 'pending' | 'reject' }> {
   if (!room.matchOutPoint || !room.matchId) return { room, seen: 'pending' };
   try {
-    const client = getServerCkbClient();
-    const cell = await client.getCell({
-      txHash: room.matchOutPoint.txHash,
-      index: room.matchOutPoint.index,
-    });
+    const cell = await loadMatchCell(room);
     if (!cell) return { room, seen: 'pending' };
     const raw = hexToBytes(cell.outputData);
     if (raw.length < 2) return { room, seen: 'reject' };
@@ -119,9 +152,14 @@ async function refreshFromChain(room: CrownRoom): Promise<{ room: CrownRoom; see
     const root = merkleRoot(hexToBytes(room.matchId), room.questions);
     if (!sameHex(bytesToHex(root), bytesToHex(decoded.root))) return { room, seen: 'reject' };
     const kingHex = bytesToHex(decoded.king);
+    const kingEmpty = decoded.king.every((byte) => byte === 0);
     const kingMatches = room.kingLock
       ? sameHex(ccc.Script.from(room.kingLock).hash(), kingHex)
       : false;
+    const found = cell.outPoint
+      ? { txHash: cell.outPoint.txHash, index: pointIndex(cell.outPoint.index) }
+      : room.matchOutPoint;
+    const moved = Boolean(found && room.matchOutPoint && !sameHex(found.txHash, room.matchOutPoint.txHash));
     return {
       seen: 'match',
       room: {
@@ -133,8 +171,10 @@ async function refreshFromChain(room: CrownRoom): Promise<{ room: CrownRoom; see
         potShannons: decoded.pot,
         feeShannons: decoded.fee,
         deadlineAt: Number(decoded.deadlineMs),
-        king: kingMatches ? room.king : null,
+        king: kingMatches ? room.king : kingEmpty ? null : `${kingHex.slice(0, 10)}…${kingHex.slice(-4)}`,
         kingLock: kingMatches ? room.kingLock : null,
+        matchOutPoint: found,
+        treasuryOutPoint: moved ? { txHash: found.txHash, index: '0x1' } : room.treasuryOutPoint,
       },
     };
   } catch {
