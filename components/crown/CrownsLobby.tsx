@@ -26,24 +26,13 @@ export function CrownsLobby() {
   const { username: onChainUsername } = useUsername();
   const [rooms, setRooms] = useState<CrownRoom[]>([]);
   const [shareError, setShareError] = useState<string | null>(null);
-  /**
-   * Crowns this browser has but the server does not.
-   *
-   * Sealing a bank saves it locally first and publishes second. When publishing fails — no
-   * `DATABASE_URL`, no session, server down — the crown still sits in this list looking exactly
-   * like a shared one, and the invite link leads nowhere for anybody else. Worth saying out loud.
-   */
-  const [unshared, setUnshared] = useState<string[]>([]);
 
   useEffect(() => {
     let stop = false;
     const read = async () => {
       const local = listCrowns();
-      // null means the lobby could not be reached at all, which is not the same as it being
-      // empty — only one of those two means a crown is genuinely unshared.
       const remote = await fetchCrownList().catch(() => null);
       if (stop) return;
-      setUnshared(remote ? local.filter((room) => !remote.some((item) => item.id === room.id)).map((room) => room.id) : []);
       const byId = new Map((remote ?? []).map((room) => [room.id, room]));
       for (const room of local) {
         const shared = byId.get(room.id);
@@ -167,25 +156,12 @@ export function CrownsLobby() {
 
       <section className="relative z-10 mt-14">
         <h2 className="mb-6 font-poster text-3xl uppercase text-white sm:text-4xl">All crowns</h2>
-        {unshared.length ? (
-          <p className="mb-6 border border-[#e1bf47]/50 bg-[#e1bf47]/10 px-4 py-3 text-sm text-[#e1bf47]">
-            {unshared.length === 1 ? 'One crown below is' : `${unshared.length} crowns below are`} saved
-            only in this browser — the lobby server never received {unshared.length === 1 ? 'it' : 'them'}.
-            Nobody else can open {unshared.length === 1 ? 'that invite link' : 'those invite links'}. This
-            usually means <span className="font-mono">DATABASE_URL</span> is not set on the server.
-          </p>
-        ) : null}
         {rooms.length === 0 ? (
           <p className="text-sm text-white/55">Nothing here yet. Open one, or play the floor.</p>
         ) : (
           <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {rooms.map((room, index) => (
               <li key={room.id}>
-                {unshared.includes(room.id) ? (
-                  <p className="mb-1 font-mono text-[10px] uppercase tracking-wider text-[#e1bf47]">
-                    Only on this device
-                  </p>
-                ) : null}
                 <CrownCard room={room} index={index} />
               </li>
             ))}

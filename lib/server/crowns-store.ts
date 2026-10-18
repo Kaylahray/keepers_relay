@@ -127,7 +127,8 @@ async function loadMatchCell(room: CrownRoom): Promise<ccc.Cell | null> {
     if (stored?.outputData) return stored;
     // Dead (a steal moved the match on) or not indexed yet. Find the cell by its type.
   }
-  if (!room.matchId || !room.hostLockHash || suddenDeathMatchType.codeHash.length <= 2) {
+  const script = matchTypeScript(room);
+  if (!script) {
     if (room.matchId && suddenDeathMatchType.codeHash.length <= 2) {
       console.warn(
         '[crowns] NEXT_PUBLIC_SD_MATCH_* is not set on the server, so a steal cannot be read back from chain.',
@@ -135,11 +136,6 @@ async function loadMatchCell(room: CrownRoom): Promise<ccc.Cell | null> {
     }
     return null;
   }
-  const script = ccc.Script.from({
-    codeHash: suddenDeathMatchType.codeHash,
-    hashType: suddenDeathMatchType.hashType,
-    args: `0x${room.matchId.replace(/^0x/, '')}${room.hostLockHash.replace(/^0x/, '')}`,
-  });
   for await (const cell of client.findCells(
     { script, scriptType: 'type', scriptSearchMode: 'exact', withData: true },
     'desc',
@@ -150,12 +146,43 @@ async function loadMatchCell(room: CrownRoom): Promise<ccc.Cell | null> {
   return null;
 }
 
+function matchTypeScript(room: CrownRoom): ccc.Script | null {
+  if (!room.matchId || !room.hostLockHash || suddenDeathMatchType.codeHash.length <= 2) return null;
+  return ccc.Script.from({
+    codeHash: suddenDeathMatchType.codeHash,
+    hashType: suddenDeathMatchType.hashType,
+    args: `0x${room.matchId.replace(/^0x/, '')}${room.hostLockHash.replace(/^0x/, '')}`,
+  });
+}
+
+/**
+ * Cleanup spends the match cell and does not create another one.
+ * A steal spends it and writes a new one, so the latest transaction still has an output.
+ * No live cell plus a latest transaction that only spends this type means the crown is closed.
+ */
+async function matchWasClosed(room: CrownRoom): Promise<boolean> {
+  const script = matchTypeScript(room);
+  if (!script) return false;
+  const client = getServerCkbClient();
+  for await (const tx of client.findTransactionsByType(script, true, 'desc', 1)) {
+    const cells = 'cells' in tx ? tx.cells : [];
+    if (cells.length === 0) return false;
+    return cells.every((cell) => cell.isInput);
+  }
+  return false;
+}
+
 /** Read the match cell when it is on chain. Pending transactions stay as the last saved room. */
 async function refreshFromChain(room: CrownRoom): Promise<{ room: CrownRoom; seen: 'match' | 'pending' | 'reject' }> {
   if (!room.matchOutPoint || !room.matchId) return { room, seen: 'pending' };
   try {
     const cell = await loadMatchCell(room);
-    if (!cell) return { room, seen: 'pending' };
+    if (!cell) {
+      if (await matchWasClosed(room)) {
+        return { seen: 'match', room: { ...room, status: 'settled' } };
+      }
+      return { room, seen: 'pending' };
+    }
     const raw = hexToBytes(cell.outputData);
     if (raw.length < 2) return { room, seen: 'reject' };
     const decoded = decodeMatchCell(raw);
