@@ -78,6 +78,9 @@ function lockRef(script: ccc.Script): LockRef {
   return { codeHash: script.codeHash, hashType, args: script.args };
 }
 
+/** Extra time written into the opening deadline so confirmation does not eat the round. */
+export const CONFIRM_PAD_MS = 3 * 60 * 1000;
+
 function sinceFor(deadlineMs: bigint): bigint {
   return SINCE_ABSOLUTE | (deadlineMs / 1000n);
 }
@@ -189,7 +192,10 @@ export async function openMatch(
 ): Promise<CrownRoom> {
   const host = await lockOf(signer);
   const hostHash = host.hash();
-  const deadlineMs = BigInt(Date.now() + (room.durationMs || DEFAULT_DURATION_MS));
+  // The cell's deadline is fixed at send time. Confirmation often takes a minute and has
+  // taken several. Pad the deadline so that wait is not subtracted from the length the host chose.
+  // The screen does not start the play clock until this transaction is committed.
+  const deadlineMs = BigInt(Date.now() + (room.durationMs || DEFAULT_DURATION_MS) + CONFIRM_PAD_MS);
   const matchScript = getSuddenDeathMatchScript(concatArgs(ccc.hexFrom(ZERO_32), hostHash));
   const treasuryScript = getSuddenDeathTreasuryScript(ccc.hexFrom(ZERO_32));
   const placeholderGuard = getSuddenDeathProxyLock(ccc.hexFrom(ZERO_32));

@@ -120,9 +120,25 @@ function pointIndex(index: unknown): string {
  * the fast path never missed, the type search below never ran, and the server kept serving the
  * round the match opened on.
  */
+async function outpointPhase(txHash: string): Promise<'committed' | 'pending' | 'rejected' | 'unknown'> {
+  try {
+    const tx = await getServerCkbClient().getTransaction(txHash);
+    const status = tx?.status;
+    if (status === 'committed' || status === 'rejected') return status;
+    if (status) return 'pending';
+    return 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
 async function loadMatchCell(room: CrownRoom): Promise<ccc.Cell | null> {
   const client = getServerCkbClient();
   if (room.matchOutPoint) {
+    // A steal's new outpoint is shared before it confirms. Searching by type here would
+    // find the previous live cell and rewind every other screen to the old clock.
+    const phase = await outpointPhase(room.matchOutPoint.txHash);
+    if (phase !== 'committed') return null;
     const stored = await readLiveCell(client, room.matchOutPoint);
     if (stored?.outputData) return stored;
     // Dead (a steal moved the match on) or not indexed yet. Find the cell by its type.
@@ -322,8 +338,34 @@ export async function syncCrown(incoming: CrownRoom, sessionAddress: string): Pr
         throw new ApiError('That match cell does not belong to this bank.', 400);
       }
       // The host opens the match, so their cell is still in the mempool and is taken on trust.
-      // A player's cell counts only once it reads back from chain against this bank's root.
-      next = checked.seen === 'match' ? checked.room : fromHost ? trial : next;
+      // A player's steal is taken the same way: the other screens need the new clock before
+      // the indexer has the new cell. A rejected transaction is ignored.
+      if (checked.seen === 'match') {
+        next = checked.room;
+      } else if (fromHost) {
+        next = {
+          ...trial,
+          status: incoming.status,
+          round: incoming.round,
+          cursor: incoming.cursor,
+          deadlineAt: incoming.deadlineAt ?? trial.deadlineAt,
+          potShannons: incoming.potShannons,
+          king: incoming.king ?? trial.king,
+        };
+      } else {
+        const phase = await outpointPhase(incoming.matchOutPoint.txHash);
+        if (phase !== 'rejected' && (incoming.round > current.round || incoming.matchOutPoint.txHash !== current.matchOutPoint?.txHash)) {
+          next = {
+            ...trial,
+            round: incoming.round,
+            cursor: incoming.cursor,
+            deadlineAt: incoming.deadlineAt ?? trial.deadlineAt,
+            potShannons: incoming.potShannons,
+            king: incoming.king ?? trial.king,
+            kingLock: incoming.kingLock ?? trial.kingLock,
+          };
+        }
+      }
     }
   }
   if (incoming.kingLock) {

@@ -29,9 +29,14 @@ function formatWalletCkb(balance: string): string {
 
 export function SiteHeader() {
   const pathname = usePathname();
-  const { disconnect, formattedAddress, isReady, isConnected, balance } = useWallet();
+  const { disconnect, formattedAddress, isReady, isConnected, balance, address: walletAddress } = useWallet();
   const walletCkb = formatWalletCkb(balance);
-  const { signOut, ensureAuth, busy: authBusy } = useAuth();
+  const { signOut, ensureAuth, busy: authBusy, authenticated, checked, address: sessionAddress } = useAuth();
+  const signedIn =
+    isConnected &&
+    checked &&
+    authenticated &&
+    sessionAddress === walletAddress.trim().toLowerCase();
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
@@ -66,7 +71,7 @@ export function SiteHeader() {
         </nav>
 
         <div className="flex shrink-0 items-center gap-2">
-          {!isReady ? null : isConnected ? (
+          {!isReady ? null : signedIn ? (
             <div className="flex items-center gap-2">
               <Link
                 href="/profile"
@@ -89,6 +94,16 @@ export function SiteHeader() {
                 <LogOut className="h-4 w-4" />
               </button>
             </div>
+          ) : isConnected ? (
+            <button
+              type="button"
+              disabled={authBusy}
+              onClick={() => void ensureAuth().catch(() => undefined)}
+              className="arena-cta flex items-center gap-2 px-4 py-2 text-[11px] font-bold uppercase disabled:opacity-50"
+            >
+              <WalletMinimal className="h-4 w-4" />
+              {authBusy ? 'Signing in…' : 'Sign in'}
+            </button>
           ) : (
             <button
               type="button"

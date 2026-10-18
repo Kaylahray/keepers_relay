@@ -21,6 +21,7 @@ import { deleteCrownRemote, joinCrownRemote, pushCrownState, requestProof } from
 import { useWallet } from '@/hooks/useWallet';
 import { useAuth } from '@/context/auth-provider';
 import { suddenDeathConfigured } from '@/lib/registry/config';
+import { getCkbClient } from '@/lib/ckb/client';
 import { isHostWallet } from '@/lib/crown/standing';
 import { nowMs } from '@/lib/crown/clock';
 import {
@@ -48,6 +49,13 @@ function scriptHash(lock: { codeHash: string; hashType: 'type' | 'data' | 'data1
   }).hash();
 }
 
+function formatWait(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
 function chainMessage(error: unknown, fallback: string): string {
   const message = error instanceof Error ? error.message : fallback;
   if (/still confirming/i.test(message)) return message;
@@ -56,6 +64,9 @@ function chainMessage(error: unknown, fallback: string): string {
   }
   if (/Resolve failed|Unknown\(OutPoint|out ?point/i.test(message)) {
     return 'That cell is not on chain yet. Wait for the last transaction to confirm, then try again.';
+  }
+  if (/immature|since requirement/i.test(message)) {
+    return 'The chain clock is behind this screen. Close opens a minute or two after the timer hits zero.';
   }
   return message;
 }
@@ -75,6 +86,7 @@ export function CrownPlayView({ id }: { id: string }) {
   const [myLockHash, setMyLockHash] = useState<string | null>(null);
   const [others, setOthers] = useState<CrownRoom[]>([]);
   const [matchReady, setMatchReady] = useState(false);
+  const [medianAt, setMedianAt] = useState<number | null>(null);
   const now = useNow(room?.status === 'live');
 
   useEffect(() => {
@@ -103,14 +115,10 @@ export function CrownPlayView({ id }: { id: string }) {
       return;
     }
     const txHash = room.matchOutPoint.txHash;
-    if (!signer) {
-      setMatchReady(false);
-      return;
-    }
     let stop = false;
     const look = async () => {
       try {
-        const tx = await signer.client.getTransaction(txHash);
+        const tx = await getCkbClient().getTransaction(txHash);
         if (!stop) setMatchReady(tx?.status === 'committed');
       } catch {
         if (!stop) setMatchReady(false);
@@ -122,7 +130,37 @@ export function CrownPlayView({ id }: { id: string }) {
       stop = true;
       window.clearInterval(timer);
     };
-  }, [chain, room?.matchOutPoint?.txHash, room?.status, signer]);
+  }, [chain, room?.matchOutPoint?.txHash, room?.status]);
+
+  useEffect(() => {
+    if (!chain || room?.status !== 'live' || room.deadlineAt == null) return;
+    if (leftMs(room.deadlineAt, nowMs()) > 0) return;
+    let stop = false;
+    const look = async () => {
+      try {
+        const client = getCkbClient();
+        const tip = await client.getTipHeader();
+        const tipNum = Number(tip.number);
+        const headers = await Promise.all(
+          Array.from({ length: 37 }, (_, index) => client.getHeaderByNumber(tipNum - index)),
+        );
+        const stamps = headers
+          .map((header) => (header ? Number(header.timestamp) : 0))
+          .filter((stamp) => stamp > 0)
+          .sort((left, right) => left - right);
+        const mid = stamps[Math.floor(stamps.length / 2)];
+        if (!stop && mid) setMedianAt(mid);
+      } catch {
+        if (!stop) setMedianAt(null);
+      }
+    };
+    void look();
+    const timer = window.setInterval(() => void look(), 15_000);
+    return () => {
+      stop = true;
+      window.clearInterval(timer);
+    };
+  }, [chain, room?.status, room?.deadlineAt]);
 
   useEffect(() => {
     if (!room || room.status !== 'live' || room.deadlineAt == null) return;
@@ -431,13 +469,19 @@ export function CrownPlayView({ id }: { id: string }) {
   const clockSpan = Math.max(1, room.durationMs || DEFAULT_DURATION_MS);
   const clockProgress = room.deadlineAt == null ? 0 : Math.max(0, Math.min(100, (clockLeft / clockSpan) * 100));
   const clock = playClock(room.deadlineAt, now);
+  const confirmingOpen =
+    chain && room.status === 'live' && Boolean(room.matchId) && !matchReady && room.round <= 1 && !room.king && room.potShannons === 0n;
+  const cellMoving = chain && room.status === 'live' && Boolean(room.matchId) && !matchReady && !confirmingOpen;
+  const sinceReady = medianAt != null && room.deadlineAt != null && medianAt >= room.deadlineAt;
+  const sinceWait = medianAt != null && room.deadlineAt != null ? Math.max(0, room.deadlineAt - medianAt) : null;
+  const shownError = !matchReady && chainError && /not on chain yet|still confirming/i.test(chainError) ? null : chainError;
   const hostClose =
-    iHost && chain && room.matchId && room.status === 'live' ? (
+    iHost && chain && room.matchId && room.status === 'live' && !confirmingOpen ? (
       <div className="mb-4">
         <button
           type="button"
           onClick={() => void closeMatch()}
-          disabled={Boolean(busy) || clock.counting}
+          disabled={Boolean(busy) || clock.counting || (medianAt != null && !sinceReady)}
           className="bg-[#e1bf47] px-5 py-3 font-poster text-2xl uppercase leading-none text-[#111] disabled:opacity-40"
         >
           {busy === 'Closing…' ? busy : 'Close the crown'}
@@ -445,7 +489,9 @@ export function CrownPlayView({ id }: { id: string }) {
         <p className="mt-2 text-sm text-white/55">
           {clock.counting
             ? 'You are the host. This pays whoever holds the crown once the play window ends.'
-            : 'You are the host. This pays whoever holds the crown right now.'}
+            : sinceReady || medianAt == null
+              ? 'You are the host. This pays whoever holds the crown right now.'
+              : `The screen clock has ended. The chain clock is behind it. Close unlocks in about ${formatWait(sinceWait ?? 0)}.`}
         </p>
       </div>
     ) : null;
@@ -457,7 +503,7 @@ export function CrownPlayView({ id }: { id: string }) {
           room={room}
           seats={seats}
           busy={busy}
-          error={chainError}
+          error={shownError}
           onStart={() => void startClock()}
           onDelete={iHost ? () => void removeLobby() : undefined}
         />
@@ -486,7 +532,22 @@ export function CrownPlayView({ id }: { id: string }) {
               <p className="font-mono text-[11px] uppercase text-white/45">CKB into the pot</p>
             </div>
           </div>
-          {room.status === 'live' && !prompt ? (
+          {confirmingOpen ? (
+            <>
+              <p className="mt-6 font-mono text-[10px] uppercase tracking-[0.16em] text-white/45">
+                Waiting on the match transaction
+              </p>
+              <h1 className="mt-2 font-poster text-6xl uppercase leading-none text-[#99ee2d] sm:text-7xl">
+                {formatWait(now - (room.openedAt ?? now))}
+              </h1>
+              <p className="mt-4 max-w-md text-base font-light leading-relaxed text-white/70">
+                This is how long the match and treasury have been waiting to confirm. It is not the game clock.
+                The {Math.round((room.durationMs || DEFAULT_DURATION_MS) / 60_000)} minute round starts for everyone
+                when the cell confirms. A few extra minutes were written on chain so this wait does not come out of the round.
+                A block is usually under a minute. If this climbs past a few minutes, the transaction is still in the mempool.
+              </p>
+            </>
+          ) : room.status === 'live' && !prompt ? (
             <>
               <h1 className="mt-3 font-poster text-[clamp(2.75rem,6vw,4.5rem)] uppercase leading-[0.92] text-white">
                 Bank finished
@@ -566,9 +627,10 @@ export function CrownPlayView({ id }: { id: string }) {
                     Wrong answer. That was your one try on this question.
                   </p>
                 ) : null}
-                {chain && room.matchId && isConnected && !matchReady ? (
+                {chain && room.matchId && isConnected && cellMoving ? (
                   <p className="mb-4 text-sm text-white/70">
-                    You will be able to play once the match cell confirms.
+                    The crown just moved. Lock opens when that transaction confirms. That is one block, not the rest of the round.
+                    The person holding the crown does not lock again. Everyone else can, as soon as this confirm finishes.
                   </p>
                 ) : null}
                 {chain && room.matchId && isConnected && matchReady && !entryBid && !iHold && flash !== 'miss' ? (
@@ -656,7 +718,7 @@ export function CrownPlayView({ id }: { id: string }) {
               </div>
             </div>
           ) : null}
-          {chainError ? <p className="mt-4 max-w-md text-sm text-[#af2a3a]">{chainError}</p> : null}
+          {shownError ? <p className="mt-4 max-w-md text-sm text-[#af2a3a]">{shownError}</p> : null}
           {busy && room.status === 'live' ? <p className="mt-3 font-mono text-[10px] uppercase text-white/50">{busy}</p> : null}
           <p className="mt-6 font-mono text-[10px] uppercase text-white/40">
             Pot {ckbWhole(room.potShannons)} CKB · {room.status === 'settled' && iHold ? 'you' : room.king ?? 'Open seat'}

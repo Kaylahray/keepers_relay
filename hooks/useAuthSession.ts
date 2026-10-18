@@ -44,6 +44,8 @@ export function useAuthSession(): SessionState {
     reject: (err: Error) => void;
   } | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** One automatic sign-in prompt per restored address. A dismiss does not loop. */
+  const promptedRef = useRef<string | null>(null);
   const connectedRef = useRef(isConnected);
   connectedRef.current = isConnected;
 
@@ -72,6 +74,24 @@ export function useAuthSession(): SessionState {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  /**
+   * JoyID restores the address with no prompt. That is only the wallet.
+   * The session is a second signature, "Connect to Crowns", and without it
+   * the header shows an address that cannot publish, join, or take a proof.
+   * Ask for that signature once when a restored wallet has no session.
+   */
+  useEffect(() => {
+    if (!isReady || !checked || !isConnected || !address || !signer || busy) return;
+    const normalized = address.trim().toLowerCase();
+    if (authenticated && sessionAddress === normalized) {
+      promptedRef.current = null;
+      return;
+    }
+    if (promptedRef.current === normalized) return;
+    promptedRef.current = normalized;
+    void runChallenge(address, signer).catch(() => undefined);
+  }, [address, authenticated, busy, checked, isConnected, isReady, runChallenge, sessionAddress, signer]);
 
   const clearWaiter = useCallback(() => {
     if (timeoutRef.current) {
