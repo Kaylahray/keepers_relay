@@ -53,6 +53,12 @@ export type CrownRoom = {
   hostAddress: string | null;
   /** This browser does not have the answer key. Proofs come from the server. */
   answersOnServer?: boolean;
+  /**
+   * When this browser sent a steal that the chain has not confirmed yet. It buys the player
+   * who answered the right to show the next question before everyone else does, and nothing
+   * more: the moment the server reads the new round, the shared clock takes over again.
+   */
+  stealPendingAt?: number | null;
 };
 
 type StoredQuestion = Omit<BankQuestion, 'salt'> & { salt: string };
@@ -114,6 +120,7 @@ function fromStored(room: StoredRoom): CrownRoom {
     pendingKind: room.pendingKind ?? null,
     hostAddress: room.hostAddress ?? null,
     answersOnServer: room.answersOnServer ?? false,
+    stealPendingAt: room.stealPendingAt ?? null,
     durationMs: room.durationMs || DEFAULT_DURATION_MS,
   };
 }
@@ -192,6 +199,7 @@ export function sealCrown(bank: QuestionBank): CrownRoom {
     king: null,
     openedAt: null,
     deadlineAt: null,
+    stealPendingAt: null,
     feed: [],
     seals: [],
     matchId: null,
@@ -225,6 +233,7 @@ export function kickoff(room: CrownRoom, deadlineAt = Date.now() + (room.duratio
     king: null,
     openedAt: now,
     deadlineAt,
+    stealPendingAt: null,
     feed: [
       {
         id: `${now}`,
@@ -267,6 +276,7 @@ export function applySteal(room: CrownRoom, proofNote: string): CrownRoom {
     potShannons: room.potShannons + room.feeShannons,
     king: 'You',
     deadlineAt,
+    stealPendingAt: now,
     seals: [seal, ...room.seals].slice(0, 8),
     feed: [
       {

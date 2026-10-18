@@ -5,6 +5,7 @@ import {
   type StoredRoom,
 } from '@/lib/crown/rooms';
 import { hexToBytes } from '@/lib/sudden-death/codec';
+import { noteServerTime } from '@/lib/crown/clock';
 import type { CrownSeat } from '@/lib/crown/seats';
 
 export type { CrownSeat };
@@ -41,10 +42,17 @@ export async function fetchCrownList(): Promise<CrownRoom[]> {
 export async function fetchCrown(
   id: string,
 ): Promise<{ room: CrownRoom; seats: CrownSeat[] } | null> {
+  const sentAt = Date.now();
   const response = await fetch(`/api/crowns/${encodeURIComponent(id)}`, { cache: 'no-store' });
   if (response.status === 404) return null;
-  const data = (await response.json()) as { room?: StoredRoom; seats?: CrownSeat[]; message?: string };
+  const data = (await response.json()) as {
+    room?: StoredRoom;
+    seats?: CrownSeat[];
+    now?: number;
+    message?: string;
+  };
   if (!response.ok || !data.room) return null;
+  if (typeof data.now === 'number') noteServerTime(data.now, sentAt);
   return { room: roomFromStored(data.room), seats: data.seats ?? [] };
 }
 

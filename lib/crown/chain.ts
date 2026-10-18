@@ -11,6 +11,7 @@ import {
 } from '@/lib/sudden-death/codec';
 import { applySteal, DEFAULT_DURATION_MS, type CrownRoom, type LockRef, type OutPointRef } from '@/lib/crown/rooms';
 import { requestWalletRefresh } from '@/lib/wallet-refresh';
+import { readLiveCell } from '@/lib/ckb/live-cell';
 import { REGISTRY_FEE_RATE, suddenDeathBidType } from '@/lib/registry/config';
 import {
   getSuddenDeathBidScript,
@@ -60,7 +61,9 @@ async function lockOf(signer: Signer): Promise<ccc.Script> {
 }
 
 async function liveCell(signer: Signer, point: OutPointRef): Promise<ccc.Cell> {
-  const cell = await signer.client.getCell(point);
+  // `getCell` would answer for a cell that has already been spent, and the transaction
+  // built on top of that answer dies at the node. Ask whether the cell is live.
+  const cell = await readLiveCell(signer.client, point);
   if (!cell) {
     throw new Error('That cell is not on chain yet. Wait for the last transaction to confirm.');
   }
@@ -114,23 +117,12 @@ async function locateMatch(
   if (!room.matchOutPoint || !room.matchId || !room.hostLockHash) {
     throw new Error('Start the clock before locking a bid.');
   }
-  let status: string | null = null;
-  try {
-    status = (await signer.client.getTransaction(room.matchOutPoint.txHash))?.status ?? null;
-  } catch {
-    status = null;
-  }
-  if (status === 'committed' || status == null) {
-    try {
-      const stored = await signer.client.getCell(room.matchOutPoint);
-      if (stored?.cellOutput.type) return { room, cell: stored, moved: false };
-    } catch {
-      if (status === 'committed') status = null;
-    }
-  }
-  if (status !== 'rejected') {
-    throw new Error('The match cell is still confirming. Wait a few seconds, then try again.');
-  }
+  // The saved point is right until someone else's steal spends it. `getCell` cannot tell the
+  // difference — it answers from the transaction that created the cell — so this asks the node
+  // whether the cell is still live. A dead one means the match moved, and the search below finds
+  // where it moved to.
+  const stored = await readLiveCell(signer.client, room.matchOutPoint);
+  if (stored?.cellOutput.type) return { room, cell: stored, moved: false };
   const type = getSuddenDeathMatchScript(concatArgs(room.matchId, room.hostLockHash));
   const cell = await findOne(signer, type, 'type');
   if (!cell?.cellOutput.type) {
@@ -438,7 +430,7 @@ export async function closeCrown(signer: Signer, room: CrownRoom): Promise<{ roo
     if (args.length === 64) bids.push(cell);
   }
   if (bids.length === 0 && working.bidOutPoint) {
-    const only = await signer.client.getCell(working.bidOutPoint);
+    const only = await readLiveCell(signer.client, working.bidOutPoint);
     if (only) bids.push(only);
   }
   const groups = new Map<string, { script: ccc.Script; total: bigint }>();

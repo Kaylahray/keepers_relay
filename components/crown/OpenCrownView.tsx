@@ -5,7 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { ArenaStage } from '@/components/arena/ArenaStage';
 import { NeonPlate } from '@/components/crown/CrownCard';
 import { emptyQuestion, saveBank } from '@/lib/sudden-death/bank';
-import { bytesToHex, merkleRoot, type BankQuestion } from '@/lib/sudden-death/codec';
+import { bytesToHex, merkleRoot, randomSalt, type BankQuestion } from '@/lib/sudden-death/codec';
+import { useAuth } from '@/context/auth-provider';
 import { EVENT_PRESETS, type EventKind } from '@/lib/sudden-death/events';
 import { publishCrown } from '@/lib/crown/remote';
 import { saveCrown, sealCrown } from '@/lib/crown/rooms';
@@ -26,6 +27,7 @@ export function OpenCrownView() {
   const router = useRouter();
   const duel = useSearchParams().get('duel');
   const { address, isConnected, isReady } = useWallet();
+  const { ensureAuth } = useAuth();
   const { username: onChainUsername, isLoading: nameLoading } = useUsername();
   const [step, setStep] = useState(0);
   const [eventId, setEventId] = useState<EventKind | null>(null);
@@ -34,6 +36,54 @@ export function OpenCrownView() {
   const [feeText, setFeeText] = useState(() => String(Number(EVENT_PRESETS[0]!.bank.feeShannons / 100_000_000n)));
   const [shareError, setShareError] = useState<string | null>(null);
   const [sealing, setSealing] = useState(false);
+  const [draftTopic, setDraftTopic] = useState('');
+  const [draftCount, setDraftCount] = useState(8);
+  const [drafting, setDrafting] = useState(false);
+  const [draftError, setDraftError] = useState<string | null>(null);
+
+  /**
+   * Draft a bank to edit. The answer key is whatever is on screen when you seal, so this only
+   * ever saves you typing — it has no say in who wins, and every line is still yours to change.
+   */
+  async function draftBank() {
+    const topic = draftTopic.trim();
+    if (!topic || drafting) return;
+    setDrafting(true);
+    setDraftError(null);
+    try {
+      await ensureAuth();
+      const response = await fetch('/api/bank', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ topic, count: draftCount }),
+      });
+      const data = (await response.json()) as {
+        questions?: Array<{ tag: string; text: string; options: [string, string, string, string]; correct: 0 | 1 | 2 | 3 }>;
+        message?: string;
+      };
+      if (!response.ok || !data.questions) {
+        throw new Error(data.message || 'The draft could not be written.');
+      }
+      const skin = bank.questions[0]?.skin ?? 'quiz';
+      setBank((current) => ({
+        ...current,
+        questions: data.questions!.map((question) => ({
+          skin,
+          tag: question.tag,
+          text: question.text,
+          options: question.options,
+          correct: question.correct,
+          // A fresh salt per question. Reusing one would let the same leaf be recognised
+          // across two different matches.
+          salt: randomSalt(),
+        })),
+      }));
+    } catch (error) {
+      setDraftError(error instanceof Error ? error.message : 'The draft could not be written.');
+    } finally {
+      setDrafting(false);
+    }
+  }
 
   const root = useMemo(() => {
     try {
@@ -221,6 +271,45 @@ export function OpenCrownView() {
             You write the lines. Players do not. Each question has four options, and the marked one is
             the answer. The bank length has to be 2, 4, 8, 16, 32, or 64.
           </p>
+
+          <NeonPlate className="mt-6 p-4">
+            <p className="font-mono text-[10px] uppercase tracking-wider text-white/50">
+              Start from a draft
+            </p>
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+              <input
+                value={draftTopic}
+                onChange={(event) => setDraftTopic(event.target.value)}
+                placeholder="Nigerian afrobeats, 2010 to now"
+                className="min-w-0 flex-1 border border-white/15 bg-black px-3 py-2 text-sm text-white outline-none focus:border-[#99ee2d]"
+              />
+              <select
+                value={draftCount}
+                onChange={(event) => setDraftCount(Number(event.target.value))}
+                className="border border-white/15 bg-black px-3 py-2 font-mono text-sm text-white outline-none focus:border-[#99ee2d]"
+              >
+                {[2, 4, 8, 16, 32].map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => void draftBank()}
+                disabled={drafting || !draftTopic.trim()}
+                className="border border-[#99ee2d] px-4 py-2 font-mono text-[11px] uppercase text-[#99ee2d] disabled:opacity-40"
+              >
+                {drafting ? 'Writing…' : 'Draft'}
+              </button>
+            </div>
+            <p className="mt-3 text-xs leading-relaxed text-white/45">
+              This replaces every question below with a draft for you to edit. It is a typing aid:
+              the answer key is whatever you seal, and nothing here decides a round.
+            </p>
+            {draftError ? <p className="mt-2 text-xs text-[#ff8b98]">{draftError}</p> : null}
+          </NeonPlate>
+
           <ol className="mt-6 space-y-4">
             {bank.questions.map((question, index) => (
               <li key={`${index}-${question.salt[0]}`}>

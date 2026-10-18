@@ -14,7 +14,8 @@ export async function GET(
   return respond(async () => {
     const result = await readPublicCrown(id);
     if (!result) throw new ApiError('Crown not found.', 404);
-    return { room: roomToStored(result.room), seats: result.seats };
+    // The lobby's clock. Every screen counts down against this, not its own device time.
+    return { room: roomToStored(result.room), seats: result.seats, now: Date.now() };
   });
 }
 

@@ -25,6 +25,10 @@ export const DEFAULT_BANK: QuestionBank = {
   id: 'ckb-floor',
   title: 'CKB floor',
   feeShannons: 50n * 100_000_000n,
+  // Four questions cut 10 + 5 + 5 + 2.5 minutes, so a 25-minute clock ends with roughly two
+  // minutes left if every question falls. On the two-hour default the bank ran out long before
+  // the clock did, and the one thing this game does that no other quiz does never happened.
+  durationMs: 25 * 60 * 1000,
   questions: [
     question(
       'quiz',

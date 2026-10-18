@@ -9,6 +9,7 @@ import { leftMs, playClock, useNow } from '@/components/crown/BleedingClock';
 import { PromptLine } from '@/components/crown/PromptLine';
 import { VerifiedSeal } from '@/components/crown/VerifiedSeal';
 import { CrownLobby } from '@/components/crown/CrownLobby';
+import { CrownReceipt } from '@/components/crown/CrownReceipt';
 import { useCrown } from '@/components/crown/useCrown';
 import { arenaCoverForSeed } from '@/lib/poster';
 import { ccc } from '@ckb-ccc/connector-react';
@@ -21,9 +22,11 @@ import { useWallet } from '@/hooks/useWallet';
 import { useAuth } from '@/context/auth-provider';
 import { suddenDeathConfigured } from '@/lib/registry/config';
 import { isHostWallet } from '@/lib/crown/standing';
+import { nowMs } from '@/lib/crown/clock';
 import {
   applySteal,
   ckbWhole,
+  DEFAULT_DURATION_MS,
   forgetCrown,
   kickoff,
   listCrowns,
@@ -129,7 +132,7 @@ export function CrownPlayView({ id }: { id: string }) {
     }
     if (settling.current) return;
     if (room.matchId) return;
-    if (leftMs(room.deadlineAt, Date.now()) > 0) return;
+    if (leftMs(room.deadlineAt, nowMs()) > 0) return;
     settling.current = true;
     const king = room.king;
     saveCrown(
@@ -291,7 +294,7 @@ export function CrownPlayView({ id }: { id: string }) {
       rememberedMiss(room.id, player)?.cursor === room.cursor ||
       rememberedMiss(room.id, 'local')?.cursor === room.cursor;
     if (closed) return;
-    const late = room.deadlineAt != null && Date.now() >= room.deadlineAt;
+    const late = room.deadlineAt != null && nowMs() >= room.deadlineAt;
     if (late && !room.matchId) return;
     if (late && !entryBid && !iHold) return;
     if (iHold && !entryBid) {
@@ -357,10 +360,16 @@ export function CrownPlayView({ id }: { id: string }) {
     if (index === prompt.correct) {
       if (!chain || !room.matchId) {
         const proof = stealProof(ZERO_MATCH, room.questions, room.cursor);
-        const next = applySteal(room, `Proof ${bytesToHex(proof).slice(0, 18)}… is local until a match cell exists.`);
+        const stolen = applySteal(room, `Proof ${bytesToHex(proof).slice(0, 18)}… is local until a match cell exists.`);
+        // `applySteal` writes the king as "You", which only reads correctly on this screen.
+        // Everyone else in the lobby needs a name they can tell apart from their own.
+        const next = { ...stolen, king: formattedAddress || stolen.king };
         setFlash('hit');
         window.setTimeout(() => {
           saveCrown(next);
+          // No match cell means no chain to read the round back from, so the lobby only
+          // learns this steal happened if this browser tells it.
+          void pushCrownState(next).catch(() => undefined);
           setPicked(null);
           setFlash(null);
         }, 420);
@@ -417,8 +426,9 @@ export function CrownPlayView({ id }: { id: string }) {
   }
 
   const clockLeft = leftMs(room.deadlineAt, now);
-  const clockSpan =
-    room.deadlineAt == null || room.openedAt == null ? 1 : Math.max(1, room.deadlineAt - room.openedAt);
+  // The bar measures the match's full length, not what is left of it. Scaling to the current
+  // deadline would hide the point of the game: every crown taken lops a visible chunk off.
+  const clockSpan = Math.max(1, room.durationMs || DEFAULT_DURATION_MS);
   const clockProgress = room.deadlineAt == null ? 0 : Math.max(0, Math.min(100, (clockLeft / clockSpan) * 100));
   const clock = playClock(room.deadlineAt, now);
   const hostClose =
@@ -496,6 +506,19 @@ export function CrownPlayView({ id }: { id: string }) {
                   ? `${ckbWhole(room.potShannons)} CKB was paid to ${iHold ? 'you' : room.king ?? 'the open seat'}.`
                   : `${ckbWhole(room.potShannons)} CKB in the pot. ${room.feed[0]?.text ?? ''}`}
               </p>
+              {/* The one moment anyone actually wants this: the pot went somewhere, and if it
+                  did not go to you, you want to know why. */}
+              {room.status === 'settled' && room.matchOutPoint ? (
+                <>
+                  <Link
+                    href={`/verify/${room.matchOutPoint.txHash}`}
+                    className="mt-5 inline-block border border-[#99ee2d] px-5 py-3 font-poster text-xl uppercase leading-none text-[#99ee2d] hover:bg-[#99ee2d]/10"
+                  >
+                    See how it was won →
+                  </Link>
+                  <CrownReceipt room={room} youWon={iHold} />
+                </>
+              ) : null}
             </>
           ) : (
             <>
@@ -652,6 +675,14 @@ export function CrownPlayView({ id }: { id: string }) {
             <div className="mt-4">
               <VerifiedSeal seal={room.seals[0]} />
             </div>
+          ) : null}
+          {room.matchOutPoint ? (
+            <Link
+              href={`/verify/${room.matchOutPoint.txHash}`}
+              className="mt-4 inline-block font-mono text-[10px] uppercase tracking-wider text-white/40 underline decoration-white/20 hover:text-[#99ee2d]"
+            >
+              Check this crown yourself
+            </Link>
           ) : null}
         </div>
 

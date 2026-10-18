@@ -131,6 +131,14 @@ export function CrownWatchView({ id }: { id: string }) {
               </li>
             ))}
           </ul>
+          {room.matchOutPoint ? (
+            <Link
+              href={`/verify/${room.matchOutPoint.txHash}`}
+              className="mt-4 inline-block border border-[#99ee2d]/50 px-4 py-2 font-mono text-[11px] uppercase text-[#99ee2d] hover:bg-[#99ee2d]/10"
+            >
+              Check this crown yourself
+            </Link>
+          ) : null}
         </NeonPlate>
       </div>
     </ArenaStage>

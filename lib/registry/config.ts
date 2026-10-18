@@ -154,6 +154,28 @@ export const suddenDeathTreasuryLock: ScriptConfig = {
   depType: asDepType(process.env.NEXT_PUBLIC_SD_TREASURY_DEP_TYPE),
 };
 
+/**
+ * CKBFS type script — witness-based content storage, used to publish a finished match's bank.
+ *
+ * The protocol thread ships code but publishes no code hash, so this has to point at a cell we
+ * deploy ourselves from `code-monad/ckbfs`. Until these are set, revealing is unavailable and
+ * the app says so rather than pretending.
+ */
+export const ckbfsType: ScriptConfig = {
+  codeHash: pick(process.env.NEXT_PUBLIC_CKBFS_CODE_HASH),
+  hashType: asHashType(process.env.NEXT_PUBLIC_CKBFS_HASH_TYPE ?? "data1"),
+  args: "0x",
+  outPoint: {
+    txHash: pick(process.env.NEXT_PUBLIC_CKBFS_TX_HASH),
+    index: pick(process.env.NEXT_PUBLIC_CKBFS_INDEX, "0x0"),
+  },
+  depType: asDepType(process.env.NEXT_PUBLIC_CKBFS_DEP_TYPE),
+};
+
+export function ckbfsConfigured(): boolean {
+  return ckbfsType.codeHash.length > 2 && ckbfsType.outPoint.txHash.length > 2;
+}
+
 export function registryConfigured(): boolean {
   return (
     usernameType.codeHash.length > 2 &&

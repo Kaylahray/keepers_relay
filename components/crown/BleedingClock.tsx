@@ -1,12 +1,15 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { nowMs } from '@/lib/crown/clock';
 
 export function useNow(active: boolean) {
-  const [now, setNow] = useState(() => Date.now());
+  // The lobby's clock, not this device's. A phone running fast would otherwise count
+  // down a different match from everyone else watching the same cell.
+  const [now, setNow] = useState(() => nowMs());
   useEffect(() => {
     if (!active) return;
-    const id = window.setInterval(() => setNow(Date.now()), 40);
+    const id = window.setInterval(() => setNow(nowMs()), 40);
     return () => window.clearInterval(id);
   }, [active]);
   return now;

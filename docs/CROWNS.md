@@ -14,7 +14,7 @@ There is one game. Lyric lines are the same four-option bank with a lyric skin. 
 4. Each player presses **Lock your entry**. That is the player’s only game signature. It creates a bid cell locked to that player, holding the entry fee plus a fee reserve. A bid cannot exist before the match cell, because the bid script requires the live match cell as a dependency.
 5. Players answer the same question. A correct pick asks the server for a Merkle proof. The steal transaction spends the match cell, the treasury, and that player’s bid. Nobody signs the steal. The script checks the proof against the root already stored in the match cell.
 6. One steal can confirm. The match cell is one cell, and a cell can be spent once. If several players answer correctly together, the first steal that lands becomes king. The others keep their bids and can answer the next question.
-7. Each steal adds the entry fee to the pot, writes the winner’s lock hash as king, and adds bonus time to the deadline. Round 1 adds 10 seconds. The bonus then halves every two rounds, with a floor of 1.2 seconds.
+7. Each steal adds the entry fee to the pot, writes the winner’s lock hash as king, and **cuts** time off the deadline. Round 1 removes 10 minutes. The cut then halves every two rounds, with a floor of 72 seconds. This is sudden death: every crown taken makes the match shorter for everyone, so the pot is always racing the clock down. `shrink_ms` in `contracts/common` and `shrinkMs` in `lib/sudden-death/codec.ts` are the same function, and the script rejects a steal whose output deadline is not exactly `shrunk_deadline(input_deadline, round)`.
 8. **Close the crown** spends the match cell and the treasury after the chain clock has passed the deadline. The king receives the pot. The host receives the rest. If the host is also the king, one payment must cover both. A bid left out of that transaction stays frozen.
 
 The screen clock is a prediction. The deadline inside the match cell is what the chain enforces, and only as “not before.” The bar hitting zero does not stop steals. Closing is rejected until CKB’s median time passes the deadline. Median time lags wall clock by minutes.
@@ -125,7 +125,7 @@ Cell data is 158 bytes:
 Modes:
 
 - **Create** `(0 inputs, 1 output)` in the type group. Type id must match. Round 1, pot 0, king empty, root not empty, fee and deadline not zero, treasury present, bid code hash present, proxy lock on the output.
-- **Steal** `(1 input, 1 output)`. Root, fee, treasury hash, and bid code hash stay the same. Round increases by 1. Pot increases by the fee. Deadline increases by `bonus_ms(round)`. Capacity of the match cell does not change. Exactly one bid of this match is an input, and none are outputs. The new king is that bid’s owner. The treasury output is larger by the fee. The Merkle proof is the input-type witness. `since` on the steal is 0.
+- **Steal** `(1 input, 1 output)`. Root, fee, treasury hash, and bid code hash stay the same. Round increases by 1. Pot increases by the fee. Deadline decreases by `shrink_ms(round)`, never below 1000 ms. Capacity of the match cell does not change. Exactly one bid of this match is an input, and none are outputs. The new king is that bid’s owner. The treasury output is larger by the fee. The Merkle proof is the input-type witness. `since` on the steal is 0.
 - **Settle** `(1 input, 0 outputs)`. The match cell is consumed. `since` must be an absolute timestamp in seconds, at least `deadline_ms / 1000`. The treasury must be an input and must not be an output. The treasury script checks the payments.
 
 The leaf hash is blake2b of: leaf tag, match id, question index, hash of the question text, correct index, option count, and salt. The root is a binary Merkle tree. Banks must be 2, 4, 8, 16, 32, or 64 questions. The script allows a proof path of at most 6.
@@ -163,7 +163,7 @@ Shared by the three scripts. A failing script returns one of these:
 | -2 | `ERR_MODE` | Not create, steal, or settle |
 | -3 | `ERR_POT` | Capacity or pot does not add up |
 | -4 | `ERR_ROUND` | Round did not advance by one |
-| -5 | `ERR_CLOCK` | Deadline missing or bonus wrong |
+| -5 | `ERR_CLOCK` | Deadline missing or the shrink is wrong |
 | -6 | `ERR_KING` | King or owner hash wrong |
 | -7 | `ERR_PROOF` | Merkle proof does not match the root |
 | -8 | `ERR_BID` | Bid missing, extra, or not tied to this match |
@@ -189,9 +189,27 @@ The server can delay a transaction by withholding a proof. It cannot invent a wi
 - The host does not pick the duration.
 - The cell’s opening deadline is 12 seconds plus 3 minutes from the click on **Start the clock**. The 3 minutes exist so JoyID can finish before the deadline is already past.
 - Every player shares that deadline. Locking an entry does not start a personal clock.
-- A steal adds bonus time to the deadline in the cell. It does not reset a private timer.
+- A steal cuts time off the deadline in the cell. It does not reset a private timer, and it never gives time back.
 - The bar at zero means the prediction has run out. Steals are still valid. Close is not, until median time passes the deadline.
 - `since` on a steal is 0. `since` on a close is `0x4000_0000_0000_0000` plus the deadline in seconds.
+
+## Reading a cell that a steal may have spent
+
+Every screen in a match agrees because every screen reads the same match cell. That only works
+if the read can tell a live cell from a dead one.
+
+CCC’s `client.getCell(outPoint)` **cannot**. It resolves an out point from the transaction that
+created it and caches the result, so a match cell a steal has already spent answers with the round
+it was written in, forever. Code that asks “is the match still here?” with `getCell` gets a
+permanent yes, never falls through to the type-script search, and pins the whole lobby to round 1.
+
+Use `readLiveCell` in `lib/ckb/live-cell.ts`. It calls `get_live_cell`, skips the cache, and
+returns `null` for a cell that has died. The match cell, the treasury and a bid all change hands
+on a steal, so all three are read that way — on the server in `loadMatchCell`, in the browser in
+`locateMatch` and `liveCell`.
+
+The identity that survives a steal is the **match type script** (`matchId` + host lock hash), not
+the out point. When the stored point is dead, find the live cell by that type and carry on.
 
 ## What this document leaves alone
 

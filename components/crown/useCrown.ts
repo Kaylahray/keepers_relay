@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useWallet } from '@/hooks/useWallet';
 import { fetchCrown } from '@/lib/crown/remote';
 import type { CrownSeat } from '@/lib/crown/seats';
@@ -10,12 +10,22 @@ function realQuestions(room: CrownRoom): boolean {
   return !room.answersOnServer && room.questions.some((question) => question.salt.some((byte) => byte !== 0));
 }
 
-function ahead(local: CrownRoom, remote: CrownRoom): boolean {
-  // A live match cell is the clock. A browser that already moved on must not keep its own time.
-  if (remote.matchId && remote.deadlineAt != null) return false;
+/** How long a browser may show its own steal before the shared clock must agree. */
+const OPTIMISTIC_STEAL_MS = 90_000;
+
+function ahead(local: CrownRoom, remote: CrownRoom, at: number): boolean {
   if (local.status === 'settled' && remote.status !== 'settled') return true;
-  if (local.status === 'live' && remote.status === 'lobby') return true;
   if (local.matchId && !remote.matchId) return true;
+  if (remote.matchId && remote.deadlineAt != null) {
+    // A live match cell is the clock, and no browser keeps its own time against it.
+    // The single exception is the player whose steal is still in the mempool: they see the
+    // question they just won, for as long as that steal has a chance of confirming. Everyone
+    // else — and they too, once it lands or expires — reads the round out of the cell.
+    if (local.round <= remote.round) return false;
+    const sent = local.stealPendingAt ?? 0;
+    return sent > 0 && at - sent < OPTIMISTIC_STEAL_MS;
+  }
+  if (local.status === 'live' && remote.status === 'lobby') return true;
   return false;
 }
 
@@ -32,7 +42,7 @@ function mergeCrown(
   if (!remote) return local;
   const mine = address.trim().toLowerCase();
   const seatBid = seats.find((seat) => seat.address === mine)?.bidOutPoint ?? null;
-  if (local && ahead(local, remote)) {
+  if (local && ahead(local, remote, Date.now())) {
     return {
       ...local,
       hostAddress: local.hostAddress ?? remote.hostAddress,
@@ -46,6 +56,7 @@ function mergeCrown(
       bidOutPoint: keptBid(local, seatBid),
       pendingTx: local?.pendingTx ?? null,
       pendingKind: local?.pendingKind ?? null,
+      stealPendingAt: null,
     };
   }
   return {
@@ -68,6 +79,7 @@ function mergeCrown(
     kingLock: remote.kingLock ?? local.kingLock,
     bidOutPoint: keptBid(local, seatBid),
     answersOnServer: false,
+    stealPendingAt: null,
   };
 }
 
@@ -76,6 +88,8 @@ export function useCrown(id: string) {
   const [room, setRoom] = useState<CrownRoom | null>(null);
   const [seats, setSeats] = useState<CrownSeat[]>([]);
   const [ready, setReady] = useState(false);
+  /** Read by the poll to decide its own cadence, without restarting the interval. */
+  const liveNow = useRef(false);
 
   useEffect(() => {
     let stop = false;
@@ -101,6 +115,7 @@ export function useCrown(id: string) {
           const changed =
             !previous ||
             previous.status !== merged.status ||
+            previous.round !== merged.round ||
             previous.cursor !== merged.cursor ||
             previous.king !== merged.king ||
             previous.deadlineAt !== merged.deadlineAt ||
@@ -110,7 +125,9 @@ export function useCrown(id: string) {
             previous.potShannons !== merged.potShannons;
           if (changed) saveCrown(merged);
         }
-        setRoom(merged ?? latest);
+        const next = merged ?? latest;
+        liveNow.current = next?.status === 'live';
+        setRoom(next);
         setSeats(remote?.seats ?? []);
         setReady(true);
       } finally {
@@ -122,7 +139,20 @@ export function useCrown(id: string) {
       }
     };
     void read();
-    const poll = window.setInterval(() => void read(), 2000);
+    // The clock has to stay shared, so a live match really is polled every two seconds.
+    // A lobby is not a clock, and a tab nobody is looking at is not either — both used to
+    // poll just as hard, which is what filled the network tab.
+    let tick = 0;
+    const poll = window.setInterval(() => {
+      tick += 1;
+      if (document.hidden) return;
+      if (!liveNow.current && tick % 4 !== 0) return;
+      void read();
+    }, 2000);
+    const onVisible = () => {
+      if (!document.hidden) void read();
+    };
+    document.addEventListener('visibilitychange', onVisible);
     const unsub = subscribeCrowns(() => {
       const local = loadCrown(id);
       if (!local) return;
@@ -135,6 +165,7 @@ export function useCrown(id: string) {
     return () => {
       stop = true;
       window.clearInterval(poll);
+      document.removeEventListener('visibilitychange', onVisible);
       unsub();
     };
   }, [address, id]);

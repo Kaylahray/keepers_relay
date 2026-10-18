@@ -18,6 +18,8 @@ import { suddenDeathConfigured } from '@/lib/registry/config';
 import { isHostWallet } from '@/lib/crown/standing';
 import { deleteCrownRemote } from '@/lib/crown/remote';
 import { ckbWhole, forgetCrown, loadCrown, saveCrown } from '@/lib/crown/rooms';
+import { buildRevealedBank, publishReveal } from '@/lib/ckbfs/reveal';
+import { ckbfsConfigured } from '@/lib/registry/config';
 
 const ZERO_MATCH = new Uint8Array(32);
 
@@ -32,6 +34,7 @@ export function CrownDeskView({ id }: { id: string }) {
   const chain = suddenDeathConfigured();
   const [busy, setBusy] = useState<string | null>(null);
   const [chainError, setChainError] = useState<string | null>(null);
+  const [revealTx, setRevealTx] = useState<string | null>(null);
 
   useEffect(() => {
     if (!signer) {
@@ -94,6 +97,38 @@ export function CrownDeskView({ id }: { id: string }) {
       saveCrown(result.room);
     } catch (error) {
       setChainError(error instanceof Error ? error.message : 'Cleanup was rejected.');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /**
+   * Hand the answer key over, for good.
+   *
+   * Only worth doing once a match is settled — before that it would simply tell everyone the
+   * answers. Afterwards it is the strongest thing a host can do: it lets anyone rebuild the root
+   * and confirm the questions asked were the ones committed, with our server out of the loop.
+   */
+  async function reveal() {
+    const current = loadCrown(id);
+    if (!current || !signer) {
+      setChainError('Connect the host JoyID that wrote this bank.');
+      return;
+    }
+    if (!current.matchId) {
+      setChainError('This crown never opened a match cell, so there is no root to reveal against.');
+      return;
+    }
+    setBusy('Publishing the bank…');
+    setChainError(null);
+    try {
+      const { txHash } = await publishReveal(
+        signer,
+        buildRevealedBank({ matchId: current.matchId, title: current.title, questions: current.questions }),
+      );
+      setRevealTx(txHash);
+    } catch (error) {
+      setChainError(error instanceof Error ? error.message : 'The reveal was rejected.');
     } finally {
       setBusy(null);
     }
@@ -211,6 +246,45 @@ export function CrownDeskView({ id }: { id: string }) {
           <NeonPlate className="mt-8 p-4">
             <p className="font-mono text-[10px] uppercase text-white/50">Preview root</p>
             <p className="mt-2 break-all font-mono text-xs">{root}</p>
+          </NeonPlate>
+
+          <NeonPlate className="mt-6 p-4">
+            <p className="font-mono text-[10px] uppercase tracking-wider text-white/50">
+              Reveal the bank
+            </p>
+            <p className="mt-2 max-w-xl text-sm leading-relaxed text-white/60">
+              Writes every question, answer and salt to CKBFS, permanently. Anyone can then rebuild
+              the root above and confirm you asked what you committed to — without trusting this
+              site. CKBFS has no delete, so only do this once the crown is settled.
+            </p>
+            {revealTx ? (
+              <a
+                href={`https://pudge.explorer.nervos.org/transaction/${revealTx}`}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-3 inline-block break-all font-mono text-[11px] text-[#99ee2d] underline"
+              >
+                Published · {revealTx.slice(0, 18)}…
+              </a>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void reveal()}
+                disabled={Boolean(busy) || !ckbfsConfigured() || room.status !== 'settled'}
+                className="mt-3 border border-[#99ee2d] px-4 py-2 font-mono text-[11px] uppercase text-[#99ee2d] disabled:opacity-40"
+              >
+                {busy === 'Publishing the bank…' ? busy : 'Publish to CKBFS'}
+              </button>
+            )}
+            {!ckbfsConfigured() ? (
+              <p className="mt-2 font-mono text-[10px] uppercase text-white/35">
+                CKBFS is not deployed for this build.
+              </p>
+            ) : room.status !== 'settled' ? (
+              <p className="mt-2 font-mono text-[10px] uppercase text-white/35">
+                Available once this crown is closed.
+              </p>
+            ) : null}
           </NeonPlate>
           <ol className="mt-6 grid gap-3 sm:grid-cols-2">
             {room.questions.map((question, index) => (

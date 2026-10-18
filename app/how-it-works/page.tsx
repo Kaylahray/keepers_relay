@@ -104,6 +104,26 @@ export default function HowItWorksPage() {
         ))}
       </div>
 
+      <h2 className="mt-10 font-poster text-3xl uppercase leading-none text-white">
+        Do not take our word for it
+      </h2>
+      <p className="mt-4 max-w-2xl text-sm font-medium leading-relaxed text-white/65">
+        Every crown ever taken is a transaction you can read yourself. Paste one into the checker
+        and it walks the whole match back to the moment it opened, then re-tests each steal against
+        the rules the script enforces: the proof behind the answer, the round, the pot, and the
+        exact amount of time that crown cut. It reads the chain in your browser — no part of that
+        answer comes from us. The proof carries a hash of the question and never the question, so a
+        match can be audited to the last round without anyone learning what was asked.
+      </p>
+      <div className="mt-5">
+        <Link
+          href="/verify"
+          className="inline-flex items-center rounded-md border border-[#99ee2d] px-4 py-3 text-xs font-bold uppercase text-[#99ee2d] hover:bg-[#99ee2d]/10"
+        >
+          Check a match →
+        </Link>
+      </div>
+
       <div className="mt-8 flex flex-wrap gap-3">
         <ArenaCta href="/play">Crowns</ArenaCta>
         <Link
