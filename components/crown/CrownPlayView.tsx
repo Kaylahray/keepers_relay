@@ -513,15 +513,15 @@ export function CrownPlayView({ id }: { id: string }) {
 
   return (
     <ArenaStage backHref="/play" backLabel="Crowns">
-      <section className={`grid items-end gap-8 lg:grid-cols-[1fr_auto_minmax(260px,320px)] lg:gap-0 ${shake ? 'animate-[sdshake_0.4s_linear]' : ''}`}>
-        <div className="relative z-10 max-w-xl pb-6">
+      <section className={`grid items-start gap-8 lg:grid-cols-[1fr_auto_minmax(260px,320px)] lg:gap-0 ${shake ? 'animate-[sdshake_0.4s_linear]' : ''}`}>
+        <div className="relative z-10 max-w-2xl pb-6">
           <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">
             {room.title}
           </p>
           <div className="mt-4 flex items-end justify-between gap-6">
             <div>
               <p className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">Pot</p>
-              <p className="font-poster text-7xl uppercase leading-none text-[#99ee2d] sm:text-8xl">
+              <p className="font-poster text-5xl uppercase leading-none text-[#99ee2d] sm:text-6xl">
                 {ckbWhole(room.potShannons)}
               </p>
               <p className="font-mono text-[11px] uppercase text-white/45">CKB</p>
@@ -583,33 +583,55 @@ export function CrownPlayView({ id }: { id: string }) {
             </>
           ) : (
             <>
-              <p className="mt-3 font-mono text-[10px] uppercase text-[#e1bf47]">
-                Round {room.round} · {prompt.tag}
-              </p>
+              <div className="mt-4 flex items-end justify-between gap-4">
+                <span className="font-mono text-[10px] uppercase text-[#e1bf47]">
+                  Round {room.round} · {prompt.tag} · Question {Math.min(room.cursor + 1, room.questions.length)} of {room.questions.length}
+                </span>
+                <span className="text-right">
+                  <span className="block font-mono text-[10px] font-bold uppercase text-white/40">
+                    {clock.counting ? 'Time left to play' : 'Host may close'}
+                  </span>
+                  <span
+                    className={`font-poster uppercase leading-none ${clock.counting ? 'text-4xl' : 'text-3xl'} ${clock.counting && panic ? 'text-[#af2a3a]' : 'text-[#99ee2d]'}`}
+                  >
+                    {clock.face}
+                  </span>
+                </span>
+              </div>
+              <p className="mt-1 text-sm text-white/55">{clock.caption}</p>
               {prompt.image ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={prompt.image} alt="" className="mt-4 max-h-72 w-full object-cover" />
+                <img src={prompt.image} alt="" className="mt-4 max-h-40 w-full object-cover" />
               ) : null}
-              <h1 className="mt-3 font-poster text-[clamp(2rem,5vw,3.5rem)] uppercase leading-[0.92] text-white">
+              <h1 className="mt-4 text-2xl font-semibold leading-snug text-white sm:text-3xl">
                 <PromptLine text={prompt.text} lyric={prompt.skin === 'lyric' || prompt.skin === 'chant'} />
               </h1>
-              <div className="mt-5">
-                <div className="mb-1 flex items-end justify-between gap-4">
-                  <span className="font-mono text-[10px] font-bold uppercase text-white/40">
-                    Question {Math.min(room.cursor + 1, room.questions.length)} of {room.questions.length}
-                  </span>
-                  <span className="text-right">
-                    <span className="block font-mono text-[10px] font-bold uppercase text-white/40">
-                      {clock.counting ? 'Time left to play' : 'Host may close'}
-                    </span>
-                    <span
-                      className={`font-poster uppercase leading-none ${clock.counting ? 'text-6xl' : 'text-4xl'} ${clock.counting && panic ? 'text-[#af2a3a]' : 'text-[#99ee2d]'}`}
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {prompt.options.map((option, index) => {
+                  const on = picked === index;
+                  const good = flash === 'hit' && index === prompt.correct;
+                  const bad = flash === 'miss' && on;
+                  return (
+                    <button
+                      key={option}
+                      type="button"
+                      disabled={picked !== null || !isConnected || (iHold && !entryBid) || (chain && !matchReady)}
+                      onClick={() => answer(index)}
+                      className={`border px-4 py-3 text-left transition disabled:opacity-50 ${
+                        good
+                          ? 'border-[#99ee2d] bg-[#99ee2d]/15'
+                          : bad
+                            ? 'border-[#af2a3a] bg-[#af2a3a]/20'
+                            : 'border-white/10 bg-white/5 hover:border-[#99ee2d]/40'
+                      }`}
                     >
-                      {clock.face}
-                    </span>
-                  </span>
-                </div>
-                <p className="mb-2 text-sm text-white/55">{clock.caption}</p>
+                      <span className="font-mono text-[10px] uppercase text-white/40">{LETTERS[index]}</span>
+                      <span className="mt-1 block text-base font-semibold text-white">{option}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-4">
                 {hostClose}
                 <p className="mb-3 font-mono text-[10px] uppercase tracking-[0.16em] text-white/45">
                   {iHost ? 'Host' : iHold ? 'You hold the crown' : isConnected ? 'Player' : 'Spectator'}
@@ -678,31 +700,6 @@ export function CrownPlayView({ id }: { id: string }) {
                     style={{ width: `${clockProgress}%` }}
                   />
                 </div>
-              </div>
-              <div className="mt-6 grid gap-3 sm:grid-cols-2">
-                {prompt.options.map((option, index) => {
-                  const on = picked === index;
-                  const good = flash === 'hit' && index === prompt.correct;
-                  const bad = flash === 'miss' && on;
-                  return (
-                    <button
-                      key={option}
-                      type="button"
-                      disabled={picked !== null || !isConnected || (iHold && !entryBid) || (chain && !matchReady)}
-                      onClick={() => answer(index)}
-                      className={`border px-4 py-4 text-left transition disabled:opacity-50 ${
-                        good
-                          ? 'border-[#99ee2d] bg-[#99ee2d]/15'
-                          : bad
-                            ? 'border-[#af2a3a] bg-[#af2a3a]/20'
-                            : 'border-white/10 bg-white/5 hover:border-[#99ee2d]/40'
-                      }`}
-                    >
-                      <span className="font-mono text-[10px] uppercase text-white/40">{LETTERS[index]}</span>
-                      <span className="mt-1 block text-base font-semibold text-white">{option}</span>
-                    </button>
-                  );
-                })}
               </div>
             </>
           )}
