@@ -120,6 +120,67 @@ function pointIndex(index: unknown): string {
  * the fast path never missed, the type search below never ran, and the server kept serving the
  * round the match opened on.
  */
+/**
+ * Read a steal out of the transaction a player says they just sent.
+ *
+ * Other screens need the new round before the indexer has the new cell, so something has to be
+ * believed early. The transaction itself can be believed; the player's JSON cannot. This fetches
+ * the transaction — mempool is fine — and checks it really is a steal of *this* match before
+ * taking the new state from the cell bytes it writes, never from the request body.
+ *
+ * Without this check a seated player could PUT any round, deadline, pot and king they liked
+ * alongside a transaction hash that does not exist, and every other screen would follow it.
+ */
+async function stealFromTransaction(txHash: string, current: CrownRoom): Promise<CrownRoom | null> {
+  if (!current.matchOutPoint) return null;
+  const script = matchTypeScript(current);
+  if (!script) return null;
+
+  const response = await getServerCkbClient()
+    .getTransaction(txHash)
+    .catch(() => null);
+  const tx = response?.transaction;
+  if (!tx || response?.status === 'rejected') return null;
+
+  // A steal spends the match cell this room already points at, as input 0.
+  const spent = tx.inputs[0]?.previousOutput;
+  if (!spent || !sameHex(spent.txHash, current.matchOutPoint.txHash)) return null;
+  if (ccc.numFrom(spent.index) !== ccc.numFrom(current.matchOutPoint.index)) return null;
+
+  const typeHash = script.hash().toLowerCase();
+  const index = tx.outputs.findIndex(
+    (output) => output.type?.hash().toLowerCase() === typeHash,
+  );
+  if (index < 0) return null;
+
+  let decoded;
+  try {
+    decoded = decodeMatchCell(hexToBytes(tx.outputsData[index]!));
+  } catch {
+    return null;
+  }
+
+  // Same bank, and exactly one round forward. Anything else is not a steal of this match.
+  const root = merkleRoot(hexToBytes(current.matchId!), current.questions);
+  if (!sameHex(bytesToHex(root), bytesToHex(decoded.root))) return null;
+  if (decoded.round !== current.round + 1) return null;
+
+  const kingHex = bytesToHex(decoded.king);
+  const kingEmpty = decoded.king.every((byte) => byte === 0);
+  return {
+    ...current,
+    status: 'live',
+    round: decoded.round,
+    cursor: Math.min(current.questions.length, Math.max(0, decoded.round - 1)),
+    potShannons: decoded.pot,
+    feeShannons: decoded.fee,
+    deadlineAt: Number(decoded.deadlineMs),
+    king: kingEmpty ? null : `${kingHex.slice(0, 10)}…${kingHex.slice(-4)}`,
+    matchOutPoint: { txHash, index: pointIndex(index) },
+    treasuryOutPoint: { txHash, index: '0x1' },
+  };
+}
+
 async function outpointPhase(txHash: string): Promise<'committed' | 'pending' | 'rejected' | 'unknown'> {
   try {
     const tx = await getServerCkbClient().getTransaction(txHash);
@@ -353,17 +414,11 @@ export async function syncCrown(incoming: CrownRoom, sessionAddress: string): Pr
           king: incoming.king ?? trial.king,
         };
       } else {
-        const phase = await outpointPhase(incoming.matchOutPoint.txHash);
-        if (phase !== 'rejected' && (incoming.round > current.round || incoming.matchOutPoint.txHash !== current.matchOutPoint?.txHash)) {
-          next = {
-            ...trial,
-            round: incoming.round,
-            cursor: incoming.cursor,
-            deadlineAt: incoming.deadlineAt ?? trial.deadlineAt,
-            potShannons: incoming.potShannons,
-            king: incoming.king ?? trial.king,
-            kingLock: incoming.kingLock ?? trial.kingLock,
-          };
+        // The new state comes out of the transaction, not out of the request. A player who
+        // sends a real steal moves the room; a player who sends a story does not.
+        const stolen = await stealFromTransaction(incoming.matchOutPoint.txHash, current);
+        if (stolen) {
+          next = { ...stolen, kingLock: incoming.kingLock ?? trial.kingLock };
         }
       }
     }
