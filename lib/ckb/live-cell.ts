@@ -10,16 +10,17 @@ import { ccc } from '@ckb-ccc/core';
  *
  * `get_live_cell` is the only read that answers the question. It skips the cache on
  * the way in, so a cell that died since the last look reports dead.
+ *
+ * null means exactly one thing: the node looked and the cell is not live. That covers a cell
+ * that was spent, one that never existed, and one whose transaction is still pending, because
+ * the node only reports committed outputs. A failing request is not that answer. It throws, so a
+ * rate-limited or unreachable RPC cannot pass for "the match cell has not arrived", which is
+ * what the old catch-all turned it into.
  */
 export async function readLiveCell(
   client: ccc.Client,
   point: { txHash: string; index: string },
 ): Promise<ccc.Cell | null> {
-  try {
-    const cell = await client.getCellLive({ txHash: point.txHash, index: point.index }, true);
-    return cell ?? null;
-  } catch {
-    // Not indexed, not yet confirmed, or the node refused. Treat as "not live".
-    return null;
-  }
+  const cell = await client.getCellLive({ txHash: point.txHash, index: point.index }, true);
+  return cell ?? null;
 }

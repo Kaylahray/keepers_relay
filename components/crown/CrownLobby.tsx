@@ -62,6 +62,13 @@ export function CrownLobby({
       <p className="mt-3 font-mono text-[11px] uppercase text-[#e1bf47]">
         {ckbWhole(room.feeShannons)} CKB entry · {seats.length} seated
       </p>
+      {iHost ? (
+        <p className="mt-3 max-w-md text-sm leading-relaxed text-white/55">
+          Pressing start opens the match on chain, which takes 20 to 90 seconds. Players then get a 3 minute
+          entry window to lock their entry, and your {Math.round(room.durationMs / 60_000)} minute clock starts for
+          everyone at the same moment after it.
+        </p>
+      ) : null}
       <div className="mt-6 flex flex-wrap items-center gap-3">
         <InviteButton url={`/play/${room.id}`} title={room.title} text={`Join ${room.title} on Crowns.`} variant="arena" />
         {!isConnected ? (

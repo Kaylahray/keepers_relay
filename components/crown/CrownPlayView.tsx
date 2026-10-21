@@ -24,6 +24,7 @@ import { suddenDeathConfigured } from '@/lib/registry/config';
 import { getCkbClient } from '@/lib/ckb/client';
 import { isHostWallet } from '@/lib/crown/standing';
 import { nowMs } from '@/lib/crown/clock';
+import { gameStartAt, inEntryWindow } from '@/lib/crown/phase';
 import {
   applySteal,
   ckbWhole,
@@ -233,7 +234,11 @@ export function CrownPlayView({ id }: { id: string }) {
   const iHost = isHostWallet(room, address, myLockHash);
   const prompt = room.questions[room.cursor];
   const live = room.status === 'live' && Boolean(prompt);
-  const panic = live && room.deadlineAt != null && leftMs(room.deadlineAt, now) <= 4_000;
+  // The extra minutes on the opening deadline are a phase, not drift: everyone locks an entry,
+  // then the first question opens for all of us at once and the clock reads what the host set.
+  const startsAt = gameStartAt(room);
+  const entryWindow = inEntryWindow(room, now);
+  const panic = live && !entryWindow && room.deadlineAt != null && leftMs(room.deadlineAt, now) <= 4_000;
 
   async function closeMatch() {
     if (!room) return;
@@ -318,6 +323,7 @@ export function CrownPlayView({ id }: { id: string }) {
   async function answer(index: number) {
     if (!room || !prompt || room.status !== 'live' || picked !== null || busy) return;
     if (chain && !matchReady) return;
+    if (entryWindow) return;
     if (!address.trim()) {
       setChainError('Connect a wallet to answer. A spectator uses the watch screen.');
       return;
@@ -371,7 +377,7 @@ export function CrownPlayView({ id }: { id: string }) {
           }
         }
         setBusy('Sending the steal…');
-        const result = await stealCrown(signer, current, attempt.proof);
+        const result = await stealCrown(signer, current, attempt.proof, setBusy);
         const named = { ...result.room, king: formattedAddress || result.room.king };
         if (address) forgetBid(room.id, address);
         saveCrown(named);
@@ -429,7 +435,7 @@ export function CrownPlayView({ id }: { id: string }) {
           if (address && current.bidOutPoint) rememberBid(room.id, address, current.bidOutPoint);
           setBusy('Sending the steal…');
         }
-        const result = await stealCrown(signer, current);
+        const result = await stealCrown(signer, current, undefined, setBusy);
         const named = { ...result.room, king: formattedAddress || result.room.king };
         if (address) forgetBid(room.id, address);
         saveCrown(named);
@@ -541,10 +547,15 @@ export function CrownPlayView({ id }: { id: string }) {
                 {formatWait(now - (room.openedAt ?? now))}
               </h1>
               <p className="mt-4 max-w-md text-base font-light leading-relaxed text-white/70">
-                This is how long the match and treasury have been waiting to confirm. It is not the game clock.
-                The {Math.round((room.durationMs || DEFAULT_DURATION_MS) / 60_000)} minute round starts for everyone
-                when the cell confirms. A few extra minutes were written on chain so this wait does not come out of the round.
-                A block is usually under a minute. If this climbs past a few minutes, the transaction is still in the mempool.
+                This is the match opening on chain. It is not the game clock. A block lands about every 8 seconds,
+                but a transaction is proposed in one block and committed two or more blocks later, so this usually
+                takes 20 to 90 seconds and sometimes longer.
+              </p>
+              <p className="mt-3 max-w-md text-base font-light leading-relaxed text-white/70">
+                Once it confirms, everyone gets an entry window to lock their entry
+                {startsAt != null ? ` (it ends in ${formatWait(startsAt - now)})` : ''}. Then the{' '}
+                {Math.round((room.durationMs || DEFAULT_DURATION_MS) / 60_000)} minute round starts for the whole
+                lobby at the same moment, so the time spent waiting here never comes out of the round.
               </p>
             </>
           ) : room.status === 'live' && !prompt ? (
@@ -589,16 +600,36 @@ export function CrownPlayView({ id }: { id: string }) {
                 </span>
                 <span className="text-right">
                   <span className="block font-mono text-[10px] font-bold uppercase text-white/40">
-                    {clock.counting ? 'Time left to play' : 'Host may close'}
+                    {entryWindow ? 'Round starts in' : clock.counting ? 'Time left to play' : 'Host may close'}
                   </span>
                   <span
-                    className={`font-poster uppercase leading-none ${clock.counting ? 'text-4xl' : 'text-3xl'} ${clock.counting && panic ? 'text-[#af2a3a]' : 'text-[#99ee2d]'}`}
+                    className={`font-poster uppercase leading-none ${entryWindow || clock.counting ? 'text-4xl' : 'text-3xl'} ${!entryWindow && clock.counting && panic ? 'text-[#af2a3a]' : 'text-[#99ee2d]'}`}
                   >
-                    {clock.face}
+                    {entryWindow && startsAt != null ? formatWait(startsAt - now) : clock.face}
                   </span>
                 </span>
               </div>
-              <p className="mt-1 text-sm text-white/55">{clock.caption}</p>
+              <p className="mt-1 text-sm text-white/55">
+                {entryWindow
+                  ? 'Entry window. Lock your entry now. The first question opens for everyone together when this reaches zero.'
+                  : clock.caption}
+              </p>
+              {entryWindow ? (
+                <div className="mt-6 border border-white/10 bg-white/5 p-5">
+                  <p className="font-poster text-3xl uppercase leading-none text-white">
+                    {entryBid ? 'You are in' : 'Lock your entry'}
+                  </p>
+                  <p className="mt-3 max-w-md text-sm leading-relaxed text-white/65">
+                    {entryBid
+                      ? 'Your entry is locked or confirming. Stay on this page. Question 1 opens for everyone at the same moment.'
+                      : 'An entry is a transaction, and it has to confirm before it can be used, which takes a few blocks. This window is the time to do it, so nobody starts the round ahead of anyone else.'}
+                  </p>
+                  <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.16em] text-[#99ee2d]">
+                    {seats.filter((seat) => seat.bidOutPoint).length} locked · {seats.length} seated
+                  </p>
+                </div>
+              ) : (
+                <>
               {prompt.image ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={prompt.image} alt="" className="mt-4 max-h-40 w-full object-cover" />
@@ -631,6 +662,8 @@ export function CrownPlayView({ id }: { id: string }) {
                   );
                 })}
               </div>
+                </>
+              )}
               <div className="mt-4">
                 {hostClose}
                 <p className="mb-3 font-mono text-[10px] uppercase tracking-[0.16em] text-white/45">

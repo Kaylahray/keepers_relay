@@ -8,6 +8,7 @@ import { readLiveCell } from '@/lib/ckb/live-cell';
 import { ApiError } from '@/lib/server/errors';
 import { normalizeAddress } from '@/lib/server/auth';
 import { roomFromStored, roomToStored, type CrownRoom } from '@/lib/crown/rooms';
+import { inEntryWindow } from '@/lib/crown/phase';
 import { suddenDeathMatchType } from '@/lib/registry/config';
 import { bytesToHex, decodeMatchCell, hexToBytes, merkleRoot, stealProof } from '@/lib/sudden-death/codec';
 import type { CrownSeat } from '@/lib/crown/seats';
@@ -523,6 +524,12 @@ export async function proofForChoice(
   const refreshed = await refreshFromChain(roomFromStored(existing.room));
   const room = refreshed.room;
   if (room.status !== 'live') throw new ApiError('The clock is not open for answers.', 400);
+  // The entry window is the time everyone needs to lock an entry. Handing out a proof before it
+  // ends would let whoever locked first start the round alone. This sits ahead of the attempt
+  // insert below on purpose: an early click must not use up a wallet's one try on the question.
+  if (inEntryWindow(room, Date.now())) {
+    throw new ApiError('The round has not started. Lock your entry; the question opens for everyone together.', 400);
+  }
   const question = room.questions[room.cursor];
   if (!question) throw new ApiError('That question is not in this crown.', 404);
   const player = normalizeAddress(address);

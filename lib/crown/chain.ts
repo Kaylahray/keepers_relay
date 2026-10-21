@@ -12,6 +12,7 @@ import {
 import { applySteal, DEFAULT_DURATION_MS, type CrownRoom, type LockRef, type OutPointRef } from '@/lib/crown/rooms';
 import { requestWalletRefresh } from '@/lib/wallet-refresh';
 import { readLiveCell } from '@/lib/ckb/live-cell';
+import { CONFIRM_PAD_MS } from '@/lib/crown/phase';
 import { REGISTRY_FEE_RATE, suddenDeathBidType } from '@/lib/registry/config';
 import {
   getSuddenDeathBidScript,
@@ -78,8 +79,46 @@ function lockRef(script: ccc.Script): LockRef {
   return { codeHash: script.codeHash, hashType, args: script.args };
 }
 
-/** Extra time written into the opening deadline so confirmation does not eat the round. */
-export const CONFIRM_PAD_MS = 3 * 60 * 1000;
+// The pad lives in `phase.ts` so the server and the screens can both read it without importing
+// this file, which pulls in the wallet connector. Re-exported so nothing that imported it here breaks.
+export { CONFIRM_PAD_MS };
+
+/**
+ * Wait for a cell this browser just sent to become live.
+ *
+ * An output is not live until its transaction is committed, which takes a few blocks, so a bid
+ * locked a moment ago cannot be spent in the same breath. Failing there told players their own
+ * entry "is not on chain yet" seconds after they paid for it. Waiting turns a confusing error
+ * into a visible countdown. It gives up early when the transaction is rejected, or committed
+ * with the cell already spent, because waiting longer cannot change either answer.
+ */
+async function waitLive(
+  signer: Signer,
+  point: OutPointRef,
+  onStatus?: (message: string) => void,
+  timeoutMs = 150_000,
+): Promise<ccc.Cell> {
+  const started = Date.now();
+  for (;;) {
+    const cell = await readLiveCell(signer.client, point);
+    if (cell) return cell;
+
+    const status = (await signer.client.getTransaction(point.txHash).catch(() => null))?.status;
+    if (status === 'rejected') {
+      throw new Error('That entry was rejected by the network. Lock a new one.');
+    }
+    if (status === 'committed') {
+      throw new Error('That entry was already spent. Lock a new one.');
+    }
+
+    const waited = Date.now() - started;
+    if (waited >= timeoutMs) {
+      throw new Error('Your entry is still confirming. Give it another minute, then answer again.');
+    }
+    onStatus?.(`Confirming your entry… ${Math.floor(waited / 1000)}s`);
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+  }
+}
 
 function sinceFor(deadlineMs: bigint): bigint {
   return SINCE_ABSOLUTE | (deadlineMs / 1000n);
@@ -315,6 +354,7 @@ export async function stealCrown(
   signer: Signer,
   room: CrownRoom,
   preparedProof?: Uint8Array,
+  onStatus?: (message: string) => void,
 ): Promise<{ room: CrownRoom; sent: boolean }> {
   const located = await locateMatch(signer, room);
   const working = located.room;
@@ -323,7 +363,9 @@ export async function stealCrown(
   }
   const match = located.cell;
   const treasury = await liveCell(signer, working.treasuryOutPoint);
-  const bid = await liveCell(signer, working.bidOutPoint);
+  // The bid is the one cell here that may be minutes old. Match and treasury are already
+  // confirmed by the time the screen lets anyone answer.
+  const bid = await waitLive(signer, working.bidOutPoint, onStatus);
   const current = decodeMatchCell(hexToBytes(match.outputData));
   const questionIndex = current.round - 1;
   const question: BankQuestion | undefined = working.questions[questionIndex];
