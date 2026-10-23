@@ -139,14 +139,6 @@ export async function getUsernameByName(
   };
 }
 
-/** Resolve the live lock script that owns a claimed handle. */
-export async function getUsernameOwnerLock(
-  username: string,
-): Promise<ccc.Script | null> {
-  const found = await findUsernameCellByName(normalizeUsername(username));
-  return found?.ownerLock ?? null;
-}
-
 export async function claimUsername(
   signer: NonNullable<Signer>,
   rawUsername: string,

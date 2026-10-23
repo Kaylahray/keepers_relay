@@ -1,0 +1,14 @@
+[package]
+name = "crowns-lane-runner"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+description = "Crowns game script: scores a lane-runner tape for match-type (game ABI v1)"
+
+[dependencies]
+ckb-std = { workspace = true }
+crowns-game-core = { path = "../game-core" }
+
+[[bin]]
+name = "lane-runner"
+path = "src/main.rs"

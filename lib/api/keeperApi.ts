@@ -1,11 +1,6 @@
 import type { BuilderProfile } from '@/types/builder';
-import type { PassportProfile } from '@/types/keeper';
+import type { PlayerStats } from '@/lib/server/crown-history';
 import { post, request } from './client';
-
-export function getPassport(address?: string): Promise<PassportProfile> {
-  const query = address ? `?address=${encodeURIComponent(address)}` : '';
-  return request<PassportProfile>(`/api/passport${query}`);
-}
 
 export function listBuilders(): Promise<BuilderProfile[]> {
   return request<BuilderProfile[]>('/api/builders');
@@ -25,10 +20,6 @@ export function upsertBuilder(input: {
 export function getBuilder(address: string): Promise<{ builder: BuilderProfile | null }> {
   const params = new URLSearchParams({ address });
   return request(`/api/builders?${params.toString()}`);
-}
-
-export function releaseBuilderHandle(address: string) {
-  return post<BuilderProfile | null>(`/api/builders/${encodeURIComponent(address)}/release`, {});
 }
 
 export function checkUsername(username: string, except?: string) {
@@ -51,6 +42,6 @@ export function clearAvatarIfSpore(address: string, sporeId: string) {
   });
 }
 
-export function unlockBadge(address: string, badgeId: string) {
-  return post<BuilderProfile>('/api/rewards/unlock-badge', { address, badgeId });
+export function getPlayerStats(address: string): Promise<PlayerStats> {
+  return request<PlayerStats>(`/api/builders/${encodeURIComponent(address)}/stats`);
 }

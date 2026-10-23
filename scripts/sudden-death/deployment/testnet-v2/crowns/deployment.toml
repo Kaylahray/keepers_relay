@@ -1,0 +1,33 @@
+# Crowns v2 on Pudge testnet: four NEW cells in one transaction.
+# This directory has its own migrations/ on purpose. Pointing ckb-cli at the v1 migrations would
+# turn this into an upgrade of the live v1 cells and break every v1 crown.
+# Paths are WSL paths: ckb-cli is built in WSL (~/ckb-cli/target/release/ckb-cli).
+
+[[cells]]
+name = "match-type"
+enable_type_id = true
+location = { file = "/mnt/c/Users/chiom/Desktop/spore/keepers_relay/keepers_relay/scripts/sudden-death/build/release/match-type" }
+
+[[cells]]
+name = "bid-type"
+enable_type_id = true
+location = { file = "/mnt/c/Users/chiom/Desktop/spore/keepers_relay/keepers_relay/scripts/sudden-death/build/release/bid-type" }
+
+[[cells]]
+name = "treasury-lock"
+enable_type_id = true
+location = { file = "/mnt/c/Users/chiom/Desktop/spore/keepers_relay/keepers_relay/scripts/sudden-death/build/release/treasury-lock" }
+
+# The game is referenced by data hash, so it needs no type id.
+[[cells]]
+name = "lane-runner"
+enable_type_id = false
+location = { file = "/mnt/c/Users/chiom/Desktop/spore/keepers_relay/keepers_relay/scripts/sudden-death/build/release/lane-runner" }
+
+# Owner of the deployed cells: the ckb-cli account that signs the deploy, the same way v1 was
+# deployed. Owning a type-id cell is what lets ckb-cli sign an upgrade of it later.
+# ckt1qzda0cr08m85hc8jlnfp3zer7xulejywt49kt2rr0vthywaa50xwsqvu2rela8ce3j70u76uq3js967a3n07wlgf65e4e
+[lock]
+code_hash = "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8"
+args = "0x9c50f3fe9f198cbcfe7b5c046502ebdd8cdfe77d"
+hash_type = "type"

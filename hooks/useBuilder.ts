@@ -6,12 +6,8 @@ import {
   checkUsername,
   clearAvatarIfSpore,
   getBuilder,
-  listBuilders,
-  releaseBuilderHandle,
   setBuilderAvatar,
-  unlockBadge,
   upsertBuilder,
-  getPassport,
 } from '@/lib/api/keeperApi';
 import { keeperKeys } from '@/lib/queryClient';
 import type { CharacterId } from '@/lib/characters';
@@ -25,30 +21,12 @@ export const builderKeys = {
   one: (address: string) => ['builders', address] as const,
 };
 
-export function useBuildersRoster() {
-  return useQuery({
-    queryKey: builderKeys.roster,
-    queryFn: listBuilders,
-    staleTime: 10_000,
-  });
-}
-
 export function useMyBuilder() {
   const { address, isConnected } = useWallet();
   return useQuery({
     queryKey: builderKeys.one(address || 'anon'),
     queryFn: () => getBuilder(address),
     enabled: isConnected && !!address,
-    staleTime: 5_000,
-  });
-}
-
-export function useMyPassport() {
-  const { address, isConnected } = useWallet();
-  return useQuery({
-    queryKey: [...keeperKeys.passport, address || 'anon'],
-    queryFn: () => getPassport(address!),
-    enabled: isConnected && Boolean(address),
     staleTime: 5_000,
   });
 }
@@ -102,18 +80,6 @@ export function useUpsertBuilder() {
   });
 }
 
-export function useReleaseBuilderHandle() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (address: string) => releaseBuilderHandle(address),
-    onSuccess: (builder, address) => {
-      queryClient.setQueryData(builderKeys.one(address), { builder });
-      void queryClient.invalidateQueries({ queryKey: builderKeys.roster });
-      void queryClient.invalidateQueries({ queryKey: keeperKeys.passport });
-    },
-  });
-}
-
 export function useSetAvatar() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -135,18 +101,6 @@ export function useClearAvatarOnMelt() {
     onSuccess: (builder) => {
       if (!builder) return;
       queryClient.setQueryData(builderKeys.one(builder.address), { builder });
-    },
-  });
-}
-
-export function useUnlockBadge() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (input: { address: string; badgeId: string }) =>
-      unlockBadge(input.address, input.badgeId),
-    onSuccess: (builder) => {
-      queryClient.setQueryData(builderKeys.one(builder.address), { builder });
-      queryClient.invalidateQueries({ queryKey: keeperKeys.passport });
     },
   });
 }

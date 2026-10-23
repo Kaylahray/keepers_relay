@@ -1,7 +1,7 @@
 import { ckbTxExplorerUrl, shortTxHash } from '@/lib/ckb/explorer';
 import type { CrownSeal } from '@/lib/crown/rooms';
 
-/** Same idea as the old quiz tag: a link only when a real transaction exists. */
+/** A link only when a real transaction exists. */
 export function VerifiedSeal({ seal }: { seal: CrownSeal }) {
   if (!seal.txHash) {
     return (

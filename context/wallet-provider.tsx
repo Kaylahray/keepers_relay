@@ -66,12 +66,37 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    // A transaction this tab sent is still pending when the event fires, so the balance is read
+    // again once it has had time to confirm.
+    const later: number[] = [];
     const handler = () => {
       void refreshWallet();
+      later.push(window.setTimeout(() => void refreshWallet(), 30_000));
+      later.push(window.setTimeout(() => void refreshWallet(), 90_000));
     };
     window.addEventListener(WALLET_REFRESH_EVENT, handler);
-    return () => window.removeEventListener(WALLET_REFRESH_EVENT, handler);
+    return () => {
+      window.removeEventListener(WALLET_REFRESH_EVENT, handler);
+      later.forEach((id) => window.clearTimeout(id));
+    };
   }, [refreshWallet]);
+
+  // Money also arrives from transactions other people send (a steal's change, a pot paid at the
+  // close), which no event in this tab announces. Re-read while the tab is in view.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !signer) return;
+    const tick = window.setInterval(() => {
+      if (!document.hidden) void refreshWallet();
+    }, 20_000);
+    const onVisible = () => {
+      if (!document.hidden) void refreshWallet();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearInterval(tick);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [refreshWallet, signer]);
 
   const formattedAddress = useMemo(() => {
     if (!address) return '';

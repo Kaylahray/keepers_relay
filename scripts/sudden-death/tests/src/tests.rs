@@ -1,6 +1,8 @@
 //! Sudden Death integration tests against match-type, bid-type, and treasury-lock.
 
+use super::replay::bot_tape;
 use super::{verify_and_dump_failed_tx, Loader};
+use crowns_game_core::replay;
 use blake2b_ref::Blake2bBuilder;
 use ckb_testtool::{
     builtin::ALWAYS_SUCCESS,
@@ -14,7 +16,7 @@ use ckb_testtool::{
 };
 
 const MAX_CYCLES: u64 = 30_000_000;
-const MATCH_LEN: usize = 158;
+const MATCH_LEN: usize = 166;
 const FEE: u64 = 1_000;
 const DEADLINE_MS: u64 = 1_700_000_000_000;
 const CELL_CAP: u64 = 200_000_000_000;
@@ -29,9 +31,11 @@ const OFF_DEADLINE: usize = 6;
 const OFF_FEE: usize = 14;
 const OFF_POT: usize = 22;
 const OFF_KING: usize = 30;
-const OFF_ROOT: usize = 62;
+const OFF_GAME: usize = 62;
 const OFF_TREASURY: usize = 94;
 const OFF_BID_CODE: usize = 126;
+const OFF_KING_SCORE: usize = 158;
+const REFUND_GRACE_MS: u64 = 60 * 60 * 1000;
 
 fn blake(parts: &[&[u8]]) -> [u8; 32] {
     let mut hasher = Blake2bBuilder::new(32)
@@ -80,61 +84,39 @@ fn put_u64(buf: &mut [u8], offset: usize, value: u64) {
     buf[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
 }
 
-struct Question {
-    prompt: [u8; 32],
-    salt: [u8; 32],
-    correct: u8,
+fn game_bin() -> Bytes {
+    Loader::default().load_binary("lane-runner")
 }
 
-fn leaf(match_id: &[u8; 32], index: u16, question: &Question) -> [u8; 32] {
-    blake(&[
-        &[0x00],
-        match_id,
-        &index.to_le_bytes(),
-        &question.prompt,
-        &[question.correct, 4],
-        &question.salt,
-    ])
+/// The match cell names its game by the data hash of the game script.
+fn game_hash() -> [u8; 32] {
+    let mut out = [0u8; 32];
+    out.copy_from_slice(CellOutput::calc_data_hash(&game_bin()).as_slice());
+    out
 }
 
-fn questions() -> [Question; 2] {
-    [
-        Question {
-            prompt: [0x11; 32],
-            salt: [0x21; 32],
-            correct: 0,
-        },
-        Question {
-            prompt: [0x12; 32],
-            salt: [0x22; 32],
-            correct: 1,
-        },
-    ]
+fn seed_of(match_id: &[u8; 32], owner: &[u8; 32]) -> u64 {
+    let digest = blake(&[&b"crowns/run-seed/v1"[..], match_id, owner]);
+    u64::from_le_bytes(digest[..8].try_into().unwrap())
 }
 
-fn root_of(match_id: &[u8; 32]) -> [u8; 32] {
-    let qs = questions();
-    let left = leaf(match_id, 0, &qs[0]);
-    let right = leaf(match_id, 1, &qs[1]);
-    blake(&[&[0x01], &left, &right])
+/// A long, legal run on `owner`'s course, and the score the game gives it.
+fn run_for(match_id: &[u8; 32], owner: &Script) -> (Vec<u8>, u64) {
+    let seed = seed_of(match_id, &script_hash(owner));
+    let tape = bot_tape(seed, 45);
+    let score = replay(seed, &tape).expect("legal tape").score;
+    (tape, score)
 }
 
-fn proof_for(match_id: &[u8; 32], index: u16, tamper: bool) -> Bytes {
-    let qs = questions();
-    let sibling = leaf(match_id, index ^ 1, &qs[(index ^ 1) as usize]);
-    let question = &qs[index as usize];
-    let mut raw = vec![0u8; 70 + 32];
-    raw[0] = 1;
-    raw[1..3].copy_from_slice(&index.to_le_bytes());
-    raw[3] = question.correct;
-    raw[4] = 4;
-    raw[5] = 1;
-    raw[6..38].copy_from_slice(&question.prompt);
-    raw[38..70].copy_from_slice(&question.salt);
-    if tamper {
-        raw[38] ^= 0xff;
-    }
-    raw[70..102].copy_from_slice(&sibling);
+fn run_witness(tape: &[u8]) -> Bytes {
+    let mut raw = vec![1u8];
+    raw.extend_from_slice(tape);
+    Bytes::from(raw)
+}
+
+fn with_score(data: Bytes, score: u64) -> Bytes {
+    let mut raw = data.to_vec();
+    put_u64(&mut raw, OFF_KING_SCORE, score);
     Bytes::from(raw)
 }
 
@@ -143,19 +125,19 @@ fn match_data(
     deadline: u64,
     pot: u64,
     king: &[u8; 32],
-    root: &[u8; 32],
+    game: &[u8; 32],
     treasury: &[u8; 32],
     bid_code: &[u8; 32],
 ) -> Bytes {
     let mut data = vec![0u8; MATCH_LEN];
-    data[OFF_VERSION] = 1;
+    data[OFF_VERSION] = 2;
     data[OFF_STATUS] = 0;
     put_u32(&mut data, OFF_ROUND, round);
     put_u64(&mut data, OFF_DEADLINE, deadline);
     put_u64(&mut data, OFF_FEE, FEE);
     put_u64(&mut data, OFF_POT, pot);
     put32(&mut data, OFF_KING, king);
-    put32(&mut data, OFF_ROOT, root);
+    put32(&mut data, OFF_GAME, game);
     put32(&mut data, OFF_TREASURY, treasury);
     put32(&mut data, OFF_BID_CODE, bid_code);
     Bytes::from(data)
@@ -173,9 +155,11 @@ impl Deployed {
         Self { out_point, dep }
     }
 
+    /// data2 runs on CKB-VM v2, which match-type needs to spawn the game script. On chain the
+    /// scripts are referenced by type id, which also runs on the latest VM.
     fn script(&self, context: &mut Context, args: &[u8]) -> Script {
         context
-            .build_script(&self.out_point, Bytes::from(args.to_vec()))
+            .build_script_with_hash_type(&self.out_point, ScriptHashType::Data2, Bytes::from(args.to_vec()))
             .expect("script")
     }
 }
@@ -200,9 +184,20 @@ fn bid_args(match_type_hash: &[u8; 32], owner: &[u8; 32]) -> [u8; 64] {
 }
 
 fn bid_data(owner: &Script) -> Bytes {
-    let mut raw = vec![1u8];
+    bid_data_until(owner, DEADLINE_MS + REFUND_GRACE_MS)
+}
+
+fn bid_data_until(owner: &Script, refund_after_ms: u64) -> Bytes {
+    let mut raw = vec![2u8];
+    raw.extend_from_slice(&refund_after_ms.to_le_bytes());
     raw.extend_from_slice(owner.as_slice());
     Bytes::from(raw)
+}
+
+/// Bids lock themselves: the proxy lock's args are the bid's own type hash, so bid-type alone
+/// decides every spend.
+fn bid_lock(context: &mut Context, live: &Live, type_script: &Script) -> Script {
+    proxy_lock(context, &live.proxy_out, &script_hash(type_script))
 }
 
 fn always(context: &mut Context, args: &[u8]) -> (Script, CellDep) {
@@ -259,7 +254,7 @@ fn create_match_opens_an_empty_pot() {
         DEADLINE_MS,
         0,
         &[0u8; 32],
-        &root_of(&match_id),
+        &game_hash(),
         &script_hash(&treasury_script),
         &bid_code,
     );
@@ -300,7 +295,7 @@ struct Live {
     host_lock: Script,
     lock_dep: CellDep,
     deps: Vec<CellDep>,
-    root: [u8; 32],
+    game: [u8; 32],
     bid_code: [u8; 32],
 }
 
@@ -312,6 +307,7 @@ fn live_as(context: &mut Context, host_arg: u8) -> Live {
     let match_bin = Deployed::load(context, "match-type");
     let bid_bin = Deployed::load(context, "bid-type");
     let treasury_bin = Deployed::load(context, "treasury-lock");
+    let game_bin = Deployed::load(context, "lane-runner");
     let (proxy_out, proxy_dep) = proxy_pair(context);
     let out_point = context.deploy_cell(ALWAYS_SUCCESS.clone());
     let lock_dep = CellDep::new_builder().out_point(out_point.clone()).build();
@@ -331,7 +327,7 @@ fn live_as(context: &mut Context, host_arg: u8) -> Live {
     let treasury_script = treasury_bin.script(context, &match_type_hash);
     let bid_script = bid_bin.script(context, &bid_args(&match_type_hash, &script_hash(&king_lock)));
     Live {
-        root: root_of(&match_id),
+        game: game_hash(),
         bid_code: code_hash(&bid_script),
         match_id,
         match_script,
@@ -342,7 +338,7 @@ fn live_as(context: &mut Context, host_arg: u8) -> Live {
         other_lock,
         host_lock,
         lock_dep,
-        deps: vec![match_bin.dep, bid_bin.dep, treasury_bin.dep, proxy_dep],
+        deps: vec![match_bin.dep, bid_bin.dep, treasury_bin.dep, game_bin.dep, proxy_dep],
     }
 }
 
@@ -352,62 +348,90 @@ fn guard(context: &mut Context, live: &Live) -> Script {
 
 fn bid_script_for(context: &mut Context, live: &Live, owner: &Script) -> Script {
     context
-        .build_script(&live.bid_out, Bytes::from(bid_args(&script_hash(&live.match_script), &script_hash(owner)).to_vec()))
+        .build_script_with_hash_type(
+            &live.bid_out,
+            ScriptHashType::Data2,
+            Bytes::from(bid_args(&script_hash(&live.match_script), &script_hash(owner)).to_vec()),
+        )
         .expect("bid script")
 }
 
-fn steal_tx(context: &mut Context, live: &Live, tamper: bool) -> ckb_testtool::ckb_types::core::TransactionView {
+/// Mirror of `shrunk_deadline` in sudden-death-common.
+fn shrunk(deadline: u64, round: u32) -> u64 {
+    let cut = (600_000u64 >> (round / 2).min(13)).max(72_000);
+    if deadline <= cut { 1_000 } else { deadline - cut }
+}
+
+/// The standing crown a steal tries to take.
+struct Standing {
+    round: u32,
+    king: [u8; 32],
+    score: u64,
+}
+
+const OPENING: Standing = Standing { round: 1, king: [0u8; 32], score: 0 };
+
+/// `stealer` submits `tape` and records `recorded` as the new king score.
+fn steal_with(
+    context: &mut Context,
+    live: &Live,
+    standing: &Standing,
+    stealer: &Script,
+    tape: &[u8],
+    recorded: u64,
+) -> ckb_testtool::ckb_types::core::TransactionView {
     let treasury_hash = script_hash(&live.treasury_script);
-    let data = match_data(
-        1,
-        DEADLINE_MS,
-        0,
-        &[0u8; 32],
-        &live.root,
-        &treasury_hash,
-        &live.bid_code,
+    let pot = (standing.round as u64 - 1) * FEE;
+    let data = with_score(
+        match_data(standing.round, DEADLINE_MS, pot, &standing.king, &live.game, &treasury_hash, &live.bid_code),
+        standing.score,
     );
-    let next = match_data(
-        2,
-        DEADLINE_MS - 600_000,
-        FEE,
-        &script_hash(&live.king_lock),
-        &live.root,
-        &treasury_hash,
-        &live.bid_code,
+    let next = with_score(
+        match_data(
+            standing.round + 1,
+            shrunk(DEADLINE_MS, standing.round),
+            pot + FEE,
+            &script_hash(stealer),
+            &live.game,
+            &treasury_hash,
+            &live.bid_code,
+        ),
+        recorded,
     );
     let guard_lock = guard(context, live);
-    let owner_script = bid_script_for(context, live, &live.king_lock);
     let match_in = context.create_cell(
         cell(CELL_CAP, guard_lock.clone(), Some(live.match_script.clone())),
         data,
     );
     let treasury_in = context.create_cell(
-        cell(CELL_CAP, live.treasury_script.clone(), None),
+        cell(CELL_CAP + pot, live.treasury_script.clone(), None),
         Bytes::new(),
     );
-    let bid_in = context.create_cell(
-        cell(CELL_CAP, guard_lock.clone(), Some(owner_script)),
-        bid_data(&live.king_lock),
-    );
-    let mut tx = TransactionBuilder::default()
-        .input(input_at(match_in, 0))
-        .input(input_at(treasury_in, 0))
-        .input(input_at(bid_in, 0))
-        .output(cell(CELL_CAP, guard_lock, Some(live.match_script.clone())))
-        .output_data(next.pack())
-        .output(cell(CELL_CAP + FEE, live.treasury_script.clone(), None))
-        .output_data(Bytes::new().pack())
-        .output(cell(CELL_CAP - FEE - MAX_TX_FEE, live.king_lock.clone(), None))
-        .output_data(Bytes::new().pack())
-        .witness(witness(Some(proof_for(&live.match_id, 0, tamper))).pack())
-        .witness(witness(None).pack())
-        .witness(witness(None).pack())
-        .cell_dep(live.lock_dep.clone());
-    for dep in &live.deps {
-        tx = tx.cell_dep(dep.clone());
-    }
-    context.complete_tx(tx.build())
+    let bid_in = bid_cell(context, live, stealer);
+    with_deps(
+        context,
+        live,
+        TransactionBuilder::default()
+            .input(input_at(match_in, 0))
+            .input(input_at(treasury_in, 0))
+            .input(input_at(bid_in, 0))
+            .output(cell(CELL_CAP, guard_lock, Some(live.match_script.clone())))
+            .output_data(next.pack())
+            .output(cell(CELL_CAP + pot + FEE, live.treasury_script.clone(), None))
+            .output_data(Bytes::new().pack())
+            .output(cell(CELL_CAP - FEE - MAX_TX_FEE, stealer.clone(), None))
+            .output_data(Bytes::new().pack())
+            .witness(witness(Some(run_witness(tape))).pack())
+            .witness(witness(None).pack())
+            .witness(witness(None).pack()),
+    )
+}
+
+/// The king's own best run, or, with `copied`, the other player's run replayed on the king's course.
+fn steal_tx(context: &mut Context, live: &Live, copied: bool) -> ckb_testtool::ckb_types::core::TransactionView {
+    let (tape, score) = run_for(&live.match_id, &live.king_lock);
+    let tape = if copied { run_for(&live.match_id, &live.other_lock).0 } else { tape };
+    steal_with(context, live, &OPENING, &live.king_lock.clone(), &tape, score)
 }
 
 #[test]
@@ -415,21 +439,169 @@ fn steal_consumes_one_bid_and_grows_the_pot() {
     let mut context = Context::default();
     let live = live(&mut context);
     let tx = steal_tx(&mut context, &live, false);
-    verify_and_dump_failed_tx(&context, &tx, MAX_CYCLES).expect("steal");
+    let cycles = verify_and_dump_failed_tx(&context, &tx, MAX_CYCLES).expect("steal");
+    println!("full two-minute steal, game spawned and replayed: {cycles} cycles");
 }
 
 #[test]
-fn steal_with_a_copied_wrong_salt_is_rejected() {
+fn steal_with_a_run_copied_from_another_player_is_rejected() {
     let mut context = Context::default();
     let live = live(&mut context);
     let tx = steal_tx(&mut context, &live, true);
-    verify_and_dump_failed_tx(&context, &tx, MAX_CYCLES).expect_err("bad proof");
+    rejects_with(&context, &tx, -12);
+}
+
+#[test]
+fn steal_recording_more_than_the_run_scored_is_rejected() {
+    let mut context = Context::default();
+    let live = live(&mut context);
+    let (tape, score) = run_for(&live.match_id, &live.king_lock);
+    let king = live.king_lock.clone();
+    let tx = steal_with(&mut context, &live, &OPENING, &king, &tape, score + 1);
+    rejects_with(&context, &tx, -12);
+}
+
+#[test]
+fn steal_with_a_malformed_tape_is_rejected() {
+    let mut context = Context::default();
+    let live = live(&mut context);
+    let king = live.king_lock.clone();
+    let tx = steal_with(&mut context, &live, &OPENING, &king, &[5, 0, 1, 5, 0, 2], 0);
+    rejects_with(&context, &tx, -7);
+}
+
+#[test]
+fn steal_that_beats_the_standing_king_takes_the_crown() {
+    let mut context = Context::default();
+    let live = live(&mut context);
+    let (tape, score) = run_for(&live.match_id, &live.king_lock);
+    let standing = Standing { round: 3, king: script_hash(&live.other_lock), score: score - 1 };
+    let king = live.king_lock.clone();
+    let tx = steal_with(&mut context, &live, &standing, &king, &tape, score);
+    verify_and_dump_failed_tx(&context, &tx, MAX_CYCLES).expect("beat the king");
+}
+
+#[test]
+fn steal_that_only_ties_the_standing_king_is_rejected() {
+    let mut context = Context::default();
+    let live = live(&mut context);
+    let (tape, score) = run_for(&live.match_id, &live.king_lock);
+    let standing = Standing { round: 3, king: script_hash(&live.other_lock), score };
+    let king = live.king_lock.clone();
+    let tx = steal_with(&mut context, &live, &standing, &king, &tape, score);
+    rejects_with(&context, &tx, -12);
+}
+
+#[test]
+fn king_cannot_steal_from_themselves() {
+    let mut context = Context::default();
+    let live = live(&mut context);
+    let (tape, score) = run_for(&live.match_id, &live.king_lock);
+    let standing = Standing { round: 2, king: script_hash(&live.king_lock), score: 1 };
+    let king = live.king_lock.clone();
+    let tx = steal_with(&mut context, &live, &standing, &king, &tape, score);
+    rejects_with(&context, &tx, -6);
+}
+
+#[test]
+fn steal_without_the_game_script_dep_is_rejected() {
+    let mut context = Context::default();
+    let mut live = live(&mut context);
+    live.deps.retain(|dep| {
+        let game = CellOutput::calc_data_hash(&game_bin());
+        context.get_cell(&dep.out_point()).map(|(_, data)| CellOutput::calc_data_hash(&data)) != Some(game)
+    });
+    let tx = steal_tx(&mut context, &live, false);
+    rejects_with(&context, &tx, -13);
+}
+
+fn expiry_tx(
+    context: &mut Context,
+    live: &Live,
+    since_secs: u64,
+    pay_to: &Script,
+) -> ckb_testtool::ckb_types::core::TransactionView {
+    let bid_in = bid_cell(context, live, &live.other_lock);
+    with_deps(
+        context,
+        live,
+        TransactionBuilder::default()
+            .input(input_at(bid_in, SINCE_TIMESTAMP | since_secs))
+            .output(cell(CELL_CAP - MAX_TX_FEE, pay_to.clone(), None))
+            .output_data(Bytes::new().pack()),
+    )
+}
+
+#[test]
+fn a_bid_left_out_of_the_close_expires_back_to_its_owner() {
+    let mut context = Context::default();
+    let live = live(&mut context);
+    let other = live.other_lock.clone();
+    let tx = expiry_tx(&mut context, &live, (DEADLINE_MS + REFUND_GRACE_MS) / 1000, &other);
+    verify_and_dump_failed_tx(&context, &tx, MAX_CYCLES).expect("expired bid refund");
+}
+
+#[test]
+fn a_bid_cannot_expire_before_its_refund_time() {
+    let mut context = Context::default();
+    let live = live(&mut context);
+    let other = live.other_lock.clone();
+    let tx = expiry_tx(&mut context, &live, (DEADLINE_MS + REFUND_GRACE_MS) / 1000 - 1, &other);
+    rejects_with(&context, &tx, -10);
+}
+
+#[test]
+fn an_expired_bid_cannot_be_paid_to_someone_else() {
+    let mut context = Context::default();
+    let live = live(&mut context);
+    let host = live.host_lock.clone();
+    let tx = expiry_tx(&mut context, &live, (DEADLINE_MS + REFUND_GRACE_MS) / 1000, &host);
+    rejects_with(&context, &tx, -3);
+}
+
+#[test]
+fn bid_creation_with_the_wrong_refund_time_is_rejected() {
+    let mut context = Context::default();
+    let live = live(&mut context);
+    let match_out = funded_match(&mut context, &live);
+    let (occupied, lock, type_script, _) = bid_shell(&mut context, &live, &live.other_lock);
+    let tx = bid_create(
+        &mut context,
+        &live,
+        &live.other_lock,
+        occupied + FEE + MAX_TX_FEE,
+        lock,
+        type_script,
+        bid_data_until(&live.other_lock, DEADLINE_MS),
+        Some(match_out),
+    );
+    rejects_with(&context, &tx, -5);
+}
+
+#[test]
+fn bid_creation_with_the_v1_match_guard_lock_is_rejected() {
+    let mut context = Context::default();
+    let live = live(&mut context);
+    let match_out = funded_match(&mut context, &live);
+    let (occupied, _, type_script, data) = bid_shell(&mut context, &live, &live.other_lock);
+    let old_lock = guard(&mut context, &live);
+    let tx = bid_create(
+        &mut context,
+        &live,
+        &live.other_lock,
+        occupied + FEE + MAX_TX_FEE,
+        old_lock,
+        type_script,
+        data,
+        Some(match_out),
+    );
+    rejects_with(&context, &tx, -6);
 }
 
 fn settle_tx(context: &mut Context, live: &Live, since_secs: u64) -> ckb_testtool::ckb_types::core::TransactionView {
     let treasury_hash = script_hash(&live.treasury_script);
     let king = script_hash(&live.king_lock);
-    let data = match_data(2, DEADLINE_MS, FEE, &king, &live.root, &treasury_hash, &live.bid_code);
+    let data = match_data(2, DEADLINE_MS, FEE, &king, &live.game, &treasury_hash, &live.bid_code);
     let guard_lock = guard(context, live);
     let match_in = context.create_cell(
         cell(CELL_CAP, guard_lock, Some(live.match_script.clone())),
@@ -487,8 +659,8 @@ fn with_deps(
 }
 
 fn bid_cell(context: &mut Context, live: &Live, owner: &Script) -> OutPoint {
-    let lock = guard(context, live);
     let type_script = bid_script_for(context, live, owner);
+    let lock = bid_lock(context, live, &type_script);
     context.create_cell(cell(CELL_CAP, lock, Some(type_script)), bid_data(owner))
 }
 
@@ -517,7 +689,7 @@ fn create_rejects_a_zero_host_hash() {
         DEADLINE_MS,
         0,
         &[0u8; 32],
-        &root_of(&match_id),
+        &game_hash(),
         &script_hash(&treasury_script),
         &bid_code,
     );
@@ -565,7 +737,7 @@ fn empty_seat(
         DEADLINE_MS,
         0,
         &[0u8; 32],
-        &live.root,
+        &live.game,
         &treasury_hash,
         &live.bid_code,
     );
@@ -609,7 +781,7 @@ fn two_bids_in_one_cleanup_are_rejected_by_the_deployed_bid_script() {
         DEADLINE_MS,
         CELL_CAP,
         &king,
-        &live.root,
+        &live.game,
         &treasury_hash,
         &live.bid_code,
     );
@@ -663,7 +835,7 @@ fn the_kings_second_bid_is_refunded() {
     let live = live(&mut context);
     let treasury_hash = script_hash(&live.treasury_script);
     let king = script_hash(&live.king_lock);
-    let data = match_data(2, DEADLINE_MS, FEE, &king, &live.root, &treasury_hash, &live.bid_code);
+    let data = match_data(2, DEADLINE_MS, FEE, &king, &live.game, &treasury_hash, &live.bid_code);
     let match_in = place_match(&mut context, &live, data);
     let treasury_in = context.create_cell(
         cell(CELL_CAP, live.treasury_script.clone(), None),
@@ -711,7 +883,7 @@ fn split_payout(
 ) -> ckb_testtool::ckb_types::core::TransactionView {
     let treasury_hash = script_hash(&live.treasury_script);
     let king = script_hash(&live.king_lock);
-    let data = match_data(2, DEADLINE_MS, FEE, &king, &live.root, &treasury_hash, &live.bid_code);
+    let data = match_data(2, DEADLINE_MS, FEE, &king, &live.game, &treasury_hash, &live.bid_code);
     let match_in = place_match(context, live, data);
     let treasury_in = context.create_cell(
         cell(CELL_CAP, live.treasury_script.clone(), None),
@@ -749,7 +921,7 @@ fn king_who_is_the_host_must_receive_the_whole_pot() {
     let live = live(&mut context);
     let treasury_hash = script_hash(&live.treasury_script);
     let king = script_hash(&live.king_lock);
-    let data = match_data(2, DEADLINE_MS, FEE, &king, &live.root, &treasury_hash, &live.bid_code);
+    let data = match_data(2, DEADLINE_MS, FEE, &king, &live.game, &treasury_hash, &live.bid_code);
     let match_in = place_match(&mut context, &live, data);
     let treasury_in = context.create_cell(
         cell(CELL_CAP, live.treasury_script.clone(), None),
@@ -785,7 +957,7 @@ fn pot_larger_than_the_treasury_is_rejected() {
         DEADLINE_MS,
         CELL_CAP + 1,
         &king,
-        &live.root,
+        &live.game,
         &treasury_hash,
         &live.bid_code,
     );
@@ -815,7 +987,7 @@ fn cleanup_without_the_treasury_cell_is_rejected() {
     let live = live(&mut context);
     let treasury_hash = script_hash(&live.treasury_script);
     let king = script_hash(&live.king_lock);
-    let data = match_data(2, DEADLINE_MS, FEE, &king, &live.root, &treasury_hash, &live.bid_code);
+    let data = match_data(2, DEADLINE_MS, FEE, &king, &live.game, &treasury_hash, &live.bid_code);
     let match_in = place_match(&mut context, &live, data);
     let bid_in = bid_cell(&mut context, &live, &live.other_lock);
     let since = SINCE_TIMESTAMP | (DEADLINE_MS / 1000);
@@ -840,7 +1012,7 @@ fn funded_match(context: &mut Context, live: &Live) -> OutPoint {
         DEADLINE_MS,
         0,
         &[0u8; 32],
-        &live.root,
+        &live.game,
         &treasury_hash,
         &live.bid_code,
     );
@@ -848,8 +1020,8 @@ fn funded_match(context: &mut Context, live: &Live) -> OutPoint {
 }
 
 fn bid_shell(context: &mut Context, live: &Live, owner: &Script) -> (u64, Script, Script, Bytes) {
-    let lock = guard(context, live);
     let type_script = bid_script_for(context, live, owner);
+    let lock = bid_lock(context, live, &type_script);
     let data = bid_data(owner);
     let bare = cell(0, lock.clone(), Some(type_script.clone()));
     let occupied = bare
@@ -895,13 +1067,13 @@ fn steal_with_two_owners_is_rejected() {
     let mut context = Context::default();
     let live = live(&mut context);
     let treasury_hash = script_hash(&live.treasury_script);
-    let data = match_data(1, DEADLINE_MS, 0, &[0u8; 32], &live.root, &treasury_hash, &live.bid_code);
+    let data = match_data(1, DEADLINE_MS, 0, &[0u8; 32], &live.game, &treasury_hash, &live.bid_code);
     let next = match_data(
         2,
         DEADLINE_MS - 600_000,
         FEE,
         &script_hash(&live.king_lock),
-        &live.root,
+        &live.game,
         &treasury_hash,
         &live.bid_code,
     );
@@ -929,7 +1101,7 @@ fn steal_with_two_owners_is_rejected() {
             .output_data(Bytes::new().pack())
             .output(cell(CELL_CAP, live.other_lock.clone(), None))
             .output_data(Bytes::new().pack())
-            .witness(witness(Some(proof_for(&live.match_id, 0, false))).pack())
+            .witness(witness(Some(run_witness(&run_for(&live.match_id, &live.king_lock).0))).pack())
             .witness(witness(None).pack())
             .witness(witness(None).pack())
             .witness(witness(None).pack()),
@@ -1120,7 +1292,7 @@ fn match_created_with_the_proxy_code_hash_but_type_hash_type_is_rejected() {
         .hash_type(ScriptHashType::Type)
         .args(Bytes::from(match_type_hash.to_vec()).pack())
         .build();
-    let data = match_data(1, DEADLINE_MS, 0, &[0u8; 32], &root_of(&match_id), &script_hash(&treasury_script), &bid_code);
+    let data = match_data(1, DEADLINE_MS, 0, &[0u8; 32], &game_hash(), &script_hash(&treasury_script), &bid_code);
     let tx = TransactionBuilder::default()
         .input(first)
         .output(cell(CELL_CAP, bad_lock, Some(match_script)))
@@ -1159,7 +1331,7 @@ fn match_created_with_proxy_args_longer_than_32_bytes_is_rejected() {
         .expect("long args");
     let treasury_script = treasury_bin.script(&mut context, &match_type_hash);
     let bid_code = code_hash(&bid_bin.script(&mut context, &match_type_hash));
-    let data = match_data(1, DEADLINE_MS, 0, &[0u8; 32], &root_of(&match_id), &script_hash(&treasury_script), &bid_code);
+    let data = match_data(1, DEADLINE_MS, 0, &[0u8; 32], &game_hash(), &script_hash(&treasury_script), &bid_code);
     let tx = TransactionBuilder::default()
         .input(first)
         .output(cell(CELL_CAP, bad_lock, Some(match_script)))
@@ -1193,7 +1365,7 @@ fn two_bids_from_one_owner_are_checked_as_one_total() {
     let live = live(&mut context);
     let treasury_hash = script_hash(&live.treasury_script);
     let king = script_hash(&live.king_lock);
-    let data = match_data(2, DEADLINE_MS, FEE, &king, &live.root, &treasury_hash, &live.bid_code);
+    let data = match_data(2, DEADLINE_MS, FEE, &king, &live.game, &treasury_hash, &live.bid_code);
     let match_in = place_match(&mut context, &live, data);
     let treasury_in = context.create_cell(cell(CELL_CAP, live.treasury_script.clone(), None), Bytes::new());
     let first = bid_cell(&mut context, &live, &live.other_lock);
@@ -1223,7 +1395,7 @@ fn cleanup_where_the_host_also_holds_a_bid_uses_the_combined_total() {
     let live = live_as(&mut context, 0x33);
     let treasury_hash = script_hash(&live.treasury_script);
     let king = script_hash(&live.king_lock);
-    let data = match_data(2, DEADLINE_MS, FEE, &king, &live.root, &treasury_hash, &live.bid_code);
+    let data = match_data(2, DEADLINE_MS, FEE, &king, &live.game, &treasury_hash, &live.bid_code);
     let match_in = place_match(&mut context, &live, data);
     let treasury_in = context.create_cell(cell(CELL_CAP, live.treasury_script.clone(), None), Bytes::new());
     let host_bid = bid_cell(&mut context, &live, &live.host_lock);
@@ -1251,7 +1423,7 @@ fn king_who_is_the_host_with_no_bids_must_receive_match_and_treasury() {
     let live = live(&mut context);
     let treasury_hash = script_hash(&live.treasury_script);
     let king = script_hash(&live.king_lock);
-    let data = match_data(2, DEADLINE_MS, FEE, &king, &live.root, &treasury_hash, &live.bid_code);
+    let data = match_data(2, DEADLINE_MS, FEE, &king, &live.game, &treasury_hash, &live.bid_code);
     let match_in = place_match(&mut context, &live, data);
     let treasury_in = context.create_cell(cell(CELL_CAP, live.treasury_script.clone(), None), Bytes::new());
     let since = SINCE_TIMESTAMP | (DEADLINE_MS / 1000);
@@ -1360,4 +1532,11 @@ fn proxy_lock_bytes_reject_args_shorter_than_32_and_accept_a_suffix() {
     );
     // The on-chain binary reads args[0..32] whenever args.len() >= 32, so a suffix still unlocks.
     verify_and_dump_failed_tx(&context, &long_tx, MAX_CYCLES).expect("suffix ignored");
+}
+
+/// Rejected, and for the reason the test is about rather than some earlier check.
+fn rejects_with(context: &Context, tx: &ckb_testtool::ckb_types::core::TransactionView, code: i8) {
+    let err = context.verify_tx(tx, MAX_CYCLES).expect_err("transaction should be rejected");
+    let text = format!("{err:?}");
+    assert!(text.contains(&format!("error code {code} on")), "expected error {code}, got {text}");
 }

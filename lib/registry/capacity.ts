@@ -1,8 +1,7 @@
 "use client";
 
 import { ccc } from "@ckb-ccc/connector-react";
-import { encodeProfile, encodeUsername } from "./encoding";
-import type { Profile } from "./types";
+import { encodeUsername } from "./encoding";
 
 // ─────────────────────────────────────────────────────────────────────
 // Cell capacity helpers.
@@ -42,16 +41,6 @@ const TYPE_ARGS_BYTES = 2 + 32 + 1; // 35
 const REGISTRY_TYPE_BYTES = SCRIPT_HEADER_BYTES + TYPE_ARGS_BYTES; // 68
 
 /**
- * Estimate the minimum capacity (in CKB) required to store a profile cell
- * containing the given JSON data. Used in the UI before a wallet is
- * connected.
- */
-export function estimateProfileCapacityCkb(profile: Profile): number {
-  const dataBytes = encodeProfile(profile).length;
-  return CAPACITY_FIELD_BYTES + APPROX_LOCK_BYTES + REGISTRY_TYPE_BYTES + dataBytes;
-}
-
-/**
  * Estimate the minimum capacity (in CKB) for a username cell with the
  * given handle.
  */
@@ -76,41 +65,4 @@ export function computeMinCellCapacity(
   });
   const occupied = BigInt(cellOutput.occupiedSize) + BigInt(outputData.length);
   return occupied * SHANNONS_PER_CKB;
-}
-
-/** Typeless cell capacity (endorsement gifts locked to the subject). */
-export function computeMinCapacityNoType(
-  lock: ccc.Script,
-  outputData: Uint8Array,
-): bigint {
-  const cellOutput = ccc.CellOutput.from({
-    capacity: ccc.numFrom(0),
-    lock,
-  });
-  const occupied = BigInt(cellOutput.occupiedSize) + BigInt(outputData.length);
-  return occupied * SHANNONS_PER_CKB;
-}
-
-/**
- * Detailed breakdown for the UI. All numbers are in BYTES (which equal CKB
- * since 1 CKB = 1 byte minimum).
- */
-export type ProfileSizeBreakdown = {
-  dataBytes: number;
-  lockBytes: number;
-  typeBytes: number;
-  capacityFieldBytes: number;
-  totalCkb: number;
-};
-
-export function profileSizeBreakdown(profile: Profile): ProfileSizeBreakdown {
-  const dataBytes = encodeProfile(profile).length;
-  return {
-    dataBytes,
-    lockBytes: APPROX_LOCK_BYTES,
-    typeBytes: REGISTRY_TYPE_BYTES,
-    capacityFieldBytes: CAPACITY_FIELD_BYTES,
-    totalCkb:
-      CAPACITY_FIELD_BYTES + APPROX_LOCK_BYTES + REGISTRY_TYPE_BYTES + dataBytes,
-  };
 }

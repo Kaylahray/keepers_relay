@@ -12,16 +12,11 @@ import { VerifiedSeal } from '@/components/crown/VerifiedSeal';
 import { useCrown } from '@/components/crown/useCrown';
 import { useWallet } from '@/hooks/useWallet';
 import { useAuth } from '@/context/auth-provider';
-import { closeCrown, finishPending } from '@/lib/crown/chain';
-import { bytesToHex, hexToBytes, merkleRoot } from '@/lib/sudden-death/codec';
+import { closeCrown } from '@/lib/crown/chain';
 import { suddenDeathConfigured } from '@/lib/registry/config';
 import { isHostWallet } from '@/lib/crown/standing';
 import { deleteCrownRemote } from '@/lib/crown/remote';
-import { ckbWhole, forgetCrown, loadCrown, saveCrown } from '@/lib/crown/rooms';
-import { buildRevealedBank, publishReveal } from '@/lib/ckbfs/reveal';
-import { ckbfsConfigured } from '@/lib/registry/config';
-
-const ZERO_MATCH = new Uint8Array(32);
+import { ckbWhole, forgetCrown, GAMES, loadCrown, saveCrown } from '@/lib/crown/rooms';
 
 export function CrownDeskView({ id }: { id: string }) {
   const router = useRouter();
@@ -34,7 +29,6 @@ export function CrownDeskView({ id }: { id: string }) {
   const chain = suddenDeathConfigured();
   const [busy, setBusy] = useState<string | null>(null);
   const [chainError, setChainError] = useState<string | null>(null);
-  const [revealTx, setRevealTx] = useState<string | null>(null);
 
   useEffect(() => {
     if (!signer) {
@@ -52,23 +46,6 @@ export function CrownDeskView({ id }: { id: string }) {
       stop = true;
     };
   }, [signer]);
-
-  async function sign() {
-    const current = loadCrown(id);
-    if (!current || !signer) {
-      setChainError('Connect the host JoyID on this desk.');
-      return;
-    }
-    setBusy('Signing…');
-    setChainError(null);
-    try {
-      saveCrown(await finishPending(signer, current));
-    } catch (error) {
-      setChainError(error instanceof Error ? error.message : 'The signature was rejected.');
-    } finally {
-      setBusy(null);
-    }
-  }
 
   async function removeCrown() {
     setChainError(null);
@@ -102,38 +79,6 @@ export function CrownDeskView({ id }: { id: string }) {
     }
   }
 
-  /**
-   * Hand the answer key over, for good.
-   *
-   * Only worth doing once a match is settled — before that it would simply tell everyone the
-   * answers. Afterwards it is the strongest thing a host can do: it lets anyone rebuild the root
-   * and confirm the questions asked were the ones committed, with our server out of the loop.
-   */
-  async function reveal() {
-    const current = loadCrown(id);
-    if (!current || !signer) {
-      setChainError('Connect the host JoyID that wrote this bank.');
-      return;
-    }
-    if (!current.matchId) {
-      setChainError('This crown never opened a match cell, so there is no root to reveal against.');
-      return;
-    }
-    setBusy('Publishing the bank…');
-    setChainError(null);
-    try {
-      const { txHash } = await publishReveal(
-        signer,
-        buildRevealedBank({ matchId: current.matchId, title: current.title, questions: current.questions }),
-      );
-      setRevealTx(txHash);
-    } catch (error) {
-      setChainError(error instanceof Error ? error.message : 'The reveal was rejected.');
-    } finally {
-      setBusy(null);
-    }
-  }
-
   if (!ready) {
     return (
       <ArenaStage>
@@ -151,24 +96,15 @@ export function CrownDeskView({ id }: { id: string }) {
   }
 
   const iHost = isHostWallet(room, address, myLockHash);
-  const showKey = iHost && !room.answersOnServer;
-  let root = '';
-  if (showKey) {
-    try {
-      const matchId = room.matchId ? hexToBytes(room.matchId) : ZERO_MATCH;
-      root = bytesToHex(merkleRoot(matchId, room.questions));
-    } catch {
-      root = 'Root unavailable.';
-    }
-  }
+  const counting = playClock(room.deadlineAt, now).counting;
 
   return (
     <ArenaStage backHref="/play" backLabel="Crowns">
       <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">Host desk</p>
       <h1 className="mt-2 font-poster text-5xl uppercase leading-none text-white sm:text-6xl">{room.title}</h1>
       <p className="mt-3 font-mono text-[10px] uppercase text-white/45">
-        {room.status} · {ckbWhole(room.feeShannons)} CKB entry · pot {ckbWhole(room.potShannons)} CKB ·{' '}
-        {room.king ?? 'Open seat'}
+        {GAMES[room.game].title} · {room.status} · {ckbWhole(room.feeShannons)} CKB entry · pot{' '}
+        {ckbWhole(room.potShannons)} CKB · {room.king ? `${room.king} holds it with ${room.kingScore}` : 'Open seat'}
       </p>
       {room.status === 'lobby' ? (
         <p className="mt-4 max-w-xl text-sm text-white/70">
@@ -179,37 +115,34 @@ export function CrownDeskView({ id }: { id: string }) {
         </p>
       ) : null}
       {iHost ? (
-        <p className="mt-4 max-w-xl text-sm text-white/70">You are the host. The bank and the close button stay on this wallet.</p>
+        <p className="mt-4 max-w-xl text-sm text-white/70">
+          You are the host.
+        </p>
       ) : isConnected ? (
-        <p className="mt-4 max-w-xl text-sm text-white/70">You are a player. The bank and the close button stay with the host.</p>
+        <p className="mt-4 max-w-xl text-sm text-white/70">You are a player.</p>
       ) : (
         <div className="mt-4">
-          <p className="max-w-xl text-sm text-white/70">Connect the host wallet to see the bank and close the crown.</p>
+          <p className="max-w-xl text-sm text-white/70">Connect a wallet to close the crown.</p>
           <button type="button" onClick={() => void ensureAuth().catch(() => undefined)} className="arena-cta mt-3 px-4 py-2 font-mono text-[11px] font-bold uppercase">
             Connect
           </button>
         </div>
       )}
-      {chain && room.matchId && room.status === 'live' && iHost ? (
+      {chain && room.matchId && room.status === 'live' && isConnected ? (
         <div className="mt-6">
           <button
             type="button"
             onClick={() => void close()}
-            disabled={Boolean(busy) || playClock(room.deadlineAt, now).counting}
+            disabled={Boolean(busy) || counting}
             className="bg-[#e1bf47] px-5 py-3 font-poster text-3xl uppercase leading-none text-[#111] disabled:opacity-40"
           >
             {busy === 'Closing…' ? busy : 'Close the crown'}
           </button>
           <p className="mt-3 max-w-xl text-sm text-white/60">
-            {playClock(room.deadlineAt, now).counting
-              ? 'This pays whoever holds the crown once the play window ends. The wallet here only pays the closing fee.'
-              : 'This pays whoever holds the crown right now. A correct answer can still take it until this transaction lands.'}
+            {counting
+              ? 'Opens when the clock runs out.'
+              : 'Pays whoever holds the crown.'}
           </p>
-          {room.pendingTx ? (
-            <button type="button" onClick={() => void sign()} disabled={Boolean(busy)} className="arena-cta mt-4 px-4 py-2 font-mono text-[11px] font-bold uppercase disabled:opacity-40">
-              {busy ?? 'Sign the steal'}
-            </button>
-          ) : null}
         </div>
       ) : iHost && room.status !== 'live' ? (
         <div className="mt-6">
@@ -222,11 +155,9 @@ export function CrownDeskView({ id }: { id: string }) {
             {busy === 'Deleting…' ? busy : 'Delete this crown'}
           </button>
           <p className="mt-3 max-w-xl text-sm text-white/60">
-            This takes it off the list. It does not move CKB. A live crown has to be closed first.
+            Removes it from the list. A live crown must be closed first.
           </p>
         </div>
-      ) : iHost ? (
-        <p className="mt-4 max-w-xl text-sm text-white/60">Close appears here once the match is live.</p>
       ) : null}
       {chainError ? <p className="mt-3 text-sm text-[#af2a3a]">{chainError}</p> : null}
       <div className="mt-8">
@@ -241,73 +172,11 @@ export function CrownDeskView({ id }: { id: string }) {
         </Link>
       </div>
 
-      {showKey ? (
-        <>
-          <NeonPlate className="mt-8 p-4">
-            <p className="font-mono text-[10px] uppercase text-white/50">Preview root</p>
-            <p className="mt-2 break-all font-mono text-xs">{root}</p>
-          </NeonPlate>
-
-          <NeonPlate className="mt-6 p-4">
-            <p className="font-mono text-[10px] uppercase tracking-wider text-white/50">
-              Reveal the bank
-            </p>
-            <p className="mt-2 max-w-xl text-sm leading-relaxed text-white/60">
-              Writes every question, answer and salt to CKBFS, permanently. Anyone can then rebuild
-              the root above and confirm you asked what you committed to — without trusting this
-              site. CKBFS has no delete, so only do this once the crown is settled.
-            </p>
-            {revealTx ? (
-              <a
-                href={`https://pudge.explorer.nervos.org/transaction/${revealTx}`}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-3 inline-block break-all font-mono text-[11px] text-[#99ee2d] underline"
-              >
-                Published · {revealTx.slice(0, 18)}…
-              </a>
-            ) : (
-              <button
-                type="button"
-                onClick={() => void reveal()}
-                disabled={Boolean(busy) || !ckbfsConfigured() || room.status !== 'settled'}
-                className="mt-3 border border-[#99ee2d] px-4 py-2 font-mono text-[11px] uppercase text-[#99ee2d] disabled:opacity-40"
-              >
-                {busy === 'Publishing the bank…' ? busy : 'Publish to CKBFS'}
-              </button>
-            )}
-            {!ckbfsConfigured() ? (
-              <p className="mt-2 font-mono text-[10px] uppercase text-white/35">
-                CKBFS is not deployed for this build.
-              </p>
-            ) : room.status !== 'settled' ? (
-              <p className="mt-2 font-mono text-[10px] uppercase text-white/35">
-                Available once this crown is closed.
-              </p>
-            ) : null}
-          </NeonPlate>
-          <ol className="mt-6 grid gap-3 sm:grid-cols-2">
-            {room.questions.map((question, index) => (
-              <li key={`${question.tag}-${index}`} className="border border-white/10 bg-white/5 p-4">
-                <p className="font-mono text-[10px] uppercase text-[#99ee2d]">
-                  {index + 1} · {question.skin} · answer {question.options[question.correct]}
-                </p>
-                <p className="mt-2 text-sm text-white">{question.text}</p>
-              </li>
-            ))}
-          </ol>
-        </>
-      ) : iHost ? (
-        <p className="mt-8 max-w-xl text-sm text-white/55">
-          The answer key stays on the browser that wrote this bank.
-        </p>
-      ) : null}
-
       <NeonPlate className="mt-6 p-4">
         <p className="font-mono text-[10px] uppercase text-white/40">Seals</p>
         <ul className="mt-3 space-y-2">
           {room.seals.length === 0 ? (
-            <li className="text-sm text-white/40">Nothing confirmed. The desk does not sign “correct.”</li>
+            <li className="text-sm text-white/40">No crown taken yet.</li>
           ) : (
             room.seals.map((seal) => (
               <li key={seal.id}>

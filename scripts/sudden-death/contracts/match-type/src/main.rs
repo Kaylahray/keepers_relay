@@ -75,8 +75,11 @@ fn create(host: &[u8; 32]) -> Result<(), i8> {
     if bytes::<32>(&out, OFF_KING)? != [0u8; 32] {
         return Err(ERR_KING);
     }
-    if bytes::<32>(&out, OFF_ROOT)? == [0u8; 32] {
-        return Err(ERR_PROOF);
+    if bytes::<32>(&out, OFF_GAME)? == [0u8; 32] {
+        return Err(ERR_GAME);
+    }
+    if read_u64(&out, OFF_KING_SCORE)? != 0 {
+        return Err(ERR_SCORE);
     }
     let treasury = bytes::<32>(&out, OFF_TREASURY)?;
     if treasury_capacity(&treasury, Source::Output)? == 0 {
@@ -101,7 +104,7 @@ fn steal(match_id: &[u8; 32], match_type_hash: &[u8; 32]) -> Result<(), i8> {
     if input[OFF_VERSION] != MATCH_VERSION || output[OFF_VERSION] != MATCH_VERSION {
         return Err(ERR_LEN);
     }
-    if bytes::<32>(&input, OFF_ROOT)? != bytes::<32>(&output, OFF_ROOT)?
+    if bytes::<32>(&input, OFF_GAME)? != bytes::<32>(&output, OFF_GAME)?
         || bytes::<8>(&input, OFF_FEE)? != bytes::<8>(&output, OFF_FEE)?
         || bytes::<32>(&input, OFF_TREASURY)? != bytes::<32>(&output, OFF_TREASURY)?
         || bytes::<32>(&input, OFF_BID_CODE)? != bytes::<32>(&output, OFF_BID_CODE)?
@@ -123,8 +126,6 @@ fn steal(match_id: &[u8; 32], match_type_hash: &[u8; 32]) -> Result<(), i8> {
         return Err(ERR_CLOCK);
     }
 
-    verify_steal(match_id, &bytes::<32>(&input, OFF_ROOT)?, round)?;
-
     proxy_guarded(0, Source::GroupInput, match_type_hash)?;
     proxy_guarded(0, Source::GroupOutput, match_type_hash)?;
     let in_cap = load_cell_capacity(0, Source::GroupInput).map_err(|_| ERR_POT)?;
@@ -143,6 +144,21 @@ fn steal(match_id: &[u8; 32], match_type_hash: &[u8; 32]) -> Result<(), i8> {
     let king = winning_bid_owner(match_type_hash, &bid_code)?;
     if bytes::<32>(&output, OFF_KING)? != king {
         return Err(ERR_KING);
+    }
+    // A king beating their own score would only drain the clock while they hold the crown.
+    if bytes::<32>(&input, OFF_KING)? == king {
+        return Err(ERR_KING);
+    }
+
+    // The run is scored for the bid's owner, on a course only they get, by the game the match
+    // was opened with. It must beat the standing score, and the new score is what is recorded.
+    let tape = load_run_tape()?;
+    let score = score_run(&bytes::<32>(&input, OFF_GAME)?, run_seed(match_id, &king), &tape)?;
+    if score <= read_u64(&input, OFF_KING_SCORE)? {
+        return Err(ERR_SCORE);
+    }
+    if read_u64(&output, OFF_KING_SCORE)? != score {
+        return Err(ERR_SCORE);
     }
 
     let treasury = bytes::<32>(&input, OFF_TREASURY)?;

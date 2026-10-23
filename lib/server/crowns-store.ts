@@ -1,16 +1,13 @@
 import { neon } from '@neondatabase/serverless';
-import { and, eq } from 'drizzle-orm';
 import { ccc } from '@ckb-ccc/core';
-import { getDb, databaseConfigured } from '@/lib/db/client';
-import { crownAttempts } from '@/lib/db/schema';
+import { databaseConfigured } from '@/lib/db/client';
 import { getServerCkbClient } from '@/lib/ckb/server-client';
 import { readLiveCell } from '@/lib/ckb/live-cell';
 import { ApiError } from '@/lib/server/errors';
 import { normalizeAddress } from '@/lib/server/auth';
 import { roomFromStored, roomToStored, type CrownRoom } from '@/lib/crown/rooms';
-import { inEntryWindow } from '@/lib/crown/phase';
 import { suddenDeathMatchType } from '@/lib/registry/config';
-import { bytesToHex, decodeMatchCell, hexToBytes, merkleRoot, stealProof } from '@/lib/sudden-death/codec';
+import { bytesToHex, decodeMatchCell, hexToBytes } from '@/lib/sudden-death/codec';
 import type { CrownSeat } from '@/lib/crown/seats';
 
 export type { CrownSeat };
@@ -39,16 +36,6 @@ export async function ensureCrownTables(): Promise<void> {
       updated_at timestamptz NOT NULL DEFAULT now()
     )
   `;
-  await sql`
-    CREATE TABLE IF NOT EXISTS keepers_crown_attempts (
-      crown_id text NOT NULL,
-      address text NOT NULL,
-      cursor integer NOT NULL,
-      choice integer NOT NULL,
-      created_at timestamptz NOT NULL DEFAULT now(),
-      PRIMARY KEY (crown_id, address, cursor)
-    )
-  `;
   tablesReady = true;
 }
 
@@ -61,16 +48,9 @@ function asVault(raw: unknown): Vault {
   };
 }
 
+/** Nothing in a v2 room is secret: the winner is whoever the chain says, by score. */
 export function publicRoom(room: CrownRoom): CrownRoom {
-  return {
-    ...room,
-    answersOnServer: true,
-    questions: room.questions.map((question) => ({
-      ...question,
-      correct: 0 as const,
-      salt: new Uint8Array(32),
-    })),
-  };
+  return room;
 }
 
 function sameHex(left: string, right: string): boolean {
@@ -82,7 +62,9 @@ export async function listCrownVaults(): Promise<CrownRoom[]> {
   await ensureCrownTables();
   const sql = sqlClient();
   const rows = await sql`SELECT payload FROM keepers_crowns ORDER BY updated_at DESC LIMIT 40`;
-  return rows.map((row) => publicRoom(roomFromStored(asVault(row.payload).room)));
+  return rows
+    .map((row) => publicRoom(roomFromStored(asVault(row.payload).room)))
+    .filter((room) => !room.legacy);
 }
 
 export async function readVault(id: string): Promise<Vault | null> {
@@ -161,10 +143,10 @@ async function stealFromTransaction(txHash: string, current: CrownRoom): Promise
     return null;
   }
 
-  // Same bank, and exactly one round forward. Anything else is not a steal of this match.
-  const root = merkleRoot(hexToBytes(current.matchId!), current.questions);
-  if (!sameHex(bytesToHex(root), bytesToHex(decoded.root))) return null;
+  // Exactly one round forward, with a higher score. The match script checks the rest when the
+  // transaction lands; a pending one that would fail it is rejected and the room reads back.
   if (decoded.round !== current.round + 1) return null;
+  if (Number(decoded.kingScore) <= current.kingScore) return null;
 
   const kingHex = bytesToHex(decoded.king);
   const kingEmpty = decoded.king.every((byte) => byte === 0);
@@ -172,14 +154,19 @@ async function stealFromTransaction(txHash: string, current: CrownRoom): Promise
     ...current,
     status: 'live',
     round: decoded.round,
-    cursor: Math.min(current.questions.length, Math.max(0, decoded.round - 1)),
+    kingScore: Number(decoded.kingScore),
     potShannons: decoded.pot,
     feeShannons: decoded.fee,
     deadlineAt: Number(decoded.deadlineMs),
-    king: kingEmpty ? null : `${kingHex.slice(0, 10)}…${kingHex.slice(-4)}`,
+    king: kingEmpty ? null : shortHash(kingHex),
+    kingHash: kingEmpty ? null : kingHex,
     matchOutPoint: { txHash, index: pointIndex(index) },
     treasuryOutPoint: { txHash, index: '0x1' },
   };
+}
+
+function shortHash(hex: string): string {
+  return `${hex.slice(0, 10)}…${hex.slice(-4)}`;
 }
 
 async function outpointPhase(txHash: string): Promise<'committed' | 'pending' | 'rejected' | 'unknown'> {
@@ -194,16 +181,29 @@ async function outpointPhase(txHash: string): Promise<'committed' | 'pending' | 
   }
 }
 
-async function loadMatchCell(room: CrownRoom): Promise<ccc.Cell | null> {
+/**
+ * The live match cell, and whether the room's own pointer turned out to be wrong.
+ *
+ * `reset` is true when the transaction the room points at was rejected: a steal that lost a race
+ * for the same cell, or one whose run the script refused. Every screen followed it while it was
+ * pending; now the room has to go back to whatever the chain really holds, even if that is an
+ * earlier round.
+ */
+async function loadMatchCell(room: CrownRoom): Promise<{ cell: ccc.Cell; reset: boolean } | null> {
   const client = getServerCkbClient();
+  let reset = false;
   if (room.matchOutPoint) {
     // A steal's new outpoint is shared before it confirms. Searching by type here would
     // find the previous live cell and rewind every other screen to the old clock.
     const phase = await outpointPhase(room.matchOutPoint.txHash);
-    if (phase !== 'committed') return null;
-    const stored = await readLiveCell(client, room.matchOutPoint);
-    if (stored?.outputData) return stored;
-    // Dead (a steal moved the match on) or not indexed yet. Find the cell by its type.
+    if (phase === 'rejected') {
+      reset = true;
+    } else {
+      if (phase !== 'committed') return null;
+      const stored = await readLiveCell(client, room.matchOutPoint);
+      if (stored?.outputData) return { cell: stored, reset };
+    }
+    // Dead (a steal moved the match on), rejected, or not indexed yet. Find the cell by its type.
   }
   const script = matchTypeScript(room);
   if (!script) {
@@ -219,7 +219,7 @@ async function loadMatchCell(room: CrownRoom): Promise<ccc.Cell | null> {
     'desc',
     1,
   )) {
-    return cell;
+    return { cell, reset };
   }
   return null;
 }
@@ -254,30 +254,34 @@ async function matchWasClosed(room: CrownRoom): Promise<boolean> {
 async function refreshFromChain(room: CrownRoom): Promise<{ room: CrownRoom; seen: 'match' | 'pending' | 'reject' }> {
   if (!room.matchOutPoint || !room.matchId) return { room, seen: 'pending' };
   try {
-    const cell = await loadMatchCell(room);
-    if (!cell) {
+    const found = await loadMatchCell(room);
+    if (!found) {
       if (await matchWasClosed(room)) {
         return { seen: 'match', room: { ...room, status: 'settled' } };
       }
       return { room, seen: 'pending' };
     }
+    const { cell, reset } = found;
     const raw = hexToBytes(cell.outputData);
-    if (raw.length < 2) return { room, seen: 'reject' };
-    const decoded = decodeMatchCell(raw);
-    const root = merkleRoot(hexToBytes(room.matchId), room.questions);
-    if (!sameHex(bytesToHex(root), bytesToHex(decoded.root))) return { room, seen: 'reject' };
+    let decoded;
+    try {
+      decoded = decodeMatchCell(raw);
+    } catch {
+      // Not a version 2 match cell, so not one this app can play.
+      return { room, seen: 'reject' };
+    }
     // Rounds only ever climb. A lower one means a stale read, and taking it would hand every
-    // screen back a question it has already answered.
-    if (decoded.round < room.round) return { room, seen: 'pending' };
+    // screen back a king who has already lost the crown.
+    if (decoded.round < room.round && !reset) return { room, seen: 'pending' };
     const kingHex = bytesToHex(decoded.king);
     const kingEmpty = decoded.king.every((byte) => byte === 0);
     const kingMatches = room.kingLock
       ? sameHex(ccc.Script.from(room.kingLock).hash(), kingHex)
       : false;
-    const found = cell.outPoint
+    const at = cell.outPoint
       ? { txHash: cell.outPoint.txHash, index: pointIndex(cell.outPoint.index) }
       : room.matchOutPoint;
-    const moved = Boolean(found && room.matchOutPoint && !sameHex(found.txHash, room.matchOutPoint.txHash));
+    const moved = Boolean(at && room.matchOutPoint && !sameHex(at.txHash, room.matchOutPoint.txHash));
     return {
       seen: 'match',
       room: {
@@ -285,14 +289,15 @@ async function refreshFromChain(room: CrownRoom): Promise<{ room: CrownRoom; see
         // Byte 1 is the script status: 0 live, 1 dead. A fresh match is 0.
         status: raw[1] === 0 ? 'live' : 'settled',
         round: decoded.round,
-        cursor: Math.min(room.questions.length, Math.max(0, decoded.round - 1)),
+        kingScore: Number(decoded.kingScore),
         potShannons: decoded.pot,
         feeShannons: decoded.fee,
         deadlineAt: Number(decoded.deadlineMs),
-        king: kingMatches ? room.king : kingEmpty ? null : `${kingHex.slice(0, 10)}…${kingHex.slice(-4)}`,
+        king: kingMatches && room.king ? room.king : kingEmpty ? null : shortHash(kingHex),
+        kingHash: kingEmpty ? null : kingHex,
         kingLock: kingMatches ? room.kingLock : null,
-        matchOutPoint: found,
-        treasuryOutPoint: moved ? { txHash: found.txHash, index: '0x1' } : room.treasuryOutPoint,
+        matchOutPoint: at,
+        treasuryOutPoint: moved ? { txHash: at!.txHash, index: '0x1' } : room.treasuryOutPoint,
       },
     };
   } catch {
@@ -337,13 +342,60 @@ function sameLiveState(left: CrownRoom, right: CrownRoom): boolean {
   return (
     left.status === right.status &&
     left.round === right.round &&
-    left.cursor === right.cursor &&
+    left.kingScore === right.kingScore &&
     left.potShannons === right.potShannons &&
     left.deadlineAt === right.deadlineAt &&
     left.king === right.king &&
     left.matchOutPoint?.txHash === right.matchOutPoint?.txHash &&
     left.treasuryOutPoint?.txHash === right.treasuryOutPoint?.txHash
   );
+}
+
+/** Lock hashes of seated addresses, so the king can be named without trusting a browser. */
+const seatLockHashes = new Map<string, string | null>();
+
+async function lockHashOf(address: string): Promise<string | null> {
+  if (seatLockHashes.has(address)) return seatLockHashes.get(address)!;
+  let hash: string | null = null;
+  try {
+    hash = (await ccc.Address.fromString(address, getServerCkbClient())).script.hash().toLowerCase();
+  } catch {
+    hash = null;
+  }
+  seatLockHashes.set(address, hash);
+  return hash;
+}
+
+/**
+ * The king's name, from the chain's king hash and the lobby's seats. A seat whose address locks to
+ * that hash names the king; anyone else shows as a short hash. Nothing a browser sends sets it.
+ */
+async function nameKing(room: CrownRoom, seats: CrownSeat[]): Promise<CrownRoom> {
+  if (!room.kingHash) return room;
+  for (const seat of seats) {
+    if ((await lockHashOf(seat.address)) === room.kingHash.toLowerCase()) {
+      return { ...room, king: seat.displayName };
+    }
+  }
+  return { ...room, king: shortHash(room.kingHash) };
+}
+
+/** Names the king and, when the crown has moved since `before`, tells the whole lobby. */
+async function announce(before: CrownRoom, after: CrownRoom, seats: CrownSeat[]): Promise<CrownRoom> {
+  const named = await nameKing(after, seats);
+  if (named.round <= before.round || !named.kingHash) return named;
+  const pot = Number(named.potShannons) / 100_000_000;
+  return {
+    ...named,
+    feed: [
+      {
+        id: `${Date.now()}-${named.round}`,
+        text: `${named.king} took the crown with ${named.kingScore} · pot ${pot} CKB`,
+        good: true,
+      },
+      ...named.feed,
+    ].slice(0, 8),
+  };
 }
 
 export async function readPublicCrown(id: string): Promise<{ room: CrownRoom; seats: CrownSeat[] } | null> {
@@ -354,15 +406,17 @@ export async function readPublicCrown(id: string): Promise<{ room: CrownRoom; se
   // Only write when the chain actually moved. This used to run on every poll from every
   // player, so a full lobby wrote the same row to Neon dozens of times a second.
   if (refreshed.seen === 'match' && !sameLiveState(current, refreshed.room)) {
-    await writeVault({ ...existing, room: roomToStored(refreshed.room) });
+    const named = await announce(current, refreshed.room, existing.seats);
+    await writeVault({ ...existing, room: roomToStored(named) });
+    return { room: publicRoom(named), seats: existing.seats };
   }
-  return { room: publicRoom(refreshed.room), seats: existing.seats };
+  return { room: publicRoom(await nameKing(refreshed.room, existing.seats)), seats: existing.seats };
 }
 
 export async function createCrown(room: CrownRoom, hostAddress: string): Promise<void> {
   if (!databaseConfigured()) throw new ApiError('DATABASE_URL is required to share a crown.', 503);
   const host = normalizeAddress(hostAddress);
-  const stored = roomToStored({ ...room, hostAddress: host, answersOnServer: false });
+  const stored = roomToStored({ ...room, hostAddress: host });
   await writeVault({ room: stored, hostAddress: host, seats: [] });
 }
 
@@ -381,38 +435,43 @@ export async function syncCrown(incoming: CrownRoom, sessionAddress: string): Pr
     hostAddress: host,
   };
   const fromHost = session === host;
+  // Only the host opens the match, and only once. After that the host is a player like any
+  // other: their steals are read from the transaction like everyone's.
+  const opening = fromHost && !current.matchId;
   if (incoming.matchOutPoint) {
-    // Identity — which bank, whose host lock — is the host's to set, and only once.
-    // A seated player may only point the room at a newer cell of that same match,
-    // which is what their own steal produces.
+    // Identity — which match, whose host lock — is set by the open and never again.
+    // Anyone may point the room at a newer cell of that same match, which is what a steal produces.
     const trial: CrownRoom = {
       ...next,
       matchOutPoint: incoming.matchOutPoint,
       treasuryOutPoint: incoming.treasuryOutPoint ?? next.treasuryOutPoint,
-      matchId: fromHost ? incoming.matchId ?? next.matchId : next.matchId,
-      hostLock: fromHost ? incoming.hostLock ?? next.hostLock : next.hostLock,
-      hostLockHash: fromHost ? incoming.hostLockHash ?? next.hostLockHash : next.hostLockHash,
-      openedAt: fromHost ? incoming.openedAt ?? next.openedAt : next.openedAt,
+      matchId: opening ? incoming.matchId ?? next.matchId : next.matchId,
+      hostLock: opening ? incoming.hostLock ?? next.hostLock : next.hostLock,
+      hostLockHash: opening ? incoming.hostLockHash ?? next.hostLockHash : next.hostLockHash,
+      openedAt: opening ? incoming.openedAt ?? next.openedAt : next.openedAt,
     };
-    if (fromHost || trial.matchId) {
+    if (opening || trial.matchId) {
       const checked = await refreshFromChain(trial);
       if (checked.seen === 'reject') {
-        throw new ApiError('That match cell does not belong to this bank.', 400);
+        throw new ApiError('That is not a version 2 match cell for this crown.', 400);
       }
-      // The host opens the match, so their cell is still in the mempool and is taken on trust.
-      // A player's steal is taken the same way: the other screens need the new clock before
-      // the indexer has the new cell. A rejected transaction is ignored.
+      // The open is still in the mempool, so the host's deadline is taken on trust; everything
+      // else about a fresh match is fixed (round 1, empty pot, nobody crowned) and is set here,
+      // not copied from the request. A steal, from anyone, is read out of its transaction so the
+      // other screens get the new clock before the indexer has the new cell.
       if (checked.seen === 'match') {
         next = checked.room;
-      } else if (fromHost) {
+      } else if (opening) {
         next = {
           ...trial,
-          status: incoming.status,
-          round: incoming.round,
-          cursor: incoming.cursor,
+          status: 'live',
+          round: 1,
+          kingScore: 0,
+          potShannons: 0n,
+          king: null,
+          kingHash: null,
+          kingLock: null,
           deadlineAt: incoming.deadlineAt ?? trial.deadlineAt,
-          potShannons: incoming.potShannons,
-          king: incoming.king ?? trial.king,
         };
       } else {
         // The new state comes out of the transaction, not out of the request. A player who
@@ -425,11 +484,14 @@ export async function syncCrown(incoming: CrownRoom, sessionAddress: string): Pr
     }
   }
   if (incoming.kingLock) {
-    next = { ...next, kingLock: incoming.kingLock, king: incoming.king ?? next.king };
+    // The full lock is kept only when it hashes to the king the chain recorded. The name shown
+    // for the king never comes from a browser; `nameKing` takes it from the seats.
+    const claimed = ccc.Script.from(incoming.kingLock).hash();
+    if (next.kingHash && sameHex(claimed, next.kingHash)) next = { ...next, kingLock: incoming.kingLock };
     const checked = await refreshFromChain(next);
     if (checked.seen === 'match') next = checked.room;
   }
-  // A room with no match cell has no chain to read, so the clock and the cursor live here.
+  // A room with no match cell has no chain to read, so the clock and the crown live here.
   // Nothing is at stake in that mode — it is the demo floor, not a pot. Only the host may
   // start such a room; a player may move one the host has already started.
   if (!next.matchId && (fromHost || current.status === 'live')) {
@@ -437,7 +499,7 @@ export async function syncCrown(incoming: CrownRoom, sessionAddress: string): Pr
       ...next,
       status: incoming.status,
       round: incoming.round,
-      cursor: incoming.cursor,
+      kingScore: incoming.kingScore,
       potShannons: incoming.potShannons,
       king: incoming.king ?? next.king,
       openedAt: incoming.openedAt ?? next.openedAt,
@@ -446,6 +508,7 @@ export async function syncCrown(incoming: CrownRoom, sessionAddress: string): Pr
       seals: incoming.seals.length ? incoming.seals : next.seals,
     };
   }
+  if (next.matchId) next = await announce(current, next, existing.seats);
   await writeVault({
     room: roomToStored(next),
     hostAddress: host,
@@ -489,7 +552,7 @@ export async function joinCrown(
   await writeVault({ ...existing, seats });
   // Heartbeats arrive every 8s from every seat. They must not each cost a chain read.
   const refreshed = await refreshCached(roomFromStored(existing.room));
-  return { room: publicRoom(refreshed.room), seats };
+  return { room: publicRoom(await nameKing(refreshed.room, seats)), seats };
 }
 
 /** Host removes a lobby that never started, or a crown that is already closed. */
@@ -507,70 +570,5 @@ export async function deleteCrown(id: string, sessionAddress: string): Promise<v
     throw new ApiError('Close the crown before deleting it. The cell is still on chain.', 400);
   }
   const sql = sqlClient();
-  await sql`DELETE FROM keepers_crown_attempts WHERE crown_id = ${id}`;
   await sql`DELETE FROM keepers_crowns WHERE id = ${id}`;
-}
-
-export async function proofForChoice(
-  id: string,
-  choice: number,
-  address: string,
-): Promise<{ ok: false; closed?: boolean } | { ok: true; proof: string }> {
-  if (!Number.isInteger(choice) || choice < 0 || choice > 3) {
-    throw new ApiError('Pick one of the four options.', 400);
-  }
-  const existing = await readVault(id);
-  if (!existing) throw new ApiError('Crown not found.', 404);
-  const refreshed = await refreshFromChain(roomFromStored(existing.room));
-  const room = refreshed.room;
-  if (room.status !== 'live') throw new ApiError('The clock is not open for answers.', 400);
-  // The entry window is the time everyone needs to lock an entry. Handing out a proof before it
-  // ends would let whoever locked first start the round alone. This sits ahead of the attempt
-  // insert below on purpose: an early click must not use up a wallet's one try on the question.
-  if (inEntryWindow(room, Date.now())) {
-    throw new ApiError('The round has not started. Lock your entry; the question opens for everyone together.', 400);
-  }
-  const question = room.questions[room.cursor];
-  if (!question) throw new ApiError('That question is not in this crown.', 404);
-  const player = normalizeAddress(address);
-  await ensureCrownTables();
-  const db = getDb();
-  const inserted = await db
-    .insert(crownAttempts)
-    .values({ crownId: id, address: player, cursor: room.cursor, choice })
-    .onConflictDoNothing()
-    .returning();
-  const stored =
-    inserted[0] ??
-    (
-      await db
-        .select()
-        .from(crownAttempts)
-        .where(
-          and(
-            eq(crownAttempts.crownId, id),
-            eq(crownAttempts.address, player),
-            eq(crownAttempts.cursor, room.cursor),
-          ),
-        )
-    )[0];
-  if (!stored) throw new ApiError('The attempt could not be saved.', 500);
-  if (stored.choice !== choice) return { ok: false, closed: true };
-  if (choice !== question.correct) {
-    if (inserted[0]) {
-      room.feed = [
-        {
-          id: `${Date.now()}`,
-          text: 'Miss. That question is closed for this wallet. The cell does not move.',
-          good: false,
-        },
-        ...room.feed,
-      ].slice(0, 8);
-      await writeVault({ ...existing, room: roomToStored(room) });
-    }
-    return { ok: false, closed: true };
-  }
-  const matchId = room.matchId ? hexToBytes(room.matchId) : new Uint8Array(32);
-  const proof = stealProof(matchId, room.questions, room.cursor);
-  return { ok: true, proof: bytesToHex(proof) };
 }

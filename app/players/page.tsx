@@ -19,7 +19,7 @@ export default function PlayersPage() {
       </p>
       <h1 className="mt-2 font-poster text-5xl uppercase leading-none text-white">Who is here</h1>
       <p className="mt-3 max-w-xl text-sm text-white/60">
-        People who connected and set a picture. Challenge one by hosting a crown they can enter.
+        Challenge a player by hosting a crown.
       </p>
       {players.isLoading ? (
         <p className="mt-8 font-mono text-xs uppercase text-white/40">Loading players…</p>

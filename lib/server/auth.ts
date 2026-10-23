@@ -6,6 +6,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import * as ccc from '@ckb-ccc/core';
 import { ApiError } from '@/lib/server/errors';
+import { getServerCkbClient } from '@/lib/ckb/server-client';
 
 const COOKIE = 'kr_session';
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -164,6 +165,88 @@ export async function verifyWalletSignature(input: {
     console.warn('[auth] verifyMessage failed:', err);
     return false;
   }
+}
+
+/**
+ * Does the key that signed actually control the address being claimed?
+ *
+ * A valid signature alone proves nothing about the address: anyone can sign a challenge issued for
+ * someone else's address with their own key. So the addresses the signing key controls are derived
+ * here from its identity, and the claimed address must be one of them.
+ */
+export async function signerControlsAddress(input: {
+  address: string;
+  identity: string;
+  signType: string;
+}): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const client = getServerCkbClient();
+  let claimed: string;
+  try {
+    claimed = (await ccc.Address.fromString(input.address.trim(), client)).script.hash();
+  } catch {
+    return { ok: false, reason: 'That is not a valid address on this network.' };
+  }
+  const controls = (scripts: ccc.Script[]) => scripts.some((script) => script.hash() === claimed);
+
+  try {
+    switch (input.signType) {
+      case ccc.SignerSignType.JoyId: {
+        const { publicKey, keyType } = JSON.parse(input.identity) as { publicKey: string; keyType: string };
+        if (keyType === 'sub_key') {
+          // A second device signs with its own key; JoyID's server lists the keys each address has added.
+          return (await joyIdKeyListed(input.address.trim(), publicKey))
+            ? { ok: true }
+            : { ok: false, reason: 'That JoyID key does not own this address.' };
+        }
+        if (keyType !== 'main_key') {
+          return { ok: false, reason: 'This JoyID key type cannot sign in.' };
+        }
+        // JoyID main-key lock args: 0x0001 followed by blake160 of the public key.
+        const blake160 = ccc.hashCkb(ccc.hexFrom(publicKey.startsWith('0x') ? publicKey : `0x${publicKey}`)).slice(2, 42);
+        const lock = await ccc.Script.fromKnownScript(client, ccc.KnownScript.JoyId, `0x0001${blake160}`);
+        return controls([lock]) ? { ok: true } : { ok: false, reason: 'That JoyID key does not own this address.' };
+      }
+      case ccc.SignerSignType.CkbSecp256k1: {
+        const signer = new ccc.SignerCkbPublicKey(client, input.identity);
+        return controls((await signer.getAddressObjs()).map((address) => address.script))
+          ? { ok: true }
+          : { ok: false, reason: 'That key does not own this address.' };
+      }
+      case ccc.SignerSignType.EvmPersonal:
+      case ccc.SignerSignType.BtcEcdsa:
+      case ccc.SignerSignType.NostrEvent:
+      case ccc.SignerSignType.DogeEcdsa: {
+        const signer =
+          input.signType === ccc.SignerSignType.EvmPersonal
+            ? new ccc.SignerEvmAddressReadonly(client, input.identity)
+            : input.signType === ccc.SignerSignType.BtcEcdsa
+              ? new ccc.SignerBtcPublicKeyReadonly(client, '', input.identity)
+              : input.signType === ccc.SignerSignType.NostrEvent
+                ? new ccc.SignerNostrPublicKeyReadonly(client, input.identity)
+                : new ccc.SignerDogeAddressReadonly(client, input.identity);
+        return controls((await signer.getAddressObjs()).map((address) => address.script))
+          ? { ok: true }
+          : { ok: false, reason: 'That wallet does not own this address.' };
+      }
+      default:
+        return { ok: false, reason: 'This wallet type cannot sign in yet.' };
+    }
+  } catch (err) {
+    console.warn('[auth] could not derive the signer address:', err);
+    return { ok: false, reason: 'Could not confirm this wallet owns the address.' };
+  }
+}
+
+/** The same lookup @joyid/ckb's verifyCredential does: is this public key registered to the address? */
+async function joyIdKeyListed(address: string, publicKey: string): Promise<boolean> {
+  const server = address.startsWith('ckt') ? 'https://api.testnet.joyid.dev/api/v1' : 'https://api.joyid.dev/api/v1';
+  const res = await fetch(`${server}/credentials/${address}`, { cache: 'no-store' });
+  if (!res.ok) return false;
+  const body = (await res.json()) as { credentials?: { ckb_address: string; public_key: string }[] };
+  const key = publicKey.replace(/^0x/, '').toLowerCase();
+  return (body.credentials ?? []).some(
+    (c) => c.ckb_address === address && c.public_key.slice(2).toLowerCase() === key,
+  );
 }
 
 export { COOKIE as SESSION_COOKIE_NAME };

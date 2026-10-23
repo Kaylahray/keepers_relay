@@ -1,23 +1,36 @@
 # Keepers Relay — Crowns
 
-Crowns is the live game. A host writes a bank of four-option questions. Players sit in a lobby, lock an entry fee, and race. The first confirmed correct answer becomes king and grows the pot. The chain decides the winner. The server never signs “correct.”
+Crowns is the live game: a shrinking clock and a growing pot, with a crown that moves to whoever posts the best score. Players run a short arcade game (the lane runner) in the browser. A run that beats the standing score can be submitted, and the match script **replays the run on chain** before it lets the crown move. Nobody signs a steal, and nobody — host, server, or this site — can decide who wins.
 
-The old event product lives in `spore/parked-event-engine`. It is parked, not deleted. The live app nav is Home, Crowns, Host, Profile.
-
-There is one game. Lyric lines are the same four-option bank with a lyric skin. They use the same lobby, the same match cell, and the same scripts.
+Version 2 (2026-10) replaced the four-option quiz. The quiz let the host win their own match (they knew every answer), let anyone copy an answer proof out of the mempool, and shipped a default bank whose salts were public. See "Why v2" at the end.
 
 ## One match, from lobby to payout
 
-1. The host writes questions on **Host** (`/create`). Each question has four options, one correct index, and a secret salt. Sealing computes a Merkle root from that bank. Sealing does not send a CKB transaction. Question text never goes on chain.
-2. Sealing saves the crown on the server and opens the lobby at `/play/{id}`. Anyone with that link can sit. A seat is a server record, not a bid.
-3. The host presses **Start the clock**. That is the host’s only game signature. It creates two cells: the match cell and the treasury cell. The match cell stores the Merkle root, the entry fee, the deadline, and an empty king.
-4. Each player presses **Lock your entry**. That is the player’s only game signature. It creates a bid cell locked to that player, holding the entry fee plus a fee reserve. A bid cannot exist before the match cell, because the bid script requires the live match cell as a dependency.
-5. Players answer the same question. A correct pick asks the server for a Merkle proof. The steal transaction spends the match cell, the treasury, and that player’s bid. Nobody signs the steal. The script checks the proof against the root already stored in the match cell.
-6. One steal can confirm. The match cell is one cell, and a cell can be spent once. If several players answer correctly together, the first steal that lands becomes king. The others keep their bids and can answer the next question.
-7. Each steal adds the entry fee to the pot, writes the winner’s lock hash as king, and **cuts** time off the deadline. Round 1 removes 10 minutes. The cut then halves every two rounds, with a floor of 72 seconds. This is sudden death: every crown taken makes the match shorter for everyone, so the pot is always racing the clock down. `shrink_ms` in `contracts/common` and `shrinkMs` in `lib/sudden-death/codec.ts` are the same function, and the script rejects a steal whose output deadline is not exactly `shrunk_deadline(input_deadline, round)`.
-8. **Close the crown** spends the match cell and the treasury after the chain clock has passed the deadline. The king receives the pot. The host receives the rest. If the host is also the king, one payment must cover both. A bid left out of that transaction stays frozen.
+1. The host opens a crown on **Host** (`/create`): the game, a title, the length and the entry fee. This saves the lobby on the server. No transaction yet.
+2. The host presses **Start the clock**, their only game signature. It creates the match cell and the treasury cell. The match cell records the deadline, the fee, the game (the data hash of the game script), the treasury and bid scripts, a king score of 0, and an empty king. The deadline carries a 3-minute pad that the screens show as an entry window (`lib/crown/phase.ts`).
+3. Every player gets their own course for this match: `seed = blake2b("crowns/run-seed/v1" ‖ match id ‖ their lock hash)`. Practice is free and unlimited.
+4. To play for the pot a player locks an entry: a bid cell holding the fee plus 0.1 CKB of fee reserve. It is the player's only game signature. The bid locks to itself (Input Type Proxy Lock with args = its own type hash), so bid-type alone decides how it is spent. It records `refund_after = deadline + 1 hour`.
+5. A run that beats the crown is submitted as a steal: the match cell, the treasury and the bid in, a run witness (`version ‖ tape`, where the tape is `tick u16 ‖ lane u8` events) in the match cell's `input_type`. `match-type` spawns the game script (CKB-VM v2 `spawn`), which replays the tape on the stealer's course and returns the score. The steal is valid only if that score beats the stored king score and is the score written back, the new king is a different lock, the pot grows by exactly the fee, and the deadline is exactly `shrunk_deadline(old, round)`: 10 minutes off at round 1, halving every two rounds, never under 72 seconds.
+6. One steal can confirm per match cell. If two land together, one wins; the other player's run is still theirs and can be resubmitted if it still beats the new crown.
+7. **Close the crown** spends the match cell and the treasury once the chain's median time passes the deadline. Anyone may send it. The king receives the pot, the host the rest, and every entry included goes back to its owner. An entry left out can be returned by anyone after its `refund_after`, to its owner only.
 
-The screen clock is a prediction. The deadline inside the match cell is what the chain enforces, and only as “not before.” The bar hitting zero does not stop steals. Closing is rejected until CKB’s median time passes the deadline. Median time lags wall clock by minutes.
+The deadline is enforced only as "not before": CKB scripts cannot say "not after". After the clock hits zero the match is in overtime until a close lands, and a better run can still take the crown. Median time lags the wall clock by a couple of minutes, so a close lands a little after zero.
+
+A full two-minute run costs about 1.44M cycles to verify, under 0.05% of a block. The browser runs the same Rust rules compiled to wasm (`scripts/sudden-death/game-wasm`, served from `public/games/lane-runner.wasm`), so the score a player sees is the score the chain computes.
+
+### Testing it locally
+
+`offckb node` starts a devnet. `pnpm exec tsx scripts/crowns-devnet/deploy.ts` deploys the five code cells and writes `scripts/crowns-devnet/.env.devnet`. `pnpm exec tsx scripts/crowns-devnet/e2e.ts` then plays a whole match through `lib/crown/chain.ts` with three devnet accounts and checks the chain after every step. The script tests (`cargo test -p tests` in `scripts/sudden-death`) cover every rejection path with its exact error code.
+
+### Why v2
+
+- The host sealed the bank, so the host knew every answer and could win their own match from a second wallet.
+- An answer proof sat in the steal witness and named nobody, so a mempool watcher could copy it into their own steal.
+- The built-in floor bank used fixed salts published in the source, so anyone could compute every proof.
+- Questions had to be answered in order and the bank capped the rounds, so early steals were donations and the last question decided everything.
+- An AI answers trivia in under a second.
+
+A score that the chain replays on a course bound to the player fixes the first four. Bots can still play a deterministic game, as they can any game; the chain proves a run is legal, not that a person played it.
 
 ## Frontend
 

@@ -73,41 +73,6 @@ export const ckbJsVm: ScriptConfig = {
   depType: asDepType(process.env.NEXT_PUBLIC_CKB_JS_VM_DEP_TYPE),
 };
 
-export const sudtType: ScriptConfig = {
-  codeHash: pick(process.env.NEXT_PUBLIC_SUDT_CODE_HASH),
-  hashType: asHashType(process.env.NEXT_PUBLIC_SUDT_HASH_TYPE),
-  // Simple UDT requires owner lock hash (32 bytes) in type args.
-  args: pick(process.env.NEXT_PUBLIC_SUDT_OWNER_LOCK_HASH),
-  outPoint: {
-    txHash: pick(process.env.NEXT_PUBLIC_SUDT_TX_HASH),
-    index: pick(process.env.NEXT_PUBLIC_SUDT_INDEX, "0x0"),
-  },
-  depType: asDepType(process.env.NEXT_PUBLIC_SUDT_DEP_TYPE),
-};
-
-export const rewardClaimType: ScriptConfig = {
-  codeHash: pick(process.env.NEXT_PUBLIC_REWARD_CLAIM_TYPE_CODE_HASH),
-  hashType: asHashType(process.env.NEXT_PUBLIC_REWARD_CLAIM_TYPE_HASH_TYPE),
-  args: pick(process.env.NEXT_PUBLIC_REWARD_CLAIM_TYPE_ARGS),
-  outPoint: {
-    txHash: pick(process.env.NEXT_PUBLIC_REWARD_CLAIM_BYTECODE_TX_HASH),
-    index: pick(process.env.NEXT_PUBLIC_REWARD_CLAIM_BYTECODE_INDEX, "0x0"),
-  },
-  depType: asDepType(process.env.NEXT_PUBLIC_REWARD_CLAIM_BYTECODE_DEP_TYPE),
-};
-
-export const rewardTreasuryLock: ScriptConfig = {
-  codeHash: pick(process.env.NEXT_PUBLIC_REWARD_TREASURY_LOCK_CODE_HASH),
-  hashType: asHashType(process.env.NEXT_PUBLIC_REWARD_TREASURY_LOCK_HASH_TYPE),
-  // Args must be the full script hash of `rewardClaimType`.
-  args: pick(process.env.NEXT_PUBLIC_REWARD_TREASURY_LOCK_ARGS),
-  outPoint: {
-    txHash: pick(process.env.NEXT_PUBLIC_REWARD_TREASURY_BYTECODE_TX_HASH),
-    index: pick(process.env.NEXT_PUBLIC_REWARD_TREASURY_BYTECODE_INDEX, "0x0"),
-  },
-  depType: asDepType(process.env.NEXT_PUBLIC_REWARD_TREASURY_BYTECODE_DEP_TYPE),
-};
-
 /** Sudden Death match type. Empty until the Pudge deploy fills these env vars. */
 export const suddenDeathMatchType: ScriptConfig = {
   codeHash: pick(process.env.NEXT_PUBLIC_SD_MATCH_CODE_HASH),
@@ -155,26 +120,20 @@ export const suddenDeathTreasuryLock: ScriptConfig = {
 };
 
 /**
- * CKBFS type script — witness-based content storage, used to publish a finished match's bank.
- *
- * The protocol thread ships code but publishes no code hash, so this has to point at a cell we
- * deploy ourselves from `code-monad/ckbfs`. Until these are set, revealing is unavailable and
- * the app says so rather than pretending.
+ * The game script match-type spawns to score a run. It is never a lock or type script, so it
+ * only needs a code cell: `codeHash` is the data hash of that cell, which is also what the match
+ * cell records as its game.
  */
-export const ckbfsType: ScriptConfig = {
-  codeHash: pick(process.env.NEXT_PUBLIC_CKBFS_CODE_HASH),
-  hashType: asHashType(process.env.NEXT_PUBLIC_CKBFS_HASH_TYPE ?? "data1"),
+export const suddenDeathGame: ScriptConfig = {
+  codeHash: pick(process.env.NEXT_PUBLIC_SD_GAME_CODE_HASH),
+  hashType: "data2",
   args: "0x",
   outPoint: {
-    txHash: pick(process.env.NEXT_PUBLIC_CKBFS_TX_HASH),
-    index: pick(process.env.NEXT_PUBLIC_CKBFS_INDEX, "0x0"),
+    txHash: pick(process.env.NEXT_PUBLIC_SD_GAME_TX_HASH),
+    index: pick(process.env.NEXT_PUBLIC_SD_GAME_INDEX, "0x0"),
   },
-  depType: asDepType(process.env.NEXT_PUBLIC_CKBFS_DEP_TYPE),
+  depType: "code",
 };
-
-export function ckbfsConfigured(): boolean {
-  return ckbfsType.codeHash.length > 2 && ckbfsType.outPoint.txHash.length > 2;
-}
 
 export function registryConfigured(): boolean {
   return (
@@ -189,43 +148,10 @@ export function registryConfigured(): boolean {
   );
 }
 
-export function sudtConfigured(): boolean {
-  return (
-    sudtType.codeHash.length > 2 &&
-    sudtType.args.length > 2 &&
-    sudtType.outPoint.txHash.length > 2
-  );
-}
-
-export function rewardClaimsConfigured(): boolean {
-  return (
-    sudtConfigured() &&
-    rewardClaimType.codeHash.length > 2 &&
-    rewardClaimType.outPoint.txHash.length > 2 &&
-    rewardTreasuryLock.codeHash.length > 2 &&
-    rewardTreasuryLock.args.length > 2 &&
-    rewardTreasuryLock.outPoint.txHash.length > 2
-  );
-}
-
 export function assertRegistryConfigured(): void {
   if (registryConfigured()) return;
   throw new Error(
     "Missing registry env vars — copy `.env.local.example` to `.env.local` with all NEXT_PUBLIC_USERNAME_*, NEXT_PUBLIC_PROFILE_*, and NEXT_PUBLIC_CKB_JS_VM_* entries filled (from deployment/scripts.json after offckb deploy).",
-  );
-}
-
-export function assertSudtConfigured(): void {
-  if (sudtConfigured()) return;
-  throw new Error(
-    "Missing sUDT env vars — set NEXT_PUBLIC_SUDT_* in `.env.local` from deployed sUDT script metadata.",
-  );
-}
-
-export function assertRewardClaimsConfigured(): void {
-  if (rewardClaimsConfigured()) return;
-  throw new Error(
-    "Missing reward claim env vars — set NEXT_PUBLIC_REWARD_CLAIM_* and NEXT_PUBLIC_REWARD_TREASURY_* from deployed reward contracts.",
   );
 }
 
@@ -237,14 +163,16 @@ export function suddenDeathConfigured(): boolean {
     suddenDeathBidType.outPoint.txHash.length > 2 &&
     suddenDeathTreasuryLock.codeHash.length > 2 &&
     suddenDeathTreasuryLock.outPoint.txHash.length > 2 &&
-    suddenDeathProxyLock.outPoint.txHash.length > 2
+    suddenDeathProxyLock.outPoint.txHash.length > 2 &&
+    suddenDeathGame.codeHash.length > 2 &&
+    suddenDeathGame.outPoint.txHash.length > 2
   );
 }
 
 export function assertSuddenDeathConfigured(): void {
   if (suddenDeathConfigured()) return;
   throw new Error(
-    "Missing Sudden Death env — set NEXT_PUBLIC_SD_MATCH_*, NEXT_PUBLIC_SD_BID_*, and NEXT_PUBLIC_SD_TREASURY_* after the Pudge deploy.",
+    "Missing Sudden Death env — set NEXT_PUBLIC_SD_MATCH_*, NEXT_PUBLIC_SD_BID_*, NEXT_PUBLIC_SD_TREASURY_* and NEXT_PUBLIC_SD_GAME_* after the v2 deploy.",
   );
 }
 
@@ -257,11 +185,4 @@ export const USERNAME_RULES = {
   maxLength: 32,
   pattern: /^[a-z0-9_]+$/,
   hint: "3–32 chars · lowercase letters, numbers, underscore",
-} as const;
-
-export const PROFILE_RULES = {
-  nameMaxLength: 64,
-  bioMaxLength: 280,
-  headlineMaxLength: 80,
-  maxSkills: 12,
 } as const;

@@ -12,6 +12,8 @@ use std::path::PathBuf;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod replay;
 
 pub struct Loader(PathBuf);
 

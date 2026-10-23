@@ -5,6 +5,7 @@ import { Check, Loader2, X } from 'lucide-react';
 import { ArenaStage } from '@/components/arena/ArenaStage';
 import { getCkbClient } from '@/lib/ckb/client';
 import { ckbWhole } from '@/lib/crown/rooms';
+import { loadLaneRunner } from '@/lib/game/lane-runner';
 import { replayMatch, VerifyError, type MatchReplay, type StealCheck } from '@/lib/sudden-death/verify';
 
 function short(hex: string, head = 10, tail = 6): string {
@@ -43,8 +44,11 @@ function StealRow({ steal, fee }: { steal: StealCheck; fee: bigint }) {
           Round {steal.round}
         </span>
         <span className="font-mono text-[11px] text-white/55">
-          question {steal.questionIndex >= 0 ? steal.questionIndex + 1 : '?'} · option{' '}
-          {steal.correct >= 0 ? ['A', 'B', 'C', 'D'][steal.correct] ?? steal.correct : '?'}
+          score <span className="text-white">{steal.score}</span> · replayed here{' '}
+          <span className={steal.replayed === steal.score ? 'text-[#99ee2d]' : 'text-[#ff8b98]'}>
+            {steal.replayed ?? '—'}
+          </span>{' '}
+          · {steal.moves} moves
         </span>
       </div>
 
@@ -59,11 +63,11 @@ function StealRow({ steal, fee }: { steal: StealCheck; fee: bigint }) {
       <p className="mt-1 font-mono text-[10px] text-white/35">{stamp(steal.deadlineAfter)} deadline</p>
 
       <div className="mt-2 flex flex-wrap gap-1.5">
-        <Rule ok={steal.proofOk} label="merkle proof" />
+        <Rule ok={steal.runOk} label="run replayed, beats the crown" />
         <Rule ok={steal.roundOk} label="round +1" />
         <Rule ok={steal.potOk} label="pot +fee" />
         <Rule ok={steal.clockOk} label="clock cut" />
-        <Rule ok={steal.immutableOk} label="bank unchanged" />
+        <Rule ok={steal.immutableOk} label="game and fee unchanged" />
       </div>
 
       <a
@@ -91,7 +95,7 @@ export function VerifyView({ initialTx }: { initialTx?: string }) {
     setError(null);
     setReplay(null);
     try {
-      setReplay(await replayMatch(getCkbClient(), target));
+      setReplay(await replayMatch(getCkbClient(), target, await loadLaneRunner()));
     } catch (caught) {
       setError(
         caught instanceof VerifyError
@@ -124,9 +128,7 @@ export function VerifyView({ initialTx }: { initialTx?: string }) {
         Check the crown
       </h1>
       <p className="mt-4 max-w-2xl text-sm leading-relaxed text-white/65">
-        Paste any transaction from a match. This page walks the whole game back to the moment it
-        opened and re-checks every rule the script enforces — the Merkle proof behind each correct
-        answer, the round, the pot, and the clock that each crown cut short.
+        Paste any transaction from a crown to replay it from the chain.
       </p>
       <p className="mt-2 max-w-2xl font-mono text-[11px] uppercase tracking-wider text-[#99ee2d]/80">
         Nothing here touches our server. It reads the chain directly, in your browser.
@@ -178,7 +180,7 @@ export function VerifyView({ initialTx }: { initialTx?: string }) {
                 ? 'This match opened and nobody has taken the crown yet.'
                 : `${replay.steals.length} ${replay.steals.length === 1 ? 'crown' : 'crowns'} taken. ` +
                   (replay.ok
-                    ? 'Each one proved a committed answer and cut the clock by exactly what the script demands.'
+                    ? 'Every run replays to its score and every cut matches.'
                     : 'At least one steal broke a rule. That should be impossible on chain — please report it.')}
             </p>
           </div>
@@ -211,8 +213,11 @@ export function VerifyView({ initialTx }: { initialTx?: string }) {
               </dd>
             </div>
             <div className="col-span-2 sm:col-span-3">
-              <dt className="text-white/40 uppercase tracking-wider">Bank root (committed at open)</dt>
-              <dd className="break-all text-white/70">{replay.root}</dd>
+              <dt className="text-white/40 uppercase tracking-wider">Game script (data hash, fixed at open)</dt>
+              <dd className="break-all text-white/70">
+                {replay.game}
+                {replay.gameKnown ? '' : ' · not a game this page can replay'}
+              </dd>
             </div>
           </dl>
 
@@ -225,9 +230,7 @@ export function VerifyView({ initialTx }: { initialTx?: string }) {
           ) : null}
 
           <p className="mt-8 border-t border-white/10 pt-4 font-mono text-[10px] leading-relaxed text-white/35">
-            The proof carries the hash of the question, never the question. A match can be audited
-            down to the last round without anyone learning what was asked — and a wrong answer
-            cannot produce a path that reaches the root above.
+            Runs are replayed with the same rules the chain uses.
           </p>
         </div>
       ) : null}

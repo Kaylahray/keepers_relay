@@ -1,4 +1,5 @@
 [workspace]
+exclude = ["game-wasm"]
 resolver = "2"
 
 members = [
@@ -6,6 +7,8 @@ members = [
   "contracts/match-type",
   "contracts/bid-type",
   "contracts/treasury-lock",
+  "contracts/game-core",
+  "contracts/lane-runner",
   "tests",
 ]
 

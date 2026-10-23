@@ -1,0 +1,8 @@
+[package]
+name = "crowns-game-core"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+description = "Crowns lane runner: deterministic rules shared by the browser (wasm) and CKB-VM (riscv)"
+
+[dependencies]

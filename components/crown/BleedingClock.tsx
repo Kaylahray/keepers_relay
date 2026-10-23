@@ -28,15 +28,15 @@ export function playClock(deadlineAt: number | null, now: number): { face: strin
   const left = deadlineAt - now;
   if (left <= 0) {
     return {
-      face: 'Still open',
+      face: '0:00',
       counting: false,
-      caption: 'The host may close and pay the king. A correct answer still takes the crown until that close lands.',
+      caption: 'Time is up.',
     };
   }
   return {
     face: formatLeft(left),
     counting: true,
-    caption: 'Time left to play. A correct answer takes the crown while this counts down. At zero the host may close.',
+    caption: 'Time left.',
   };
 }
 

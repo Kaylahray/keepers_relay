@@ -103,7 +103,7 @@ export function CrownWatchView({ id }: { id: string }) {
               ? 'Waiting for the clock to start.'
               : closed
                 ? `${ckbWhole(room.potShannons)} CKB was paid to ${paidYou ? 'you' : room.king ?? 'the open seat'}.`
-                : 'Players can take the crown while the clock counts. At zero the host may close, and a correct answer still counts until that close lands.'}
+                : 'Beat the score to take the crown before the clock runs out.'}
           </p>
         </NeonPlate>
         <NeonPlate className="p-6">
@@ -112,7 +112,7 @@ export function CrownWatchView({ id }: { id: string }) {
             <PlayCode id={id} size={220} />
           </div>
           <p className="mt-4 text-sm text-white/70">
-            Spectators watch this screen. The code opens the play page. This page does not answer.
+            Spectators watch this screen. The code opens the play page. This page does not play.
           </p>
           <div className="mt-6 flex flex-wrap gap-2">
             <Link href={playPath} className="arena-cta inline-flex px-4 py-2 font-mono text-[11px] font-bold uppercase">

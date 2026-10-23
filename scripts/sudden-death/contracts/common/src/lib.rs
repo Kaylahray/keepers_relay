@@ -5,11 +5,13 @@ extern crate alloc;
 use alloc::vec::Vec;
 use blake2b_ref::Blake2bBuilder;
 use ckb_std::ckb_constants::Source;
+use ckb_std::ckb_types::core::ScriptHashType;
 use ckb_std::ckb_types::packed::Script;
 use ckb_std::high_level::{
-    load_cell_capacity, load_cell_data, load_cell_lock, load_cell_lock_hash, load_cell_type,
-    load_cell_type_hash, load_script, load_script_hash, load_witness_args, QueryIter,
+    encode_hex, load_cell_capacity, load_cell_data, load_cell_lock, load_cell_lock_hash, load_cell_type,
+    load_cell_type_hash, load_script, load_script_hash, load_witness_args, spawn_cell, QueryIter,
 };
+use ckb_std::syscalls::{pipe, read, wait};
 
 pub const ERR_LEN: i8 = -1;
 pub const ERR_MODE: i8 = -2;
@@ -17,31 +19,34 @@ pub const ERR_POT: i8 = -3;
 pub const ERR_ROUND: i8 = -4;
 pub const ERR_CLOCK: i8 = -5;
 pub const ERR_KING: i8 = -6;
-pub const ERR_PROOF: i8 = -7;
+pub const ERR_RUN: i8 = -7;
 pub const ERR_BID: i8 = -8;
 pub const ERR_TREASURY: i8 = -9;
 pub const ERR_SINCE: i8 = -10;
 pub const ERR_IMMUTABLE: i8 = -11;
+pub const ERR_SCORE: i8 = -12;
+pub const ERR_GAME: i8 = -13;
 
 pub const STATUS_LIVE: u8 = 0;
 pub const STATUS_DEAD: u8 = 1;
 
-/// Match cell data. Decay is not stored — the script computes it.
+/// Match cell data, version 2. Decay is not stored — the script computes it.
 ///
 /// ```text
-/// 0   1   version = 1
+/// 0   1   version = 2
 /// 1   1   status (0 live, 1 dead)
 /// 2   4   round u32, starts at 1
 /// 6   8   deadline_ms u64
 /// 14  8   entry_fee shannons u64
 /// 22  8   pot shannons u64
 /// 30  32  king lock hash
-/// 62  32  question-set Merkle root
+/// 62  32  game: data hash of the game script that scores runs
 /// 94  32  treasury lock hash
 /// 126 32  bid type code hash
+/// 158 8   king score u64
 /// ```
-pub const MATCH_DATA_LEN: usize = 158;
-pub const MATCH_VERSION: u8 = 1;
+pub const MATCH_DATA_LEN: usize = 166;
+pub const MATCH_VERSION: u8 = 2;
 pub const OFF_VERSION: usize = 0;
 pub const OFF_STATUS: usize = 1;
 pub const OFF_ROUND: usize = 2;
@@ -49,12 +54,18 @@ pub const OFF_DEADLINE: usize = 6;
 pub const OFF_FEE: usize = 14;
 pub const OFF_POT: usize = 22;
 pub const OFF_KING: usize = 30;
-pub const OFF_ROOT: usize = 62;
+pub const OFF_GAME: usize = 62;
 pub const OFF_TREASURY: usize = 94;
 pub const OFF_BID_CODE: usize = 126;
+pub const OFF_KING_SCORE: usize = 158;
 
-pub const BID_VERSION: u8 = 1;
-/// 0.1 CKB. A steal may spend up to this much of the bid on the miner fee.
+/// Bid cell data, version 2: `version ‖ refund_after_ms u64 ‖ owner lock script (molecule)`.
+pub const BID_VERSION: u8 = 2;
+pub const BID_HEADER_LEN: usize = 9;
+/// A bid nobody used can be refunded this long after the match's deadline at the time it was
+/// locked. Deadlines only ever shrink, so the match is over by then.
+pub const REFUND_GRACE_MS: u64 = 60 * 60 * 1000;
+/// 0.1 CKB. A steal or refund may spend up to this much of the bid on the miner fee.
 pub const MAX_TX_FEE: u64 = 10_000_000;
 /// Input Type Proxy Lock. data1 is byte 2; byte 1 is hash type "type".
 pub const PROXY_HASH_TYPE_DATA1: u8 = 2;
@@ -64,11 +75,9 @@ pub const PROXY_CODE_HASH: [u8; 32] = [
 ];
 
 pub const HASH_PERSONAL: &[u8] = b"ckb-default-hash";
-pub const TAG_LEAF: u8 = 0x00;
-pub const TAG_NODE: u8 = 0x01;
-pub const PROOF_VERSION: u8 = 1;
-pub const PROOF_HEADER_LEN: usize = 70;
-pub const MAX_MERKLE_PATH: usize = 6;
+/// Steal witness (`input_type` of the match cell): `version ‖ tape`.
+pub const RUN_VERSION: u8 = 1;
+pub const SEED_DOMAIN: &[u8] = b"crowns/run-seed/v1";
 
 pub fn read_u32(data: &[u8], offset: usize) -> Result<u32, i8> {
     Ok(u32::from_le_bytes(bytes::<4>(data, offset)?))
@@ -176,90 +185,48 @@ pub fn blake2b_256(parts: &[&[u8]]) -> [u8; 32] {
     out
 }
 
-pub struct StealProof {
-    pub question_index: u16,
-    pub correct_index: u8,
-    pub option_count: u8,
-    pub path_len: u8,
-    pub prompt_hash: [u8; 32],
-    pub salt: [u8; 32],
-    pub siblings: [[u8; 32]; MAX_MERKLE_PATH],
+/// The course a player runs. Folding in their lock hash means a tape copied out of someone else's
+/// pending steal plays a different course for the copier and scores something else.
+pub fn run_seed(match_id: &[u8; 32], owner: &[u8; 32]) -> u64 {
+    let digest = blake2b_256(&[SEED_DOMAIN, match_id, owner]);
+    u64::from_le_bytes(bytes::<8>(&digest, 0).unwrap_or([0u8; 8]))
 }
 
-pub fn parse_steal_proof(raw: &[u8]) -> Result<StealProof, i8> {
-    if raw.len() < PROOF_HEADER_LEN || raw[0] != PROOF_VERSION {
-        return Err(ERR_PROOF);
+/// The tape from the match cell's `input_type` witness.
+pub fn load_run_tape() -> Result<Vec<u8>, i8> {
+    let args = load_witness_args(0, Source::GroupInput).map_err(|_| ERR_RUN)?;
+    let field = args.input_type().to_opt().ok_or(ERR_RUN)?;
+    let raw = field.raw_data();
+    if raw.first() != Some(&RUN_VERSION) {
+        return Err(ERR_RUN);
     }
-    let question_index = u16::from_le_bytes(bytes::<2>(raw, 1)?);
-    let path_len = raw[5];
-    if path_len as usize > MAX_MERKLE_PATH {
-        return Err(ERR_PROOF);
-    }
-    if raw.len() != PROOF_HEADER_LEN + path_len as usize * 32 {
-        return Err(ERR_PROOF);
-    }
-    if (question_index as usize) >= (1usize << path_len) {
-        return Err(ERR_PROOF);
-    }
-    let mut siblings = [[0u8; 32]; MAX_MERKLE_PATH];
-    for level in 0..path_len as usize {
-        siblings[level] = bytes::<32>(raw, PROOF_HEADER_LEN + level * 32)?;
-    }
-    Ok(StealProof {
-        question_index,
-        correct_index: raw[3],
-        option_count: raw[4],
-        path_len,
-        prompt_hash: bytes::<32>(raw, 6)?,
-        salt: bytes::<32>(raw, 38)?,
-        siblings,
-    })
+    Ok(raw[1..].to_vec())
 }
 
-pub fn load_match_proof() -> Result<StealProof, i8> {
-    let args = load_witness_args(0, Source::GroupInput).map_err(|_| ERR_PROOF)?;
-    let field = args.input_type().to_opt().ok_or(ERR_PROOF)?;
-    parse_steal_proof(&field.raw_data())
-}
-
-pub fn leaf_hash(match_id: &[u8; 32], proof: &StealProof) -> [u8; 32] {
-    blake2b_256(&[
-        &[TAG_LEAF],
-        match_id,
-        &proof.question_index.to_le_bytes(),
-        &proof.prompt_hash,
-        &[proof.correct_index, proof.option_count],
-        &proof.salt,
-    ])
-}
-
-pub fn merkle_root(leaf: &[u8; 32], proof: &StealProof) -> [u8; 32] {
-    let mut node = *leaf;
-    for level in 0..proof.path_len as usize {
-        let sibling = &proof.siblings[level];
-        node = if (proof.question_index >> level) & 1 == 0 {
-            blake2b_256(&[&[TAG_NODE], &node, sibling])
-        } else {
-            blake2b_256(&[&[TAG_NODE], sibling, &node])
-        };
+/// Game ABI v1. The game script is spawned from a cell dep found by its data hash, with one
+/// argument, `hex(seed u64 LE ‖ tape)`, and one inherited fd. It writes the score as u64 LE to that
+/// fd and exits 0, or exits non-zero for an illegal tape. Any game that keeps this contract can be
+/// refereed by the same match script.
+pub fn score_run(game: &[u8; 32], seed: u64, tape: &[u8]) -> Result<u64, i8> {
+    let mut arg = Vec::with_capacity(8 + tape.len());
+    arg.extend_from_slice(&seed.to_le_bytes());
+    arg.extend_from_slice(tape);
+    let hex = encode_hex(&arg);
+    let (reader, writer) = pipe().map_err(|_| ERR_GAME)?;
+    let pid = spawn_cell(game, ScriptHashType::Data2, &[hex.as_c_str()], &[writer]).map_err(|_| ERR_GAME)?;
+    let mut score = [0u8; 8];
+    let mut got = 0;
+    while got < score.len() {
+        let n = read(reader, &mut score[got..]).map_err(|_| ERR_RUN)?;
+        if n == 0 {
+            return Err(ERR_RUN);
+        }
+        got += n;
     }
-    node
-}
-
-pub fn verify_steal(match_id: &[u8; 32], root: &[u8; 32], round: u32) -> Result<(), i8> {
-    let proof = load_match_proof()?;
-    if proof.correct_index >= proof.option_count || proof.option_count < 2 {
-        return Err(ERR_PROOF);
+    if wait(pid).map_err(|_| ERR_GAME)? != 0 {
+        return Err(ERR_RUN);
     }
-    let expected = round.checked_sub(1).ok_or(ERR_ROUND)?;
-    if proof.question_index as u32 != expected {
-        return Err(ERR_PROOF);
-    }
-    let leaf = leaf_hash(match_id, &proof);
-    if merkle_root(&leaf, &proof) != *root {
-        return Err(ERR_PROOF);
-    }
-    Ok(())
+    Ok(u64::from_le_bytes(score))
 }
 
 pub fn find_match<'a>(

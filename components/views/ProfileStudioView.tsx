@@ -1,7 +1,6 @@
 ﻿'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { motion } from 'framer-motion';
 import {
   AlertCircle,
   CheckCircle2,
@@ -19,15 +18,7 @@ import { useAuth } from '@/context/auth-provider';
 import { compressForProfile } from '@/lib/image/compress';
 import { PageShell } from '@/components/PageShell';
 import { ProfileShareLink } from '@/components/ProfileShareLink';
-import { CharacterPicker } from '@/components/CharacterPicker';
-import {
-  KEEPER_BADGES,
-  REWARD_LABELS,
-  REWARD_POINTS,
-  type RewardMilestone,
-} from '@/lib/rewards/milestones';
-import { useUnlockBadge, useUpsertBuilder } from '@/hooks/useBuilder';
-import type { CharacterId } from '@/lib/characters';
+import { useUpsertBuilder } from '@/hooks/useBuilder';
 
 const LOOKS = [
   { id: 'lime', label: 'Lime', color: '#99ee2d', ink: '#111111' },
@@ -62,7 +53,6 @@ export function ProfileStudioView() {
   const spore = useSpore();
   const setAvatar = useSetAvatar();
   const clearAvatar = useClearAvatarOnMelt();
-  const unlock = useUnlockBadge();
   const upsert = useUpsertBuilder();
   const onChainProfile = useProfile();
   const onChainUsername = useUsername();
@@ -71,18 +61,12 @@ export function ProfileStudioView() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [compressionNote, setCompressionNote] = useState<string | null>(null);
-  const [characterId, setCharacterId] = useState<CharacterId | null>(null);
   const [headline, setHeadline] = useState('');
   const [profileError, setProfileError] = useState<string | null>(null);
-  const [profileBusy, setProfileBusy] = useState(false);
-  const [releaseOpen, setReleaseOpen] = useState(false);
   const [settingSporeId, setSettingSporeId] = useState<string | null>(null);
-
-  const handle = builder?.username || onChainUsername.username?.username;
 
   useEffect(() => {
     if (builder) {
-      setCharacterId(builder.characterId);
       setHeadline(builder.headline);
     }
   }, [builder]);
@@ -183,44 +167,12 @@ export function ProfileStudioView() {
     }
   }
 
-  async function saveProfile(event: React.FormEvent) {
-    event.preventDefault();
-    if (!address || !builder) return;
-    setProfileError(null);
-    setProfileBusy(true);
-    try {
-      await onChainProfile.save(
-        {
-          name: builder.displayName,
-          headline: headline.trim() || undefined,
-          bio: onChainProfile.profile?.bio,
-          avatarSporeId: builder.avatarSporeId ?? undefined,
-          links: onChainProfile.profile?.links,
-          skills: onChainProfile.profile?.skills,
-        },
-        builder.username,
-      );
-      await upsert.mutateAsync({
-        address,
-        username: builder.username,
-        displayName: builder.displayName,
-        characterId,
-        headline,
-        avatarSporeId: builder.avatarSporeId,
-      });
-    } catch (e) {
-      setProfileError(e instanceof Error ? e.message : 'Profile save failed.');
-    } finally {
-      setProfileBusy(false);
-    }
-  }
-
   if (!isConnected) {
     return (
       <PageShell
         eyebrow="Profile studio"
         title="Mint who you are"
-        intro="Connect your wallet to mint an avatar. The picture shows on your profile after you set it."
+        intro="Connect your wallet to mint an avatar."
       >
         <button
           type="button"
@@ -270,7 +222,7 @@ export function ProfileStudioView() {
             <h2 className="font-poster text-2xl uppercase leading-none">Mint Spore avatar</h2>
           </div>
           <p className="mt-2 text-xs font-semibold text-black/70">
-            Upload a picture, or pick one below. Mint only creates it. It is not your profile picture until you set it.
+            Upload or pick a picture, mint it, then set it as your avatar.
           </p>
           <div className="mt-4 grid grid-cols-4 gap-2">
             {LOOKS.map((look) => (

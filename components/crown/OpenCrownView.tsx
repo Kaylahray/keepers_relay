@@ -1,126 +1,54 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ArenaStage } from '@/components/arena/ArenaStage';
 import { NeonPlate } from '@/components/crown/CrownCard';
-import { emptyQuestion, saveBank } from '@/lib/sudden-death/bank';
-import { bytesToHex, merkleRoot, randomSalt, type BankQuestion } from '@/lib/sudden-death/codec';
-import { useAuth } from '@/context/auth-provider';
-import { EVENT_PRESETS, type EventKind } from '@/lib/sudden-death/events';
-import { publishCrown } from '@/lib/crown/remote';
-import { saveCrown, sealCrown } from '@/lib/crown/rooms';
 import { useWallet } from '@/hooks/useWallet';
 import { useUsername } from '@/hooks/useUsername';
+import { publishCrown } from '@/lib/crown/remote';
+import { DEFAULT_DURATION_MS, FLOOR_CROWN, GAMES, saveCrown, sealCrown, type CrownSetup, type GameId } from '@/lib/crown/rooms';
 import { registryConfigured } from '@/lib/registry/config';
 
-const ZERO_MATCH = new Uint8Array(32);
-const STEPS = ['Event', 'Clock', 'Bank', 'Lobby'] as const;
-const DEFAULT_MINUTES = 120;
+const STEPS = ['Game', 'Clock', 'Lobby'] as const;
 const MAX_MINUTES = 48 * 60;
 
 function minutesOf(durationMs?: number): number {
-  return Math.round((durationMs ?? DEFAULT_MINUTES * 60_000) / 60_000);
+  return Math.round((durationMs ?? DEFAULT_DURATION_MS) / 60_000);
 }
 
 export function OpenCrownView() {
   const router = useRouter();
   const duel = useSearchParams().get('duel');
   const { address, isConnected, isReady } = useWallet();
-  const { ensureAuth } = useAuth();
   const { username: onChainUsername, isLoading: nameLoading } = useUsername();
   const [step, setStep] = useState(0);
-  const [eventId, setEventId] = useState<EventKind | null>(null);
-  const [bank, setBank] = useState(() => EVENT_PRESETS[0]!.bank);
-  const [lengthText, setLengthText] = useState(() => String(minutesOf(EVENT_PRESETS[0]!.bank.durationMs)));
-  const [feeText, setFeeText] = useState(() => String(Number(EVENT_PRESETS[0]!.bank.feeShannons / 100_000_000n)));
+  const [setup, setSetup] = useState<CrownSetup>(() => ({ ...FLOOR_CROWN, title: duel ? 'Duel' : 'Lane Runner crown' }));
+  const [lengthText, setLengthText] = useState(() => String(minutesOf(FLOOR_CROWN.durationMs)));
+  const [feeText, setFeeText] = useState(() => String(Number(FLOOR_CROWN.feeShannons / 100_000_000n)));
   const [shareError, setShareError] = useState<string | null>(null);
   const [sealing, setSealing] = useState(false);
-  const [draftTopic, setDraftTopic] = useState('');
-  const [draftCount, setDraftCount] = useState(8);
-  const [drafting, setDrafting] = useState(false);
-  const [draftError, setDraftError] = useState<string | null>(null);
-
-  /**
-   * Draft a bank to edit. The answer key is whatever is on screen when you seal, so this only
-   * ever saves you typing — it has no say in who wins, and every line is still yours to change.
-   */
-  async function draftBank() {
-    const topic = draftTopic.trim();
-    if (!topic || drafting) return;
-    setDrafting(true);
-    setDraftError(null);
-    try {
-      await ensureAuth();
-      const response = await fetch('/api/bank', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ topic, count: draftCount }),
-      });
-      const data = (await response.json()) as {
-        questions?: Array<{ tag: string; text: string; options: [string, string, string, string]; correct: 0 | 1 | 2 | 3 }>;
-        message?: string;
-      };
-      if (!response.ok || !data.questions) {
-        throw new Error(data.message || 'The draft could not be written.');
-      }
-      const skin = bank.questions[0]?.skin ?? 'quiz';
-      setBank((current) => ({
-        ...current,
-        questions: data.questions!.map((question) => ({
-          skin,
-          tag: question.tag,
-          text: question.text,
-          options: question.options,
-          correct: question.correct,
-          // A fresh salt per question. Reusing one would let the same leaf be recognised
-          // across two different matches.
-          salt: randomSalt(),
-        })),
-      }));
-    } catch (error) {
-      setDraftError(error instanceof Error ? error.message : 'The draft could not be written.');
-    } finally {
-      setDrafting(false);
-    }
-  }
-
-  const root = useMemo(() => {
-    try {
-      return bytesToHex(merkleRoot(ZERO_MATCH, bank.questions));
-    } catch {
-      return null;
-    }
-  }, [bank.questions]);
 
   function commitLength(raw: string) {
     const minutes = Math.round(Number(raw));
     if (!raw.trim() || !Number.isFinite(minutes)) {
-      setLengthText(String(minutesOf(bank.durationMs)));
+      setLengthText(String(minutesOf(setup.durationMs)));
       return;
     }
     const clamped = Math.min(MAX_MINUTES, Math.max(1, minutes));
     setLengthText(String(clamped));
-    setBank((current) => ({ ...current, durationMs: clamped * 60_000 }));
+    setSetup((current) => ({ ...current, durationMs: clamped * 60_000 }));
   }
 
   function commitFee(raw: string) {
     const ckb = Math.round(Number(raw));
     if (!raw.trim() || !Number.isFinite(ckb)) {
-      setFeeText(String(Number(bank.feeShannons / 100_000_000n)));
+      setFeeText(String(Number(setup.feeShannons / 100_000_000n)));
       return;
     }
     const clamped = Math.max(1, ckb);
     setFeeText(String(clamped));
-    setBank((current) => ({ ...current, feeShannons: BigInt(clamped) * 100_000_000n }));
-  }
-
-  function updateQuestion(index: number, next: BankQuestion) {
-    setBank((current) => {
-      const questions = current.questions.slice();
-      questions[index] = next;
-      return { ...current, questions };
-    });
+    setSetup((current) => ({ ...current, feeShannons: BigInt(clamped) * 100_000_000n }));
   }
 
   if (!isReady || (isConnected && registryConfigured() && nameLoading)) {
@@ -137,7 +65,7 @@ export function OpenCrownView() {
         <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">Host</p>
         <h1 className="mt-3 font-poster text-5xl uppercase text-white">Connect first</h1>
         <p className="mt-3 max-w-md text-sm text-white/60">
-          Hosting stays closed until the wallet in the header is connected. This page will not open the wallet for you.
+          Connect your wallet in the header to host.
         </p>
       </ArenaStage>
     );
@@ -148,9 +76,7 @@ export function OpenCrownView() {
       <ArenaStage backHref="/play" backLabel="Crowns">
         <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">Host</p>
         <h1 className="mt-3 font-poster text-5xl uppercase text-white">Claim a username</h1>
-        <p className="mt-3 max-w-md text-sm text-white/60">
-          A connected wallet claims a handle before it can host.
-        </p>
+        <p className="mt-3 max-w-md text-sm text-white/60">Claim a username to host.</p>
         <a href="/join?next=/create" className="arena-cta mt-6 inline-flex px-4 py-2 font-mono text-[11px] font-bold uppercase">
           Claim a username
         </a>
@@ -160,12 +86,8 @@ export function OpenCrownView() {
 
   return (
     <ArenaStage backHref="/play" backLabel="Crowns">
-      <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">
-        Open an event
-      </p>
-      <h1 className="mt-2 font-poster text-5xl uppercase leading-none text-white sm:text-6xl">
-        {STEPS[step]}
-      </h1>
+      <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">Open a crown</p>
+      <h1 className="mt-2 font-poster text-5xl uppercase leading-none text-white sm:text-6xl">{STEPS[step]}</h1>
       {duel ? (
         <p className="mt-3 max-w-xl text-sm text-white/60">
           Duel with {duel.slice(0, 8)}…{duel.slice(-6)}. Hosting this crown is the challenge. They enter from the play link.
@@ -182,31 +104,23 @@ export function OpenCrownView() {
       {step === 0 ? (
         <div className="mt-8">
           <p className="max-w-2xl text-sm text-white/60">
-            Each box is its own event. Pick one, then edit the lines. More events can be added later.
+            Pick the game players race on. More are coming.
           </p>
           <ul className="mt-6 grid max-w-3xl gap-3 sm:grid-cols-2">
-            {EVENT_PRESETS.map((event) => {
-              const on = eventId === event.id;
+            {(Object.keys(GAMES) as GameId[]).map((game) => {
+              const on = setup.game === game;
               return (
-                <li key={event.id}>
+                <li key={game}>
                   <button
                     type="button"
-                    onClick={() => {
-                      setEventId(event.id);
-                      setBank((current) => ({
-                        ...event.bank,
-                        durationMs: current.durationMs,
-                        title: duel ? 'Duel' : event.bank.title,
-                      }));
-                    }}
+                    onClick={() => setSetup((current) => ({ ...current, game }))}
                     className={`relative aspect-[16/10] w-full overflow-hidden border text-left ${on ? 'border-[#99ee2d]' : 'border-white/15'}`}
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={event.cover} alt="" className="absolute inset-0 h-full w-full object-cover" />
-                    <span className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-black/20" />
+                    <span className="absolute inset-0 bg-[repeating-linear-gradient(90deg,transparent_0,transparent_32%,rgba(153,238,45,0.25)_32%,rgba(153,238,45,0.25)_33.3%)]" />
+                    <span className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-black/10" />
                     <span className="relative flex h-full flex-col justify-end p-5">
-                      <span className="font-poster text-3xl uppercase leading-none text-white">{event.title}</span>
-                      <span className="mt-2 text-sm text-white/75">{event.blurb}</span>
+                      <span className="font-poster text-3xl uppercase leading-none text-white">{GAMES[game].title}</span>
+                      <span className="mt-2 text-sm text-white/75">{GAMES[game].blurb}</span>
                     </span>
                   </button>
                 </li>
@@ -219,17 +133,13 @@ export function OpenCrownView() {
       {step === 1 ? (
         <NeonPlate className="mt-8 max-w-2xl p-6">
           <p className="text-sm leading-relaxed text-white/70">
-            You set the opening length in minutes. 120 is two hours. 30 is thirty minutes. Start
-            the clock writes that deadline into the match. Everyone sees the same number. A correct
-            answer grows the pot by the entry fee and shortens the clock: the first one cuts 10
-            minutes, later ones cut less, and the floor is 72 seconds. A length already shorter
-            than the cut ends at one second. The screen is a prediction. The chain timestamp pays.
+            Set the clock and the entry fee. Each crown taken adds the fee to the pot and cuts the clock: 10 minutes first, then less.
           </p>
           <label className="mt-8 block max-w-md">
             <span className="font-mono text-[10px] uppercase text-white/50">Crown title</span>
             <input
-              value={bank.title}
-              onChange={(event) => setBank((current) => ({ ...current, title: event.target.value }))}
+              value={setup.title}
+              onChange={(event) => setSetup((current) => ({ ...current, title: event.target.value }))}
               className="mt-2 w-full border border-white/15 bg-black px-3 py-3 text-white outline-none focus:border-[#99ee2d]"
             />
           </label>
@@ -259,140 +169,20 @@ export function OpenCrownView() {
             />
           </label>
           <p className="mt-4 max-w-xl text-sm text-white/60">
-            The fee is the bid. Spending that bid on a correct answer is what grows the pot. There is
-            no second lobby charge.
+            Players pay only to send a winning run. Unused entries are refunded.
           </p>
         </NeonPlate>
       ) : null}
 
       {step === 2 ? (
-        <div className="mt-8 max-w-xl">
-          <p className="max-w-2xl text-sm text-white/60">
-            You write the lines. Players do not. Each question has four options, and the marked one is
-            the answer. The bank length has to be 2, 4, 8, 16, 32, or 64.
-          </p>
-
-          <NeonPlate className="mt-6 p-4">
-            <p className="font-mono text-[10px] uppercase tracking-wider text-white/50">
-              Start from a draft
-            </p>
-            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-              <input
-                value={draftTopic}
-                onChange={(event) => setDraftTopic(event.target.value)}
-                placeholder="Nigerian afrobeats, 2010 to now"
-                className="min-w-0 flex-1 border border-white/15 bg-black px-3 py-2 text-sm text-white outline-none focus:border-[#99ee2d]"
-              />
-              <select
-                value={draftCount}
-                onChange={(event) => setDraftCount(Number(event.target.value))}
-                className="border border-white/15 bg-black px-3 py-2 font-mono text-sm text-white outline-none focus:border-[#99ee2d]"
-              >
-                {[2, 4, 8, 16, 32].map((size) => (
-                  <option key={size} value={size}>
-                    {size}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={() => void draftBank()}
-                disabled={drafting || !draftTopic.trim()}
-                className="border border-[#99ee2d] px-4 py-2 font-mono text-[11px] uppercase text-[#99ee2d] disabled:opacity-40"
-              >
-                {drafting ? 'Writing…' : 'Draft'}
-              </button>
-            </div>
-            <p className="mt-3 text-xs leading-relaxed text-white/45">
-              This replaces every question below with a draft for you to edit. It is a typing aid:
-              the answer key is whatever you seal, and nothing here decides a round.
-            </p>
-            {draftError ? <p className="mt-2 text-xs text-[#ff8b98]">{draftError}</p> : null}
-          </NeonPlate>
-
-          <ol className="mt-6 space-y-4">
-            {bank.questions.map((question, index) => (
-              <li key={`${index}-${question.salt[0]}`}>
-                <NeonPlate className="p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <p className="font-mono text-[10px] uppercase text-white/50">
-                    Round {index + 1} · {question.skin}
-                  </p>
-                </div>
-                {question.image ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={question.image} alt="" className="mt-3 aspect-video w-full object-cover" />
-                ) : null}
-                <input
-                  value={question.text}
-                  placeholder={question.skin === 'lyric' || question.skin === 'chant' ? 'Line with a ______ blank' : 'Question'}
-                  onChange={(event) => updateQuestion(index, { ...question, text: event.target.value })}
-                  className="mt-3 w-full border border-white/15 bg-black px-3 py-3 text-white outline-none focus:border-[#99ee2d]"
-                />
-                <div className="mt-3 grid gap-2">
-                  {question.options.map((option, optionIndex) => (
-                    <label key={optionIndex} className="flex items-center gap-2">
-                      <input
-                        type="radio"
-                        name={`correct-${index}`}
-                        checked={question.correct === optionIndex}
-                        onChange={() =>
-                          updateQuestion(index, {
-                            ...question,
-                            correct: optionIndex as BankQuestion['correct'],
-                          })
-                        }
-                      />
-                      <input
-                        value={option}
-                        placeholder={`Option ${optionIndex + 1}`}
-                        onChange={(event) => {
-                          const options = [...question.options] as BankQuestion['options'];
-                          options[optionIndex] = event.target.value;
-                          updateQuestion(index, { ...question, options });
-                        }}
-                        className="w-full border border-white/15 bg-black px-3 py-2 text-sm text-white outline-none focus:border-[#99ee2d]"
-                      />
-                    </label>
-                  ))}
-                </div>
-                </NeonPlate>
-              </li>
-            ))}
-          </ol>
-          <button
-            type="button"
-            disabled={bank.questions.length >= 64}
-            onClick={() =>
-              setBank((current) => ({
-                ...current,
-                questions: [
-                  ...current.questions,
-                  ...current.questions.map(() => emptyQuestion(current.questions[0]?.skin ?? 'quiz')),
-                ],
-              }))
-            }
-            className="mt-4 border border-white/20 px-4 py-2 font-mono text-[11px] uppercase text-white disabled:opacity-40"
-          >
-            Double the bank
-          </button>
-        </div>
-      ) : null}
-
-      {step === 3 ? (
         <NeonPlate className="mt-8 max-w-2xl p-5">
-          <p className="font-mono text-[10px] uppercase text-white/70">Merkle root preview</p>
-          <p className="mt-2 break-all font-mono text-xs text-[#bef970]">
-            {root ?? 'Bank length must be 2, 4, 8, 16, 32, or 64, and every line needs text.'}
+          <p className="font-mono text-[10px] uppercase text-white/70">{GAMES[setup.game].title}</p>
+          <p className="mt-2 font-poster text-3xl uppercase leading-none text-white">{setup.title}</p>
+          <p className="mt-3 font-mono text-[11px] uppercase text-[#bef970]">
+            {minutesOf(setup.durationMs)} min · {Number(setup.feeShannons / 100_000_000n)} CKB entry
           </p>
           <p className="mt-4 text-sm leading-relaxed text-white/85">
-            Opening the lobby saves this event so any browser can open the link. The questions stay off CKB.
-            The Merkle root is only a hash of the bank. Starting the clock is the transaction that
-            writes that root into the match cell.
-          </p>
-          <p className="mt-3 text-sm text-white/75">
-            The preview root uses an empty match id. The real root is recomputed when the match cell
-            gets its type id.
+            Open the lobby, share the link, then start the clock when players are in.
           </p>
         </NeonPlate>
       ) : null}
@@ -407,10 +197,9 @@ export function OpenCrownView() {
             Back
           </button>
         ) : null}
-        {step < 3 ? (
+        {step < STEPS.length - 1 ? (
           <button
             type="button"
-            disabled={step === 0 && !eventId}
             onClick={() => {
               if (step === 1) {
                 commitLength(lengthText);
@@ -418,21 +207,17 @@ export function OpenCrownView() {
               }
               setStep((current) => current + 1);
             }}
-            className="arena-cta px-4 py-2 font-mono text-[11px] font-bold uppercase disabled:opacity-40"
+            className="arena-cta px-4 py-2 font-mono text-[11px] font-bold uppercase"
           >
             Continue
           </button>
         ) : (
           <button
             type="button"
-            disabled={!root || sealing}
+            disabled={sealing || !setup.title.trim()}
             onClick={() => {
-              saveBank(bank);
               const host = address.toLowerCase();
-              const sealed = {
-                ...sealCrown(bank),
-                hostAddress: host,
-              };
+              const sealed = { ...sealCrown(setup), hostAddress: host };
               saveCrown(sealed);
               setSealing(true);
               setShareError(null);

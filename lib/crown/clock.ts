@@ -26,8 +26,3 @@ export function noteServerTime(serverNow: number, sentAt: number): void {
 export function nowMs(): number {
   return Date.now() + skewMs;
 }
-
-/** How far this device's clock sits from the lobby's, in ms. Positive means the device is behind. */
-export function clockSkewMs(): number {
-  return skewMs;
-}

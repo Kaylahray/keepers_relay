@@ -3,6 +3,7 @@ import {
   assertChallengeValid,
   mintSessionToken,
   sessionCookieHeader,
+  signerControlsAddress,
   verifyWalletSignature,
 } from '@/lib/server/auth';
 import { ApiError } from '@/lib/server/errors';
@@ -40,6 +41,10 @@ export async function POST(request: Request) {
       signType: body.signType ?? '',
     });
     if (!ok) throw new ApiError('Signature verification failed.', 401);
+
+    // The signature is genuine; now make sure the key behind it owns the address it is signing in as.
+    const owns = await signerControlsAddress({ address, identity: body.identity ?? '', signType: body.signType ?? '' });
+    if (!owns.ok) throw new ApiError(owns.reason, 401);
 
     const { token, exp } = mintSessionToken(address);
     const res = NextResponse.json({ ok: true, address: address.trim(), exp });

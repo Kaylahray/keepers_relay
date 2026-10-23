@@ -42,12 +42,6 @@ async function findProfileCellByOwner(
   return latest;
 }
 
-export async function getProfileCellByOwnerLock(
-  ownerLock: ccc.Script,
-): Promise<{ cell: ccc.Cell; profile: Profile } | null> {
-  return findProfileCellByOwner(ownerLock);
-}
-
 async function findProfileCellByLockHash(
   ownerLockHash: string,
 ): Promise<{ cell: ccc.Cell; profile: Profile; lock: ccc.Script } | null> {
@@ -214,43 +208,6 @@ export async function updateProfile(
     createdAt: 0,
     updatedAt: Date.now(),
   };
-}
-
-export async function appendProfileUpdateToTx(params: {
-  tx: ccc.Transaction;
-  signer: NonNullable<Signer>;
-  profile: Profile;
-}): Promise<{ sanitizedProfile: Profile }> {
-  const cleaned = sanitizeProfile(params.profile);
-  if (cleaned.name.length === 0) {
-    throw new Error("Profile name is required.");
-  }
-
-  const ownerLock = await getOwnerLock(params.signer);
-  const existing = await findProfileCellByOwner(ownerLock);
-  if (!existing) {
-    throw new Error("Profile cell not found for wallet.");
-  }
-
-  const data = encodeProfile(cleaned);
-  const type = getProfileTypeScript();
-  const minCapacity = computeMinCellCapacity(ownerLock, type, data);
-  const capacity =
-    existing.cell.cellOutput.capacity > minCapacity
-      ? existing.cell.cellOutput.capacity
-      : minCapacity;
-
-  params.tx.inputs.push(
-    ccc.CellInput.from({
-      previousOutput: existing.cell.outPoint,
-      since: 0,
-    }),
-  );
-  params.tx.outputs.push(ccc.CellOutput.from({ lock: ownerLock, type, capacity }));
-  params.tx.outputsData.push(ccc.hexFrom(data));
-  params.tx.cellDeps.push(...getProfileCellDeps());
-
-  return { sanitizedProfile: cleaned };
 }
 
 export async function burnProfile(

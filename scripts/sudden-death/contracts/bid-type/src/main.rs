@@ -1,14 +1,19 @@
 #![no_std]
 #![no_main]
 
+//! Bid cell, version 2. The lock is the Input Type Proxy Lock with args equal to this bid's own
+//! type hash, so every spend is decided here and nowhere else. That is what lets a bid outlive its
+//! match: version 1 pointed the lock at the match type, and once the match cell was gone a bid left
+//! out of the close could never be spent again.
+
 use ckb_std::ckb_constants::Source;
 use ckb_std::ckb_types::packed::Script;
 use ckb_std::ckb_types::prelude::Entity;
 use ckb_std::default_alloc;
 use ckb_std::entry;
 use ckb_std::high_level::{
-    load_cell_capacity, load_cell_data, load_cell_occupied_capacity, load_cell_type,
-    load_cell_type_hash,
+    load_cell_capacity, load_cell_data, load_cell_occupied_capacity, load_cell_type, load_cell_type_hash,
+    load_input_since,
 };
 use sudden_death_common::*;
 
@@ -51,18 +56,19 @@ fn count(source: Source) -> Result<usize, i8> {
     }
 }
 
-fn owner_script_matches(data: &[u8], owner: &[u8; 32]) -> Result<(), i8> {
-    if data.first() != Some(&BID_VERSION) || data.len() < 2 {
+/// `version ‖ refund_after_ms ‖ owner script`. Returns refund_after_ms once the script is checked.
+fn parse_bid(data: &[u8], owner: &[u8; 32]) -> Result<u64, i8> {
+    if data.first() != Some(&BID_VERSION) || data.len() <= BID_HEADER_LEN {
         return Err(ERR_LEN);
     }
-    let body = &data[1..];
+    let body = &data[BID_HEADER_LEN..];
     if Script::from_slice(body).is_err() {
         return Err(ERR_LEN);
     }
     if blake2b_256(&[body]) != *owner {
         return Err(ERR_KING);
     }
-    Ok(())
+    read_u64(data, 1)
 }
 
 fn create(match_type_hash: &[u8; 32], owner: &[u8; 32]) -> Result<(), i8> {
@@ -70,11 +76,15 @@ fn create(match_type_hash: &[u8; 32], owner: &[u8; 32]) -> Result<(), i8> {
         return Err(ERR_KING);
     }
     let out = load_cell_data(0, Source::GroupOutput).map_err(|_| ERR_LEN)?;
-    owner_script_matches(&out, owner)?;
-    proxy_guarded(0, Source::GroupOutput, match_type_hash)?;
+    let refund_after = parse_bid(&out, owner)?;
+    proxy_guarded(0, Source::GroupOutput, &current_script_hash()?)?;
 
     let mut buf = [0u8; MATCH_DATA_LEN];
     let (_, match_data) = find_match(match_type_hash, Source::CellDep, &mut buf)?.ok_or(ERR_BID)?;
+    let deadline = read_u64(match_data, OFF_DEADLINE)?;
+    if refund_after != deadline.checked_add(REFUND_GRACE_MS).ok_or(ERR_CLOCK)? {
+        return Err(ERR_CLOCK);
+    }
     let fee = read_u64(match_data, OFF_FEE)?;
     let occupied = load_cell_occupied_capacity(0, Source::GroupOutput).map_err(|_| ERR_LEN)?;
     let cap = load_cell_capacity(0, Source::GroupOutput).map_err(|_| ERR_LEN)?;
@@ -92,7 +102,7 @@ fn create(match_type_hash: &[u8; 32], owner: &[u8; 32]) -> Result<(), i8> {
 fn consume(match_type_hash: &[u8; 32], owner: &[u8; 32]) -> Result<(), i8> {
     let mut in_buf = [0u8; MATCH_DATA_LEN];
     let Some((match_index, data)) = find_match(match_type_hash, Source::Input, &mut in_buf)? else {
-        return Err(ERR_BID);
+        return expire(owner);
     };
     let input_hash = load_cell_type_hash(match_index, Source::Input).map_err(|_| ERR_BID)?;
     if input_hash != Some(*match_type_hash) {
@@ -151,6 +161,28 @@ fn refund(owner: &[u8; 32], match_index: usize, data: &[u8]) -> Result<(), i8> {
         owed = owed.checked_add(share).ok_or(ERR_POT)?;
     }
     if outputs_to_lock(owner)? < owed {
+        return Err(ERR_POT);
+    }
+    Ok(())
+}
+
+/// No match in the transaction: the match was closed without this bid, or never closed. Anyone may
+/// return the bid to its owner once its refund time has passed, paying at most `MAX_TX_FEE`.
+fn expire(owner: &[u8; 32]) -> Result<(), i8> {
+    let n = count(Source::GroupInput)?;
+    let mut owed = 0u64;
+    for i in 0..n {
+        let data = load_cell_data(i, Source::GroupInput).map_err(|_| ERR_LEN)?;
+        let refund_after = parse_bid(&data, owner)?;
+        let since = load_input_since(i, Source::GroupInput).map_err(|_| ERR_SINCE)?;
+        if !since_reaches_deadline(since, refund_after) {
+            return Err(ERR_SINCE);
+        }
+        let cap = load_cell_capacity(i, Source::GroupInput).map_err(|_| ERR_POT)?;
+        owed = owed.checked_add(cap).ok_or(ERR_POT)?;
+    }
+    let due = owed.checked_sub(MAX_TX_FEE).ok_or(ERR_POT)?;
+    if outputs_to_lock(owner)? < due {
         return Err(ERR_POT);
     }
     Ok(())

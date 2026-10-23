@@ -6,10 +6,6 @@ import { fetchCrown } from '@/lib/crown/remote';
 import type { CrownSeat } from '@/lib/crown/seats';
 import { loadCrown, saveCrown, subscribeCrowns, type CrownRoom, type OutPointRef } from '@/lib/crown/rooms';
 
-function realQuestions(room: CrownRoom): boolean {
-  return !room.answersOnServer && room.questions.some((question) => question.salt.some((byte) => byte !== 0));
-}
-
 /** How long a browser may show its own steal before the shared clock must agree. */
 const OPTIMISTIC_STEAL_MS = 90_000;
 
@@ -19,7 +15,7 @@ function ahead(local: CrownRoom, remote: CrownRoom, at: number): boolean {
   if (remote.matchId && remote.deadlineAt != null) {
     // A live match cell is the clock, and no browser keeps its own time against it.
     // The single exception is the player whose steal is still in the mempool: they see the
-    // question they just won, for as long as that steal has a chance of confirming. Everyone
+    // crown they just took, for as long as that steal has a chance of confirming. Everyone
     // else — and they too, once it lands or expires — reads the round out of the cell.
     if (local.round <= remote.round) return false;
     const sent = local.stealPendingAt ?? 0;
@@ -49,36 +45,11 @@ function mergeCrown(
       bidOutPoint: keptBid(local, seatBid),
     };
   }
-  if (!local || !realQuestions(local)) {
-    return {
-      ...remote,
-      answersOnServer: true,
-      bidOutPoint: keptBid(local, seatBid),
-      pendingTx: local?.pendingTx ?? null,
-      pendingKind: local?.pendingKind ?? null,
-      stealPendingAt: null,
-    };
-  }
+  // The server's room is read from the chain, and nothing about it is secret, so it wins.
+  // This browser only adds what is its own: the entry it locked.
   return {
-    ...local,
-    status: remote.status,
-    round: remote.round,
-    cursor: remote.cursor,
-    potShannons: remote.potShannons,
-    king: remote.king,
-    deadlineAt: remote.deadlineAt,
-    openedAt: remote.openedAt ?? local.openedAt,
-    feed: remote.feed.length ? remote.feed : local.feed,
-    seals: remote.seals.length ? remote.seals : local.seals,
-    matchId: remote.matchId ?? local.matchId,
-    hostLockHash: remote.hostLockHash ?? local.hostLockHash,
-    hostLock: remote.hostLock ?? local.hostLock,
-    hostAddress: remote.hostAddress ?? local.hostAddress,
-    matchOutPoint: remote.matchOutPoint ?? local.matchOutPoint,
-    treasuryOutPoint: remote.treasuryOutPoint ?? local.treasuryOutPoint,
-    kingLock: remote.kingLock ?? local.kingLock,
+    ...remote,
     bidOutPoint: keptBid(local, seatBid),
-    answersOnServer: false,
     stealPendingAt: null,
   };
 }
@@ -116,7 +87,7 @@ export function useCrown(id: string) {
             !previous ||
             previous.status !== merged.status ||
             previous.round !== merged.round ||
-            previous.cursor !== merged.cursor ||
+            previous.kingScore !== merged.kingScore ||
             previous.king !== merged.king ||
             previous.deadlineAt !== merged.deadlineAt ||
             previous.matchId !== merged.matchId ||

@@ -39,6 +39,7 @@ yarn-error.log*
 # cargo build cache
 /scripts/event-engine/target/
 /scripts/sudden-death/target/
+/scripts/sudden-death/game-wasm/target/
 /scripts/sudden-death/tests/failed_txs/
 /scripts/event-engine/tests/failed_txs/
 /scripts/event-engine/deployment/**/info.json.bak*
@@ -52,3 +53,7 @@ next-env.d.ts
 
 .vercel
 .env*
+
+# local notes, not committed
+/docs/
+!.env.local.example

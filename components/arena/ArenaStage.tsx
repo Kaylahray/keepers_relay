@@ -82,7 +82,7 @@ export function ArenaRailCard({
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={cover || '/uismod/event-quiz.jpg'}
+        src={cover || '/arena/featured-hero.png'}
         alt=""
         className="h-16 w-14 shrink-0 bg-black/50 object-contain"
       />

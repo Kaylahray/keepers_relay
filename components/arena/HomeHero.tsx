@@ -1,101 +1,61 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { fetchCrownList } from '@/lib/crown/remote';
+import { ckbWhole, GAMES, type CrownRoom } from '@/lib/crown/rooms';
+import { LaneArt } from '@/components/game/LaneArt';
 
 const HERO_BLURB =
-  'Pick a friend, open a lobby, and play the same clock. You might not know the next question. A right answer grows the pot and shrinks the time.';
+  'Every crown taken grows the pot and cuts the clock. Hold it at zero to win.';
 
-type HeroSlide = {
-  id: string;
-  month: string;
-  day: string;
-  title: string;
-  videoSrc: string;
-  href: string;
-  endsAtMs: number | null;
-  staticTimer: string;
-};
-
-const FALLBACK_SLIDES: HeroSlide[] = [
-  {
-    id: 'slide-1',
-    month: 'MARCH',
-    day: '02',
-    title: 'Quiz',
-    videoSrc: '/uismod/event-quiz.jpg',
-    href: '/play',
-    endsAtMs: null,
-    staticTimer: '14:32:38',
-  },
-  {
-    id: 'slide-2',
-    month: 'APRIL',
-    day: '18',
-    title: 'Lyrics',
-    videoSrc: '/uismod/event-lyric.jpg',
-    href: '/play',
-    endsAtMs: null,
-    staticTimer: '09:14:22',
-  },
-  {
-    id: 'slide-3',
-    month: 'MAY',
-    day: '07',
-    title: 'Where is this',
-    videoSrc: '/uismod/event-place.jpg',
-    href: '/play',
-    endsAtMs: null,
-    staticTimer: '21:05:44',
-  },
-];
-
-function pad2(n: number) {
-  return n.toString().padStart(2, '0');
+function clockFace(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
 }
 
-function useSlideTimer(slide: HeroSlide) {
-  const [label, setLabel] = useState(slide.staticTimer);
-
-  useEffect(() => {
-    if (slide.endsAtMs == null) {
-      setLabel(slide.staticTimer);
-      return;
-    }
-    const tick = () => {
-      const rem = Math.max(0, slide.endsAtMs! - Date.now());
-      const h = Math.floor(rem / 3_600_000);
-      const m = Math.floor((rem % 3_600_000) / 60_000);
-      const s = Math.floor((rem % 60_000) / 1000);
-      setLabel(`${pad2(h)}:${pad2(m)}:${pad2(s)}`);
-    };
-    tick();
-    const id = window.setInterval(tick, 1000);
-    return () => window.clearInterval(id);
-  }, [slide.endsAtMs, slide.staticTimer, slide.id]);
-
-  return label;
+/** Live crowns first, soonest deadline first, then lobbies waiting to start. */
+function featured(rooms: CrownRoom[]): CrownRoom[] {
+  const live = rooms
+    .filter((room) => room.status === 'live' && room.deadlineAt != null && room.deadlineAt > Date.now())
+    .sort((a, b) => (a.deadlineAt ?? 0) - (b.deadlineAt ?? 0));
+  const lobbies = rooms.filter((room) => room.status === 'lobby');
+  return [...live, ...lobbies].slice(0, 4);
 }
 
 export function HomeHero() {
-  const slides = FALLBACK_SLIDES;
+  const [rooms, setRooms] = useState<CrownRoom[] | null>(null);
   const [active, setActive] = useState(0);
-  const [paused, setPaused] = useState(false);
-  const slide = slides[Math.min(active, slides.length - 1)] ?? slides[0];
-  const timer = useSlideTimer(slide);
-
-  const goTo = useCallback((i: number) => {
-    setActive(i);
-    setPaused(true);
-  }, []);
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    if (paused) return;
-    const id = window.setInterval(() => {
-      setActive((i) => (i + 1) % slides.length);
-    }, 7000);
-    return () => window.clearInterval(id);
-  }, [slides.length, paused]);
+    let stop = false;
+    const load = () => {
+      if (document.hidden) return;
+      fetchCrownList()
+        .then((list) => {
+          if (!stop) setRooms(featured(list));
+        })
+        .catch(() => {
+          if (!stop) setRooms((current) => current ?? []);
+        });
+    };
+    load();
+    const poll = window.setInterval(load, 15_000);
+    const tick = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => {
+      stop = true;
+      window.clearInterval(poll);
+      window.clearInterval(tick);
+    };
+  }, []);
+
+  const list = rooms ?? [];
+  const room = list[Math.min(active, Math.max(0, list.length - 1))] ?? null;
 
   return (
     <section className="relative isolate overflow-hidden bg-[#111]">
@@ -107,122 +67,118 @@ export function HomeHero() {
       />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-b from-transparent to-[#111]" />
 
-      <div className="relative mx-auto flex min-h-[560px] w-full max-w-[1440px] flex-col px-5 pb-16 pt-10 sm:min-h-[580px] sm:px-10 sm:pt-12 xl:min-h-[620px] xl:pb-14 xl:pt-14">
-        {/*
-          - <900: stack
-          - 900–1279: character + date on one row
-          - 1280+: copy | character | date — separate, never behind
-        */}
-        <div className="grid flex-1 grid-cols-1 items-center gap-8 xl:grid-cols-[minmax(0,1fr)_minmax(240px,340px)_minmax(280px,360px)] xl:gap-6">
-          {/* Copy */}
-          <div className="relative z-10 order-1 max-w-xl xl:order-1 xl:pb-8">
-            <h1 className="font-poster text-[clamp(2.25rem,8vw,4.5rem)] uppercase leading-[0.92] text-white">
-              <span className="block sm:whitespace-nowrap">Dare a friend.</span>
+      <div className="relative mx-auto flex min-h-[560px] w-full max-w-[1440px] flex-col px-5 pb-16 pt-10 sm:px-10 sm:pt-12 xl:min-h-[620px] xl:pt-14">
+        <div className="grid flex-1 grid-cols-1 items-center gap-8 xl:grid-cols-[minmax(0,1fr)_minmax(240px,340px)_minmax(300px,380px)] xl:gap-6">
+          <div className="relative z-10 max-w-xl xl:pb-8">
+            <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">
+              Live on CKB testnet
+            </p>
+            <h1 className="mt-3 font-poster text-[clamp(2.25rem,8vw,4.5rem)] uppercase leading-[0.92] text-white">
+              <span className="block sm:whitespace-nowrap">Beat the score.</span>
               <span className="block sm:whitespace-nowrap">Take the crown.</span>
             </h1>
-            <p className="mt-4 max-w-md text-sm font-thin leading-relaxed text-white/80 sm:mt-5 sm:text-[15px] md:text-base">
+            <p className="mt-4 max-w-md text-sm font-light leading-relaxed text-white/80 sm:mt-5 sm:text-[15px] md:text-base">
               {HERO_BLURB}
             </p>
+            <div className="mt-7 flex flex-wrap items-center gap-x-6 gap-y-3">
+              <Link
+                href="/play"
+                className="arena-cta inline-flex h-12 items-center gap-2 pl-6 pr-10 font-poster text-base uppercase leading-none text-[#111]"
+              >
+                Find a crown
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/uismod/arrow-right.svg" alt="" className="size-5" />
+              </Link>
+              <Link href="/create" className="font-poster text-sm uppercase tracking-wide text-[#99ee2d]">
+                Host one yourself
+              </Link>
+            </div>
           </div>
 
-          <div className="order-2 flex flex-col items-center gap-6 min-[900px]:flex-row min-[900px]:items-end min-[900px]:justify-center min-[900px]:gap-5 xl:contents">
-            {/* Character — never absolute / never behind date */}
-            <div className="pointer-events-none relative z-[5] flex shrink-0 justify-center xl:order-2 xl:h-full xl:self-end xl:justify-center">
-              <div className="relative flex h-[260px] w-full max-w-[240px] items-end justify-center min-[900px]:h-[300px] min-[900px]:max-w-[280px] xl:h-full xl:max-h-[540px] xl:max-w-[380px]">
-                <div className="absolute bottom-[20%] left-1/2 size-[160px] -translate-x-1/2 rounded-full bg-black/45 blur-[60px] min-[900px]:size-[200px] xl:size-[240px]" />
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src="/uismod/hero-character.png"
-                  alt=""
-                  className="relative h-full max-h-[260px] w-auto rotate-[6deg] object-contain object-bottom drop-shadow-[-16px_-4px_40px_rgba(0,0,0,0.55)] min-[900px]:max-h-[300px] xl:max-h-[540px]"
-                />
-              </div>
-            </div>
-
-            {/* Date + JOIN */}
-            <div className="relative z-20 w-full max-w-full min-[900px]:max-w-[420px] xl:order-3 xl:max-w-[360px] xl:justify-self-end xl:self-center">
+          <div className="pointer-events-none relative z-[5] hidden justify-center xl:flex xl:h-full xl:self-end">
+            <div className="relative flex h-full max-h-[540px] w-full max-w-[380px] items-end justify-center">
+              <div className="absolute bottom-[20%] left-1/2 size-[240px] -translate-x-1/2 rounded-full bg-black/45 blur-[60px]" />
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/uismod/polygon.svg"
+                src="/uismod/hero-character.png"
                 alt=""
-                className="pointer-events-none absolute -right-2 -top-8 size-20 opacity-40 sm:-right-4 sm:-top-10 sm:size-28 md:size-32"
+                className="relative h-full max-h-[540px] w-auto rotate-[6deg] object-contain object-bottom drop-shadow-[-16px_-4px_40px_rgba(0,0,0,0.55)]"
               />
-
-              <div className="relative flex flex-row flex-nowrap items-end gap-2 sm:gap-3 xl:flex-col xl:items-stretch xl:gap-4">
-                <div className="relative flex shrink-0 items-stretch gap-2.5 border border-white/10 bg-[#111]/80 p-2.5 backdrop-blur-md sm:gap-3 sm:p-3 [clip-path:polygon(0_0,100%_0,100%_86%,90%_100%,0_100%)]">
-                  <div className="flex min-w-[52px] flex-col items-center justify-center text-center font-poster sm:min-w-[64px]">
-                    <p className="text-xs leading-tight text-white sm:text-sm md:text-base">
-                      {slide.month}
-                    </p>
-                    <p className="text-[2.5rem] leading-none text-[#bef970] sm:text-[3.25rem] md:text-[4rem]">
-                      {slide.day}
-                    </p>
-                    <p className="text-xs leading-tight text-white/50 tabular-nums sm:text-sm md:text-base">
-                      {timer}
-                    </p>
-                  </div>
-
-                  <div className="relative h-[168px] w-[112px] shrink-0 overflow-hidden border border-white/20 sm:h-[196px] sm:w-[132px] md:h-[220px] md:w-[148px]">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      key={slide.videoSrc}
-                      src={slide.videoSrc}
-                      alt=""
-                      className="h-full w-full object-cover object-[center_18%]"
-                    />
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src="/uismod/play.svg"
-                      alt=""
-                      className="pointer-events-none absolute bottom-2 right-2 size-6 sm:size-7"
-                    />
-                  </div>
-                </div>
-
-                <Link
-                  href={slide.href}
-                  className="arena-cta inline-flex h-11 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap pl-4 pr-8 font-poster text-sm uppercase leading-none text-[#111] sm:h-[50px] sm:gap-2 sm:pl-6 sm:pr-10 sm:text-base md:pl-8 md:pr-12 md:text-[18px] xl:w-full xl:justify-between xl:pl-6 xl:pr-6"
-                >
-                  ENTER
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src="/uismod/arrow-right.svg" alt="" className="size-4 shrink-0 sm:size-5 md:size-6" />
-                </Link>
-              </div>
-
-              <p
-                title={slide.title}
-                className="mt-3 max-w-full truncate font-poster text-lg uppercase leading-none text-white sm:text-xl md:text-2xl"
-              >
-                {slide.title}
-              </p>
             </div>
           </div>
-        </div>
 
-        {/* Carousel — pinned bottom-left */}
-        <div
-          className="absolute bottom-5 left-5 z-30 flex items-center gap-2 sm:left-10"
-          role="tablist"
-          aria-label="Featured events"
-        >
-          {slides.map((s, i) => {
-            const isActive = i === active;
-            return (
-              <button
-                key={s.id}
-                type="button"
-                role="tab"
-                aria-selected={isActive}
-                aria-label={`Show ${s.title}`}
-                onClick={() => goTo(i)}
-                className={
-                  isActive
-                    ? 'h-2 w-8 bg-[#99ee2d] transition-all'
-                    : 'size-2 bg-white/25 transition-all hover:bg-white/45'
-                }
-              />
-            );
-          })}
+          <div className="relative z-20 w-full xl:self-center">
+            <div className="border border-white/10 bg-[#111]/85 backdrop-blur-md [clip-path:polygon(0_0,100%_0,100%_92%,94%_100%,0_100%)]">
+              <LaneArt className="h-40 w-full sm:h-44" />
+              {rooms == null ? (
+                <div className="p-5">
+                  <p className="font-mono text-[11px] uppercase text-white/45">Reading the crowns…</p>
+                </div>
+              ) : room ? (
+                <div className="p-5">
+                  <p className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-[#99ee2d]">
+                    {room.status === 'live' ? 'Live now' : 'Lobby open'} · {GAMES[room.game].title}
+                  </p>
+                  <p className="mt-2 truncate font-poster text-3xl uppercase leading-none text-white">{room.title}</p>
+                  <dl className="mt-4 grid grid-cols-3 gap-3 font-mono text-[10px] uppercase text-white/45">
+                    <div>
+                      <dt>Pot</dt>
+                      <dd className="mt-1 font-poster text-2xl leading-none text-[#99ee2d]">{ckbWhole(room.potShannons)}</dd>
+                    </div>
+                    <div>
+                      <dt>To beat</dt>
+                      <dd className="mt-1 font-poster text-2xl leading-none text-[#e1bf47]">{room.kingScore}</dd>
+                    </div>
+                    <div>
+                      <dt>{room.status === 'live' ? 'Time left' : 'Entry'}</dt>
+                      <dd className="mt-1 font-poster text-2xl leading-none text-white tabular-nums">
+                        {room.status === 'live' && room.deadlineAt != null
+                          ? clockFace(room.deadlineAt - now)
+                          : `${ckbWhole(room.feeShannons)}`}
+                      </dd>
+                    </div>
+                  </dl>
+                  <Link
+                    href={`/play/${room.id}`}
+                    className="arena-cta mt-5 inline-flex h-11 w-full items-center justify-between px-5 font-poster text-base uppercase leading-none text-[#111]"
+                  >
+                    {room.status === 'live' ? 'Run for this crown' : 'Take a seat'}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src="/uismod/arrow-right.svg" alt="" className="size-5" />
+                  </Link>
+                </div>
+              ) : (
+                <div className="p-5">
+                  <p className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-[#99ee2d]">No crown running</p>
+                  <p className="mt-2 font-poster text-3xl uppercase leading-none text-white">Open the first one</p>
+                  <p className="mt-3 text-sm text-white/60">Set the clock and the fee.</p>
+                  <Link
+                    href="/create"
+                    className="arena-cta mt-5 inline-flex h-11 w-full items-center justify-between px-5 font-poster text-base uppercase leading-none text-[#111]"
+                  >
+                    Open a crown
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src="/uismod/arrow-right.svg" alt="" className="size-5" />
+                  </Link>
+                </div>
+              )}
+            </div>
+            {list.length > 1 ? (
+              <div className="mt-3 flex items-center gap-2" role="tablist" aria-label="Crowns">
+                {list.map((item, index) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={index === active}
+                    aria-label={`Show ${item.title}`}
+                    onClick={() => setActive(index)}
+                    className={index === active ? 'h-2 w-8 bg-[#99ee2d] transition-all' : 'size-2 bg-white/25 transition-all hover:bg-white/45'}
+                  />
+                ))}
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
     </section>

@@ -1,12 +1,14 @@
 import { ccc } from '@ckb-ccc/core';
-import { suddenDeathMatchType } from '@/lib/registry/config';
+import { suddenDeathGame, suddenDeathMatchType } from '@/lib/registry/config';
+import type { LaneRunner } from '@/lib/game/lane-runner';
 import {
-  ckbHash,
   decodeMatchCell,
   hexToBytes,
   bytesToHex,
+  runSeed,
   shrinkMs,
   shrunkDeadline,
+  tapeFromWitness,
   type MatchCell,
 } from '@/lib/sudden-death/codec';
 
@@ -15,78 +17,13 @@ import {
  *
  * Nothing in this file talks to our server, our database or our lobby API. It takes one
  * transaction hash, finds the match behind it, walks the whole chain of steals, and re-checks
- * every rule `match-type` enforces — the Merkle proof, the round, the pot, the clock, and the
- * fields that are supposed to be immutable.
+ * every rule `match-type` enforces. It replays each winning run itself, in the browser's build of
+ * the game, on the course of the player it crowned, and checks the round, the pot, the clock, and
+ * the fields that are supposed to be immutable.
  *
  * The point is that a sceptic can run it. If this file and the script ever disagree, the script
  * wins and we have a bug worth knowing about.
  */
-
-const TAG_LEAF = 0x00;
-const TAG_NODE = 0x01;
-const PROOF_VERSION = 1;
-const PROOF_HEADER = 70;
-
-export type StealProof = {
-  version: number;
-  questionIndex: number;
-  correct: number;
-  optionCount: number;
-  siblings: Uint8Array[];
-  promptHash: Uint8Array;
-  salt: Uint8Array;
-};
-
-/** Reverse of `stealProof` in the codec. The script reads the same bytes in the same order. */
-export function decodeStealProof(raw: Uint8Array): StealProof | null {
-  if (raw.length < PROOF_HEADER) return null;
-  const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
-  const pathLength = raw[5]!;
-  if (raw.length !== PROOF_HEADER + pathLength * 32) return null;
-  if (pathLength > 6) return null;
-  const siblings: Uint8Array[] = [];
-  for (let i = 0; i < pathLength; i += 1) {
-    siblings.push(raw.slice(PROOF_HEADER + i * 32, PROOF_HEADER + i * 32 + 32));
-  }
-  return {
-    version: raw[0]!,
-    questionIndex: view.getUint16(1, true),
-    correct: raw[3]!,
-    optionCount: raw[4]!,
-    promptHash: raw.slice(6, 38),
-    salt: raw.slice(38, 70),
-    siblings,
-  };
-}
-
-/**
- * Rebuild the Merkle root the proof claims to reach.
- *
- * The proof carries the hash of the question text rather than the text itself, so this verifies
- * without ever learning what was asked. That is the whole trick: the bank stays secret and the
- * win stays checkable.
- */
-export function rootFromProof(matchId: Uint8Array, proof: StealProof): Uint8Array {
-  const index = new Uint8Array(2);
-  new DataView(index.buffer).setUint16(0, proof.questionIndex, true);
-  let node = ckbHash([
-    Uint8Array.of(TAG_LEAF),
-    matchId,
-    index,
-    proof.promptHash,
-    Uint8Array.of(proof.correct, proof.optionCount),
-    proof.salt,
-  ]);
-  let position = proof.questionIndex;
-  for (const sibling of proof.siblings) {
-    node =
-      (position & 1) === 0
-        ? ckbHash([Uint8Array.of(TAG_NODE), node, sibling])
-        : ckbHash([Uint8Array.of(TAG_NODE), sibling, node]);
-    position >>= 1;
-  }
-  return node;
-}
 
 function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
   if (left.length !== right.length) return false;
@@ -98,22 +35,26 @@ export type StealCheck = {
   txHash: string;
   /** Round written by this steal. */
   round: number;
-  questionIndex: number;
-  correct: number;
   potAfter: bigint;
   deadlineBefore: number;
   deadlineAfter: number;
   cutMs: number;
   kingAfter: string;
-  /** The Merkle path reaches the root committed when the match opened. */
-  proofOk: boolean;
+  /** Score this steal wrote into the match cell. */
+  score: number;
+  /** What the run in the witness scores when replayed here, or null if it could not be replayed. */
+  replayed: number | null;
+  /** Lane changes in the run. */
+  moves: number;
+  /** Replayed score equals the recorded one, beats the crown before it, and crowned someone new. */
+  runOk: boolean;
   /** Round advanced by exactly one. */
   roundOk: boolean;
   /** Pot grew by exactly the entry fee. */
   potOk: boolean;
   /** Deadline is exactly `shrunk_deadline(previous, round)`. */
   clockOk: boolean;
-  /** Root, fee, treasury and bid code never changed. */
+  /** Game, fee, treasury and bid code never changed. */
   immutableOk: boolean;
   ok: boolean;
 };
@@ -124,12 +65,16 @@ export type MatchReplay = {
   openTxHash: string;
   openedDeadline: number;
   fee: bigint;
-  root: string;
+  /** Data hash of the game script the match names. */
+  game: string;
+  /** Whether this page has that game, and so can replay the runs. */
+  gameKnown: boolean;
   steals: StealCheck[];
   live: boolean;
   finalRound: number;
   finalPot: bigint;
   finalKing: string;
+  finalScore: number;
   finalDeadline: number;
   /** Every rule held on every steal. */
   ok: boolean;
@@ -171,7 +116,7 @@ async function loadTx(client: ccc.Client, hash: string): Promise<ccc.Transaction
  * Every steal spends the previous match cell as input 0, so the history is a straight chain and
  * no indexer is needed to follow it — just the transactions themselves.
  */
-export async function replayMatch(client: ccc.Client, startTxHash: string): Promise<MatchReplay> {
+export async function replayMatch(client: ccc.Client, startTxHash: string, game: LaneRunner): Promise<MatchReplay> {
   if (suddenDeathMatchType.codeHash.length <= 2) {
     throw new VerifyError('This build has no Sudden Death match script configured.');
   }
@@ -259,8 +204,8 @@ export async function replayMatch(client: ccc.Client, startTxHash: string): Prom
   if (!open) throw new VerifyError('Could not find the transaction that opened this match.');
 
   const opened = decodeMatchCell(hexToBytes(open.tx.outputsData[open.index]!));
-  const rootBytes = opened.root;
-  const matchIdBytes = hexToBytes(matchId);
+  const gameHex = bytesToHex(opened.game);
+  const gameKnown = gameHex.toLowerCase() === suddenDeathGame.codeHash.toLowerCase();
 
   const steals: StealCheck[] = [];
   let previousState: MatchCell = opened;
@@ -269,20 +214,20 @@ export async function replayMatch(client: ccc.Client, startTxHash: string): Prom
     const state = decodeMatchCell(hexToBytes(hop.tx.outputsData[hop.index]!));
     const before = previousState;
 
+    // The run is scored on the course of the player it crowned, exactly as the script does.
     const witness = hop.tx.getWitnessArgsAt(0)?.inputType;
-    const proof = witness ? decodeStealProof(new Uint8Array(ccc.bytesFrom(witness))) : null;
-    const proofOk = Boolean(
-      proof &&
-        proof.version === PROOF_VERSION &&
-        sameBytes(rootFromProof(matchIdBytes, proof), rootBytes),
-    );
+    const tape = witness ? tapeFromWitness(new Uint8Array(ccc.bytesFrom(witness))) : null;
+    const score = Number(state.kingScore);
+    const replayed = tape && gameKnown ? game.replay(runSeed(matchId, state.king), tape) : null;
+    const runOk =
+      replayed === score && score > Number(before.kingScore) && !sameBytes(state.king, before.king);
 
     const roundOk = state.round === before.round + 1;
     const potOk = state.pot === before.pot + before.fee;
     const expectedDeadline = shrunkDeadline(Number(before.deadlineMs), before.round);
     const clockOk = Number(state.deadlineMs) === expectedDeadline;
     const immutableOk =
-      sameBytes(state.root, before.root) &&
+      sameBytes(state.game, before.game) &&
       state.fee === before.fee &&
       sameBytes(state.treasury, before.treasury) &&
       sameBytes(state.bidCode, before.bidCode);
@@ -290,19 +235,20 @@ export async function replayMatch(client: ccc.Client, startTxHash: string): Prom
     steals.push({
       txHash: hop.tx.hash(),
       round: state.round,
-      questionIndex: proof?.questionIndex ?? -1,
-      correct: proof?.correct ?? -1,
       potAfter: state.pot,
       deadlineBefore: Number(before.deadlineMs),
       deadlineAfter: Number(state.deadlineMs),
       cutMs: shrinkMs(before.round),
       kingAfter: bytesToHex(state.king),
-      proofOk,
+      score,
+      replayed,
+      moves: tape ? Math.floor(tape.length / 3) : 0,
+      runOk,
       roundOk,
       potOk,
       clockOk,
       immutableOk,
-      ok: proofOk && roundOk && potOk && clockOk && immutableOk,
+      ok: runOk && roundOk && potOk && clockOk && immutableOk,
     });
     previousState = state;
   }
@@ -313,12 +259,14 @@ export async function replayMatch(client: ccc.Client, startTxHash: string): Prom
     openTxHash: open.tx.hash(),
     openedDeadline: Number(opened.deadlineMs),
     fee: opened.fee,
-    root: bytesToHex(rootBytes),
+    game: gameHex,
+    gameKnown,
     steals,
     live,
     finalRound: previousState.round,
     finalPot: previousState.pot,
     finalKing: bytesToHex(previousState.king),
+    finalScore: Number(previousState.kingScore),
     finalDeadline: Number(previousState.deadlineMs),
     ok: steals.every((steal) => steal.ok),
   };

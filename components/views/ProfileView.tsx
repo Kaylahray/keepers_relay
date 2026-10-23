@@ -1,35 +1,47 @@
 'use client';
 
+import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { Crown, Flame, Loader2, Pencil, Trophy, UsersRound, WalletMinimal } from 'lucide-react';
+import { Coins, Crown, Loader2, Pencil, Swords, Trophy, UsersRound, WalletMinimal } from 'lucide-react';
 import { ArenaCta } from '@/components/arena/ArenaPrimitives';
 import { ArenaStage } from '@/components/arena/ArenaStage';
 import { CharacterAvatar } from '@/components/CharacterPicker';
-import { useMyBuilder } from '@/hooks/useBuilder';
+import { builderKeys } from '@/hooks/useBuilder';
 import { useUsername } from '@/hooks/useUsername';
 import { useWallet } from '@/hooks/useWallet';
 import { useAuth } from '@/context/auth-provider';
 import { loadAvatarSpore } from '@/hooks/usePublicProfile';
+import { getBuilder, getPlayerStats } from '@/lib/api/keeperApi';
+import { ckbWhole, GAMES } from '@/lib/crown/rooms';
+import type { PlayerCrown } from '@/lib/server/crown-history';
 
-/**
- * Event-product profile — identity, stats, communities, Studio entry.
- * Not the old Living Collectible passport.
- */
+/** A player's profile: who they are, and what they have done in crowns. `me` is the connected wallet. */
 export function ProfileView({ address }: { address: string }) {
-  const { isConnected, formattedAddress, address: walletAddress, isReady } = useWallet();
+  const { isConnected, address: walletAddress, isReady } = useWallet();
   const { ensureAuth } = useAuth();
-  const myBuilder = useMyBuilder();
   const { username: onChainUsername } = useUsername();
 
-  const normalized = decodeURIComponent(address).toLowerCase();
-  const isSelf =
-    address === 'me' ||
-    Boolean(walletAddress && walletAddress.toLowerCase() === normalized);
-  const me = myBuilder.data?.builder;
+  const wallet = walletAddress?.toLowerCase() ?? '';
+  const target = address === 'me' ? wallet : decodeURIComponent(address).toLowerCase();
+  const isSelf = Boolean(wallet && target === wallet);
+
+  const builder = useQuery({
+    queryKey: builderKeys.one(target || 'anon'),
+    queryFn: () => getBuilder(target),
+    enabled: Boolean(target),
+    staleTime: 5_000,
+  });
+  const stats = useQuery({
+    queryKey: ['player-stats', target],
+    queryFn: () => getPlayerStats(target),
+    enabled: Boolean(target),
+    staleTime: 15_000,
+  });
+  const profile = builder.data?.builder ?? null;
   const avatar = useQuery({
-    queryKey: ['avatar-spore', me?.avatarSporeId],
-    enabled: Boolean(me?.avatarSporeId),
-    queryFn: () => loadAvatarSpore(me!.avatarSporeId!),
+    queryKey: ['avatar-spore', profile?.avatarSporeId],
+    enabled: Boolean(profile?.avatarSporeId),
+    queryFn: () => loadAvatarSpore(profile!.avatarSporeId!),
   });
 
   if (!isReady) {
@@ -40,7 +52,7 @@ export function ProfileView({ address }: { address: string }) {
     );
   }
 
-  if ((isSelf || address === 'me') && !isConnected) {
+  if (address === 'me' && !isConnected) {
     return (
       <ArenaStage backHref="/" backLabel="Home">
         <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">
@@ -58,10 +70,11 @@ export function ProfileView({ address }: { address: string }) {
     );
   }
 
-  const handle = me?.username || onChainUsername?.username || null;
-  const displayName = isSelf
-    ? me?.displayName || handle || 'You'
-    : handle || `${normalized.slice(0, 10)}…`;
+  const handle = profile?.username || (isSelf ? onChainUsername?.username : null) || null;
+  const displayName = profile?.displayName || handle || (isSelf ? 'You' : `${target.slice(0, 10)}…`);
+  const s = stats.data;
+  const tile = (value: number | string | null | undefined) =>
+    stats.isLoading ? '…' : value == null ? '—' : String(value);
 
   return (
     <ArenaStage backHref="/" backLabel="Home">
@@ -71,9 +84,9 @@ export function ProfileView({ address }: { address: string }) {
             {avatar.data?.imageUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={avatar.data.imageUrl} alt="" className="h-full w-full object-cover" />
-            ) : me?.characterId ? (
+            ) : profile?.characterId ? (
               <div className="flex h-full items-center justify-center bg-gradient-to-b from-[#a855f7]/30 to-transparent p-6">
-                <CharacterAvatar characterId={me.characterId} size="xl" />
+                <CharacterAvatar characterId={profile.characterId} size="xl" />
               </div>
             ) : (
               <div className="flex h-full flex-col items-center justify-center gap-2 text-white/40">
@@ -85,7 +98,7 @@ export function ProfileView({ address }: { address: string }) {
           {isSelf ? (
             <ArenaCta href="/profile/edit" className="mt-4 w-full justify-center text-center">
               <Pencil className="h-4 w-4" />
-              Edit profile · Mint Spore
+              Edit profile
             </ArenaCta>
           ) : null}
         </div>
@@ -100,75 +113,104 @@ export function ProfileView({ address }: { address: string }) {
           {handle ? (
             <p className="mt-2 font-mono text-sm font-bold text-[#99ee2d]">@{handle}</p>
           ) : isSelf ? (
-            <p className="mt-2 text-sm text-white/50">
-              No @handle yet. Your picture still shows here once you mint it in Studio.
-            </p>
+            <p className="mt-2 text-sm text-white/50">No @handle yet.</p>
           ) : null}
-          {me?.headline ? (
+          {profile?.headline ? (
             <p className="mt-4 max-w-lg text-base font-light leading-relaxed text-white/60">
-              {me.headline}
+              {profile.headline}
             </p>
-          ) : (
-            <p className="mt-4 max-w-lg text-sm font-light text-white/45">
-              {isSelf
-                ? 'Add a bio in Studio. Mint a Spore avatar when you’re ready.'
-                : 'Player on Crowns.'}
-            </p>
-          )}
-
-          {isSelf && formattedAddress ? (
-            <p className="mt-4 flex flex-wrap items-center gap-2 font-mono text-[10px] text-white/40">
-              <WalletMinimal className="h-3.5 w-3.5" />
-              {formattedAddress}
-            </p>
+          ) : isSelf ? (
+            <p className="mt-4 max-w-lg text-sm font-light text-white/45">Add a bio in Edit profile.</p>
           ) : null}
+
+          <p className="mt-4 flex flex-wrap items-center gap-2 break-all font-mono text-[10px] text-white/40">
+            <WalletMinimal className="h-3.5 w-3.5 shrink-0" />
+            {target.slice(0, 12)}…{target.slice(-8)}
+          </p>
 
           <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <StatTile icon={<Trophy className="h-4 w-4" />} value="—" label="Wins" />
-            <StatTile icon={<Flame className="h-4 w-4" />} value="—" label="Streak" />
+            <StatTile icon={<Trophy className="h-4 w-4" />} value={tile(s?.wins)} label="Wins" />
             <StatTile
-              icon={<UsersRound className="h-4 w-4" />}
-              value="—"
-              label="Banks"
+              icon={<Coins className="h-4 w-4" />}
+              value={tile(s ? ckbWhole(BigInt(s.wonShannons)) : null)}
+              label="CKB won"
             />
-            <StatTile
-              icon={<Crown className="h-4 w-4" />}
-              value={me?.avatarSporeId ? 'Set' : '—'}
-              label="Picture"
-            />
+            <StatTile icon={<Swords className="h-4 w-4" />} value={tile(s?.crownsTaken)} label="Crowns taken" />
+            <StatTile icon={<Crown className="h-4 w-4" />} value={tile(s?.bestScore)} label="Best score" />
           </div>
-          <p className="mt-3 font-mono text-[10px] uppercase text-white/35">
-            King, pot, and steals show up from the match cell once a room is on chain.
-          </p>
+          {s && (s.holding > 0 || s.hosted > 0) ? (
+            <p className="mt-3 font-mono text-[10px] uppercase text-white/45">
+              {s.holding > 0 ? `Holding ${s.holding} now` : null}
+              {s.holding > 0 && s.hosted > 0 ? ' · ' : null}
+              {s.hosted > 0 ? `Hosted ${s.hosted}` : null}
+            </p>
+          ) : null}
+          {stats.isError ? (
+            <p className="mt-3 text-sm text-[#ff8b98]">Stats could not load. Refresh to try again.</p>
+          ) : null}
         </div>
       </section>
 
-      {isSelf ? (
-        <section className="relative z-10 mt-12">
-          <h2 className="font-poster text-2xl uppercase text-white sm:text-3xl">Your crowns</h2>
+      <section className="relative z-10 mt-12">
+        <h2 className="font-poster text-2xl uppercase text-white sm:text-3xl">
+          {isSelf ? 'Your crowns' : 'Crowns'}
+        </h2>
+        {stats.isLoading ? (
+          <p className="mt-4 font-mono text-xs uppercase text-white/40">Loading crowns…</p>
+        ) : (s?.crowns ?? []).length === 0 ? (
           <p className="mt-3 max-w-lg text-sm text-white/55">
-            Questions and salts stay on this device until the match cell is minted. The chain
-            stores the root, the fee, and the king.
+            {isSelf ? 'None yet.' : 'No crowns played yet.'}
           </p>
+        ) : (
+          <ul className="mt-5 grid gap-3 sm:grid-cols-2">
+            {s!.crowns.map((crown) => (
+              <CrownRow key={crown.id} crown={crown} />
+            ))}
+          </ul>
+        )}
+        {isSelf ? (
           <ArenaCta href="/create" className="mt-5">
             Open a crown
           </ArenaCta>
-        </section>
-      ) : null}
-
-      {isSelf ? (
-        <section className="relative z-10 mt-12 border border-white/10 bg-black/40 p-5">
-          <h2 className="font-poster text-xl uppercase text-white">Studio</h2>
-          <p className="mt-2 max-w-lg text-sm font-light text-white/55">
-            Mint a Spore avatar on-chain, pick a cast figure, edit display name and bio. Studio
-            lives here — not as a separate product in the nav.
-          </p>
-          <ArenaCta href="/profile/edit" className="mt-5">
-            Open Studio · Mint Spore
-          </ArenaCta>
-        </section>
-      ) : null}
+        ) : null}
+      </section>
     </ArenaStage>
+  );
+}
+
+function CrownRow({ crown }: { crown: PlayerCrown }) {
+  const won = crown.holds && crown.status === 'settled';
+  const badge = won
+    ? { text: 'Won', className: 'bg-[#e1bf47] text-[#111]' }
+    : crown.holds
+      ? { text: 'Holding', className: 'bg-[#99ee2d] text-[#111]' }
+      : crown.status === 'live'
+        ? { text: 'Live', className: 'border border-[#99ee2d] text-[#99ee2d]' }
+        : crown.status === 'lobby'
+          ? { text: 'Lobby', className: 'border border-white/30 text-white/70' }
+          : { text: 'Closed', className: 'border border-white/20 text-white/50' };
+  return (
+    <li>
+      <Link
+        href={`/play/${crown.id}`}
+        className="block border border-white/10 bg-black/40 p-4 transition-colors hover:border-[#99ee2d]/60"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <p className="min-w-0 truncate font-poster text-xl uppercase leading-none text-white">{crown.title}</p>
+          <span className={`shrink-0 px-2 py-0.5 font-mono text-[10px] font-bold uppercase ${badge.className}`}>
+            {badge.text}
+          </span>
+        </div>
+        <p className="mt-2 font-mono text-[10px] uppercase text-white/50">
+          {GAMES[crown.game]?.title ?? crown.game} · pot {ckbWhole(BigInt(crown.potShannons))} CKB
+          {crown.hosted ? ' · host' : ''}
+        </p>
+        <p className="mt-1 font-mono text-[10px] uppercase text-white/40">
+          Score to beat {crown.kingScore}
+          {crown.bestScore != null ? ` · your best ${crown.bestScore}` : ''}
+        </p>
+      </Link>
+    </li>
   );
 }
 

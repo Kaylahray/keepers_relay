@@ -4,7 +4,6 @@ import {
   type CrownRoom,
   type StoredRoom,
 } from '@/lib/crown/rooms';
-import { hexToBytes } from '@/lib/sudden-death/codec';
 import { noteServerTime } from '@/lib/crown/clock';
 import type { CrownSeat } from '@/lib/crown/seats';
 
@@ -66,17 +65,4 @@ export async function joinCrownRemote(
 
 export async function deleteCrownRemote(id: string): Promise<void> {
   await send(`/api/crowns/${encodeURIComponent(id)}`, 'DELETE');
-}
-
-export async function requestProof(
-  id: string,
-  choice: number,
-): Promise<{ proof: Uint8Array | null; closed: boolean }> {
-  const data = await send<{ ok: boolean; proof?: string; closed?: boolean }>(
-    `/api/crowns/${encodeURIComponent(id)}/proof`,
-    'POST',
-    { choice },
-  );
-  if (!data.ok || !data.proof) return { proof: null, closed: true };
-  return { proof: hexToBytes(data.proof), closed: false };
 }

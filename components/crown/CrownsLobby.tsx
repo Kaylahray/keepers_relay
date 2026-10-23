@@ -7,7 +7,7 @@ import { ArenaRailCard, ArenaStage } from '@/components/arena/ArenaStage';
 import { CrownCard } from '@/components/crown/CrownCard';
 import { arenaCoverForSeed } from '@/lib/poster';
 import { fetchCrownList, publishCrown } from '@/lib/crown/remote';
-import { ckbWhole, listCrowns, saveCrown, sealFloorCrown, type CrownRoom } from '@/lib/crown/rooms';
+import { ckbWhole, FLOOR_CROWN, listCrowns, saveCrown, sealCrown, type CrownRoom } from '@/lib/crown/rooms';
 import { useWallet } from '@/hooks/useWallet';
 import { useUsername } from '@/hooks/useUsername';
 import { registryConfigured } from '@/lib/registry/config';
@@ -76,8 +76,7 @@ export function CrownsLobby() {
             Crowns
           </h1>
           <p className="mt-4 max-w-md text-base font-light leading-relaxed text-white/60">
-            A host seals a bank. Players steal the crown by answering. The clock on screen is a
-            prediction. The chain timestamp pays the pot.
+            Beat the score to take the crown. Hold it at zero to win the pot.
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-3">
             <ArenaCta href="/create">Open a crown</ArenaCta>
@@ -93,7 +92,7 @@ export function CrownsLobby() {
                   return;
                 }
                 const room = {
-                  ...sealFloorCrown(),
+                  ...sealCrown(FLOOR_CROWN),
                   hostAddress: address.toLowerCase(),
                 };
                 saveCrown(room);

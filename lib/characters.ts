@@ -116,11 +116,6 @@ const FULL_BODY_ART: Record<CharacterId, string> = {
   spark: '/arena/kind-blitz.png',
 };
 
-/** Tall full-body plate for the cast line / hero stage — never a cropped headshot. */
-export function characterFullBodyUrl(character: Character): string {
-  return FULL_BODY_ART[character.id] ?? '/arena/keeper-razzael.png';
-}
-
 /**
  * Prefer curated local art when we have it; otherwise a fixed SVG plate.
  * Never a random face generator.

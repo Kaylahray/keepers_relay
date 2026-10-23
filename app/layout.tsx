@@ -6,7 +6,7 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'Crowns',
   description:
-    'One deadline, one pot, one king. A host writes the bank. A correct steal spends one bid, grows the pot, and cuts the clock.',
+    'One deadline, one pot, one king. Beat the score, and the chain replays your run, crowns you, grows the pot and cuts the clock.',
 };
 
 export default function RootLayout({

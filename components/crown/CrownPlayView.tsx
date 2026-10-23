@@ -2,22 +2,31 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArenaCta } from '@/components/arena/ArenaPrimitives';
 import { ArenaRailCard, ArenaStage } from '@/components/arena/ArenaStage';
 import { leftMs, playClock, useNow } from '@/components/crown/BleedingClock';
-import { PromptLine } from '@/components/crown/PromptLine';
 import { VerifiedSeal } from '@/components/crown/VerifiedSeal';
 import { CrownLobby } from '@/components/crown/CrownLobby';
 import { CrownReceipt } from '@/components/crown/CrownReceipt';
 import { useCrown } from '@/components/crown/useCrown';
+import { LaneRunnerGame, type FinishedRun } from '@/components/game/LaneRunnerGame';
 import { arenaCoverForSeed } from '@/lib/poster';
 import { ccc } from '@ckb-ccc/connector-react';
-import { bytesToHex, stealProof } from '@/lib/sudden-death/codec';
-import { closeCrown, finishPending, lockBid, MatchMovedError, openMatch, stealCrown } from '@/lib/crown/chain';
+import { ckbHash, runSeed } from '@/lib/sudden-death/codec';
+import {
+  bidRefundAt,
+  closeCrown,
+  expireBid,
+  lockBid,
+  MatchMovedError,
+  openMatch,
+  RunBeatenError,
+  stealCrown,
+} from '@/lib/crown/chain';
 import { forgetBid, rememberBid, rememberedBid } from '@/lib/crown/my-bid';
-import { forgetMiss, rememberMiss, rememberedMiss } from '@/lib/crown/my-miss';
-import { deleteCrownRemote, joinCrownRemote, pushCrownState, requestProof } from '@/lib/crown/remote';
+import { forgetBestRun, loadBestRun, saveBestRun } from '@/lib/crown/my-run';
+import { deleteCrownRemote, joinCrownRemote, pushCrownState } from '@/lib/crown/remote';
 import { useWallet } from '@/hooks/useWallet';
 import { useAuth } from '@/context/auth-provider';
 import { suddenDeathConfigured } from '@/lib/registry/config';
@@ -30,24 +39,17 @@ import {
   ckbWhole,
   DEFAULT_DURATION_MS,
   forgetCrown,
+  GAMES,
   kickoff,
   listCrowns,
   loadCrown,
-  noteMiss,
   saveCrown,
   settleCrown,
   type CrownRoom,
 } from '@/lib/crown/rooms';
 
-const LETTERS = ['A', 'B', 'C', 'D'];
-const ZERO_MATCH = new Uint8Array(32);
-
 function scriptHash(lock: { codeHash: string; hashType: 'type' | 'data' | 'data1' | 'data2'; args: string }) {
-  return ccc.Script.from({
-    codeHash: lock.codeHash,
-    hashType: lock.hashType,
-    args: lock.args,
-  }).hash();
+  return ccc.Script.from({ codeHash: lock.codeHash, hashType: lock.hashType, args: lock.args }).hash();
 }
 
 function formatWait(ms: number): string {
@@ -60,16 +62,25 @@ function formatWait(ms: number): string {
 function chainMessage(error: unknown, fallback: string): string {
   const message = error instanceof Error ? error.message : fallback;
   if (/still confirming/i.test(message)) return message;
-  if (/RBF|unconfirmed inputs/i.test(message)) {
-    return 'The last transaction is still in the mempool. Wait a few seconds, then try again.';
+  if (/RBF|unconfirmed inputs|PoolRejectedDuplicatedTransaction|conflict/i.test(message)) {
+    return 'Another run landed first. Check the new score to beat.';
   }
   if (/Resolve failed|Unknown\(OutPoint|out ?point/i.test(message)) {
-    return 'That cell is not on chain yet. Wait for the last transaction to confirm, then try again.';
+    return 'Still confirming. Try again in a few seconds.';
   }
   if (/immature|since requirement/i.test(message)) {
-    return 'The chain clock is behind this screen. Close opens a minute or two after the timer hits zero.';
+    return 'Not yet. This opens a minute or two after zero.';
+  }
+  if (/error code -12/.test(message)) {
+    return 'The chain scored your run differently, so the crown did not move. Your entry is still yours.';
   }
   return message;
+}
+
+/** A practice course for a crown with no match cell, or a visitor with no wallet. */
+function floorSeed(roomId: string, who: string): bigint {
+  const encode = (text: string) => new TextEncoder().encode(text);
+  return runSeed(ckbHash([encode(roomId)]), ckbHash([encode(who || 'guest')]));
 }
 
 export function CrownPlayView({ id }: { id: string }) {
@@ -79,16 +90,17 @@ export function CrownPlayView({ id }: { id: string }) {
   const { ensureAuth } = useAuth();
   const signer = ccc.useSigner();
   const chain = suddenDeathConfigured();
-  const [picked, setPicked] = useState<number | null>(null);
-  const [flash, setFlash] = useState<'hit' | 'miss' | null>(null);
-  const [shake, setShake] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [chainError, setChainError] = useState<string | null>(null);
   const [myLockHash, setMyLockHash] = useState<string | null>(null);
   const [others, setOthers] = useState<CrownRoom[]>([]);
   const [matchReady, setMatchReady] = useState(false);
   const [medianAt, setMedianAt] = useState<number | null>(null);
+  const [bestRun, setBest] = useState<FinishedRun | null>(null);
+  const [refund, setRefund] = useState<{ at: number | null; sent: string | null }>({ at: null, sent: null });
   const now = useNow(room?.status === 'live');
+  const settling = useRef(false);
+  const seenDeadline = useRef<number | null>(null);
 
   useEffect(() => {
     if (!signer) {
@@ -96,15 +108,16 @@ export function CrownPlayView({ id }: { id: string }) {
       return;
     }
     let stop = false;
-    void signer.getRecommendedAddressObj().then((obj) => {
-      if (!stop) setMyLockHash(obj.script.hash());
-    }).catch(() => undefined);
+    void signer
+      .getRecommendedAddressObj()
+      .then((obj) => {
+        if (!stop) setMyLockHash(obj.script.hash());
+      })
+      .catch(() => undefined);
     return () => {
       stop = true;
     };
   }, [signer]);
-  const settling = useRef(false);
-  const seenDeadline = useRef<number | null>(null);
 
   useEffect(() => {
     setOthers(listCrowns().filter((item) => item.id !== id).slice(0, 4));
@@ -133,6 +146,7 @@ export function CrownPlayView({ id }: { id: string }) {
     };
   }, [chain, room?.matchOutPoint?.txHash, room?.status]);
 
+  // Closing is gated on the chain's median time, which runs a few minutes behind the wall clock.
   useEffect(() => {
     if (!chain || room?.status !== 'live' || room.deadlineAt == null) return;
     if (leftMs(room.deadlineAt, nowMs()) > 0) return;
@@ -163,45 +177,68 @@ export function CrownPlayView({ id }: { id: string }) {
     };
   }, [chain, room?.status, room?.deadlineAt]);
 
+  // A crown with no match cell has nothing on chain to close, so its screen closes it.
   useEffect(() => {
     if (!room || room.status !== 'live' || room.deadlineAt == null) return;
     if (seenDeadline.current !== room.deadlineAt) {
       seenDeadline.current = room.deadlineAt;
       settling.current = false;
     }
-    if (settling.current) return;
-    if (room.matchId) return;
+    if (settling.current || room.matchId) return;
     if (leftMs(room.deadlineAt, nowMs()) > 0) return;
     settling.current = true;
-    const king = room.king;
     saveCrown(
-      settleCrown(
-        room,
-        king
-          ? 'You hold the crown when the deadline hits.'
-          : 'Nobody took the crown. A zero king cannot be paid.',
-      ),
+      settleCrown(room, room.king ? `${room.king} holds the crown at the deadline.` : 'Nobody took the crown.'),
     );
   }, [room, now]);
 
-  const player = address?.trim().toLowerCase() || 'local';
+  const seatBid = room ? seats.find((seat) => seat.address === address.trim().toLowerCase())?.bidOutPoint ?? null : null;
+  const savedBid = room ? rememberedBid(room.id, address) : null;
+  const entryBid = room?.bidOutPoint ?? seatBid ?? savedBid;
 
+  // An entry left over after the close can come back once its refund time passes.
   useEffect(() => {
-    if (!room?.id || room.cursor == null) return;
-    const miss = rememberedMiss(room.id, player) ?? rememberedMiss(room.id, 'local');
-    if (miss && miss.cursor === room.cursor) {
-      if (player !== 'local') rememberMiss(room.id, player, miss);
-      setPicked(miss.index);
-      setFlash('miss');
-      return;
-    }
-    if (miss) {
-      forgetMiss(room.id, player);
-      forgetMiss(room.id, 'local');
-    }
-    setPicked(null);
-    setFlash((current) => (current === 'miss' ? null : current));
-  }, [room?.id, room?.cursor, player]);
+    if (!chain || room?.status !== 'settled' || !entryBid) return;
+    let stop = false;
+    void bidRefundAt(getCkbClient(), entryBid)
+      .then((at) => {
+        if (!stop) setRefund((current) => ({ ...current, at }));
+      })
+      .catch(() => undefined);
+    return () => {
+      stop = true;
+    };
+  }, [chain, room?.status, entryBid]);
+
+  const seed = useMemo(() => {
+    if (!room) return null;
+    if (chain && room.matchId && myLockHash) return runSeed(room.matchId, myLockHash);
+    return floorSeed(room.id, address.trim().toLowerCase());
+  }, [room, chain, myLockHash, address]);
+
+  // The best finished run counts only on the course it was played on. A new course (another
+  // wallet, the match cell arriving) starts the player over.
+  // A run played before leaving the page (to Watch, say) is still here when the player comes back.
+  const roomId = room?.id ?? null;
+  const storedBest = useMemo(
+    () => (roomId && seed != null && typeof window !== 'undefined' ? loadBestRun(roomId, seed) : null),
+    [roomId, seed],
+  );
+  const fresh = bestRun && seed != null && bestRun.seed === seed ? bestRun : null;
+  const best = fresh && (!storedBest || fresh.score >= storedBest.score) ? fresh : storedBest;
+  const onFinish = useCallback(
+    (run: FinishedRun) => {
+      setBest((current) => {
+        const keep = current && current.seed === run.seed && current.score >= run.score ? current : run;
+        if (roomId && keep === run) {
+          const saved = loadBestRun(roomId, run.seed);
+          if (!saved || run.score > saved.score) saveBestRun(roomId, run);
+        }
+        return keep;
+      });
+    },
+    [roomId],
+  );
 
   if (!ready) {
     return (
@@ -215,16 +252,28 @@ export function CrownPlayView({ id }: { id: string }) {
     return (
       <ArenaStage backHref="/play" backLabel="Crowns">
         <h1 className="font-poster text-5xl uppercase text-white">Missing crown</h1>
-        <p className="mt-3 text-sm text-white/55">This lobby is not on the server, and this browser does not have it saved.</p>
+        <p className="mt-3 text-sm text-white/55">This crown doesn&apos;t exist or was deleted.</p>
       </ArenaStage>
     );
   }
 
-  const seatBid = seats.find((seat) => seat.address === address.trim().toLowerCase())?.bidOutPoint ?? null;
-  const savedBid = rememberedBid(room.id, address);
-  const entryBid = room.bidOutPoint ?? seatBid ?? savedBid;
+  if (room.legacy) {
+    return (
+      <ArenaStage backHref="/play" backLabel="Crowns">
+        <h1 className="font-poster text-5xl uppercase text-white">Retired crown</h1>
+        <p className="mt-3 max-w-md text-sm text-white/55">
+          A quiz crown from before the game update. It can no longer be played.
+        </p>
+      </ArenaStage>
+    );
+  }
+
+  // The chain records the king as a lock hash; compare against ours. The full lock, when the
+  // server has it, is a fallback for rooms saved before the hash was recorded.
   let iHold = false;
-  if (room.kingLock && myLockHash) {
+  if (myLockHash && room.kingHash) {
+    iHold = room.kingHash.toLowerCase() === myLockHash.toLowerCase();
+  } else if (room.kingLock && myLockHash) {
     try {
       iHold = scriptHash(room.kingLock).toLowerCase() === myLockHash.toLowerCase();
     } catch {
@@ -232,18 +281,98 @@ export function CrownPlayView({ id }: { id: string }) {
     }
   }
   const iHost = isHostWallet(room, address, myLockHash);
-  const prompt = room.questions[room.cursor];
-  const live = room.status === 'live' && Boolean(prompt);
-  // The extra minutes on the opening deadline are a phase, not drift: everyone locks an entry,
-  // then the first question opens for all of us at once and the clock reads what the host set.
+  const live = room.status === 'live';
   const startsAt = gameStartAt(room);
   const entryWindow = inEntryWindow(room, now);
-  const panic = live && !entryWindow && room.deadlineAt != null && leftMs(room.deadlineAt, now) <= 4_000;
+  const clock = playClock(room.deadlineAt, now);
+  const clockLeft = leftMs(room.deadlineAt, now);
+  const panic = live && !entryWindow && room.deadlineAt != null && clockLeft <= 4_000 && clockLeft > 0;
+  // The bar measures the match's full length, so every crown taken visibly lops a chunk off.
+  const clockSpan = Math.max(1, room.durationMs || DEFAULT_DURATION_MS);
+  const clockProgress = room.deadlineAt == null ? 0 : Math.max(0, Math.min(100, (clockLeft / clockSpan) * 100));
+  const confirmingOpen =
+    chain && live && Boolean(room.matchId) && !matchReady && room.round <= 1 && !room.king && room.potShannons === 0n;
+  const cellMoving = chain && live && Boolean(room.matchId) && !matchReady && !confirmingOpen;
+  const sinceReady = medianAt != null && room.deadlineAt != null && medianAt >= room.deadlineAt;
+  const sinceWait = medianAt != null && room.deadlineAt != null ? Math.max(0, room.deadlineAt - medianAt) : null;
+  const shownError = !matchReady && chainError && /not on chain yet|still confirming/i.test(chainError) ? null : chainError;
+  const beats = best != null && best.score > room.kingScore;
+  // Time up means time up. The chain can only enforce "not before", so a better run would still
+  // be accepted until someone closes; the app stops offering it the moment the clock hits zero.
+  const timeUp = live && room.deadlineAt != null && !clock.counting;
+  const canTake =
+    live && !entryWindow && !timeUp && beats && !iHold && isConnected && (!chain || !room.matchId || matchReady) && !busy;
+
+  async function lockEntry(current: CrownRoom): Promise<CrownRoom> {
+    if (!signer) throw new Error('Connect JoyID to lock your entry.');
+    const next = await lockBid(signer, current);
+    saveCrown(next);
+    if (address && next.bidOutPoint) {
+      rememberBid(current.id, address, next.bidOutPoint);
+      void joinCrownRemote(current.id, {
+        address,
+        displayName: formattedAddress || 'Player',
+        bidOutPoint: next.bidOutPoint,
+      }).catch(() => undefined);
+    }
+    return next;
+  }
+
+  async function takeCrown() {
+    if (!room || !best) return;
+    setChainError(null);
+    try {
+      await ensureAuth();
+    } catch (error) {
+      setChainError(error instanceof Error ? error.message : 'Sign in with your wallet to play.');
+      return;
+    }
+    const name = formattedAddress || 'Player';
+    if (!chain || !room.matchId) {
+      const next = applySteal(room, best.score, name, `Run of ${best.tape.length / 3} moves (practice floor)`);
+      saveCrown(next);
+      void pushCrownState(next).catch(() => undefined);
+      setBest(null);
+      return;
+    }
+    if (!signer) {
+      setChainError('Connect JoyID. Submitting a run needs no signature, but locking the entry does.');
+      return;
+    }
+    try {
+      let current = loadCrown(id) ?? room;
+      if (!current.bidOutPoint && entryBid) current = { ...current, bidOutPoint: entryBid };
+      if (!current.bidOutPoint) {
+        setBusy('Locking your entry…');
+        current = await lockEntry(current);
+      }
+      setBusy('Sending your run…');
+      const result = await stealCrown(signer.client, current, { tape: best.tape, score: best.score }, setBusy);
+      const named = { ...result.room, king: name };
+      if (address) forgetBid(room.id, address);
+      forgetBestRun(room.id, best.seed);
+      saveCrown(named);
+      void pushCrownState(named).catch(() => undefined);
+      if (address) {
+        void joinCrownRemote(room.id, { address, displayName: name, clearBid: true }).catch(() => undefined);
+      }
+      setBest(null);
+    } catch (error) {
+      if (error instanceof MatchMovedError) saveCrown(error.room);
+      if (error instanceof RunBeatenError) {
+        setChainError(error.message);
+      } else {
+        setChainError(chainMessage(error, 'The run could not be sent.'));
+      }
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function closeMatch() {
     if (!room) return;
     if (!signer) {
-      setChainError('Connect the host wallet to close.');
+      setChainError('Connect a wallet to close. It only pays the closing fee.');
       return;
     }
     setBusy('Closing…');
@@ -255,6 +384,21 @@ export function CrownPlayView({ id }: { id: string }) {
     } catch (error) {
       if (error instanceof MatchMovedError) saveCrown(error.room);
       setChainError(chainMessage(error, 'The close failed.'));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function returnEntry() {
+    if (!entryBid) return;
+    setBusy('Returning your entry…');
+    setChainError(null);
+    try {
+      const txHash = await expireBid(getCkbClient(), entryBid);
+      if (room && address) forgetBid(room.id, address);
+      setRefund((current) => ({ ...current, sent: txHash }));
+    } catch (error) {
+      setChainError(chainMessage(error, 'The refund failed.'));
     } finally {
       setBusy(null);
     }
@@ -284,7 +428,7 @@ export function CrownPlayView({ id }: { id: string }) {
       return;
     }
     if (!signer) {
-      setChainError('Connect JoyID. The host wallet mints the match cell.');
+      setChainError('Connect your wallet to start the clock.');
       return;
     }
     setBusy('Minting the match and treasury…');
@@ -303,205 +447,6 @@ export function CrownPlayView({ id }: { id: string }) {
     }
   }
 
-  async function signPending() {
-    const current = loadCrown(id);
-    if (!current?.pendingTx || !signer) {
-      setChainError('Connect the wallet that still has to sign.');
-      return;
-    }
-    setBusy('Signing…');
-    setChainError(null);
-    try {
-      saveCrown(await finishPending(signer, current));
-    } catch (error) {
-      setChainError(chainMessage(error, 'The signature was rejected.'));
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function answer(index: number) {
-    if (!room || !prompt || room.status !== 'live' || picked !== null || busy) return;
-    if (chain && !matchReady) return;
-    if (entryWindow) return;
-    if (!address.trim()) {
-      setChainError('Connect a wallet to answer. A spectator uses the watch screen.');
-      return;
-    }
-    try {
-      await ensureAuth();
-    } catch (error) {
-      setChainError(error instanceof Error ? error.message : 'Sign in with your wallet to answer.');
-      return;
-    }
-    const closed =
-      rememberedMiss(room.id, player)?.cursor === room.cursor ||
-      rememberedMiss(room.id, 'local')?.cursor === room.cursor;
-    if (closed) return;
-    const late = room.deadlineAt != null && nowMs() >= room.deadlineAt;
-    if (late && !room.matchId) return;
-    if (late && !entryBid && !iHold) return;
-    if (iHold && !entryBid) {
-      setChainError('You hold the crown. Lock again only after someone takes it.');
-      return;
-    }
-    setPicked(index);
-    if (room.answersOnServer) {
-      setBusy('Checking the answer…');
-      setChainError(null);
-      let held = false;
-      try {
-        const attempt = await requestProof(room.id, index);
-        if (!attempt.proof) {
-          held = true;
-          markMiss(room, index);
-          return;
-        }
-        if (!signer) {
-          setChainError('Connect JoyID. A steal itself needs no signature.');
-          return;
-        }
-        let current = loadCrown(id) ?? room;
-        if (!current.bidOutPoint && entryBid) current = { ...current, bidOutPoint: entryBid };
-        if (!current.bidOutPoint) {
-          setBusy('Locking the entry fee…');
-          current = await lockBid(signer, current);
-          saveCrown(current);
-          if (address && current.bidOutPoint) {
-            rememberBid(room.id, address, current.bidOutPoint);
-            void joinCrownRemote(room.id, {
-              address,
-              displayName: formattedAddress || 'Player',
-              bidOutPoint: current.bidOutPoint,
-            }).catch(() => undefined);
-          }
-        }
-        setBusy('Sending the steal…');
-        const result = await stealCrown(signer, current, attempt.proof, setBusy);
-        const named = { ...result.room, king: formattedAddress || result.room.king };
-        if (address) forgetBid(room.id, address);
-        saveCrown(named);
-        await pushCrownState(named);
-        if (address) {
-          void joinCrownRemote(room.id, { address, displayName: formattedAddress || 'Player', clearBid: true }).catch(() => undefined);
-        }
-        setFlash('hit');
-      } catch (error) {
-        if (error instanceof MatchMovedError) saveCrown(error.room);
-        setChainError(chainMessage(error, 'The steal failed.'));
-      } finally {
-        setBusy(null);
-        if (!held) {
-          window.setTimeout(() => {
-            setPicked(null);
-            setFlash(null);
-            setShake(false);
-          }, 700);
-        }
-      }
-      return;
-    }
-    if (index === prompt.correct) {
-      if (!chain || !room.matchId) {
-        const proof = stealProof(ZERO_MATCH, room.questions, room.cursor);
-        const stolen = applySteal(room, `Proof ${bytesToHex(proof).slice(0, 18)}… is local until a match cell exists.`);
-        // `applySteal` writes the king as "You", which only reads correctly on this screen.
-        // Everyone else in the lobby needs a name they can tell apart from their own.
-        const next = { ...stolen, king: formattedAddress || stolen.king };
-        setFlash('hit');
-        window.setTimeout(() => {
-          saveCrown(next);
-          // No match cell means no chain to read the round back from, so the lobby only
-          // learns this steal happened if this browser tells it.
-          void pushCrownState(next).catch(() => undefined);
-          setPicked(null);
-          setFlash(null);
-        }, 420);
-        return;
-      }
-      if (!signer) {
-        setChainError('Connect JoyID. A steal itself needs no signature.');
-        setPicked(null);
-        return;
-      }
-      setBusy(entryBid ? 'Sending the steal…' : 'Locking the entry fee…');
-      setChainError(null);
-      try {
-        let current = loadCrown(id) ?? room;
-        if (!current.bidOutPoint && entryBid) current = { ...current, bidOutPoint: entryBid };
-        if (!current.bidOutPoint) {
-          current = await lockBid(signer, current);
-          saveCrown(current);
-          if (address && current.bidOutPoint) rememberBid(room.id, address, current.bidOutPoint);
-          setBusy('Sending the steal…');
-        }
-        const result = await stealCrown(signer, current, undefined, setBusy);
-        const named = { ...result.room, king: formattedAddress || result.room.king };
-        if (address) forgetBid(room.id, address);
-        saveCrown(named);
-        void pushCrownState(named).catch(() => undefined);
-        if (address) {
-          void joinCrownRemote(room.id, { address, displayName: formattedAddress || 'Player', clearBid: true }).catch(() => undefined);
-        }
-        setFlash('hit');
-      } catch (error) {
-        if (error instanceof MatchMovedError) saveCrown(error.room);
-        setChainError(chainMessage(error, 'The steal failed.'));
-      } finally {
-        setBusy(null);
-        setPicked(null);
-        setFlash(null);
-      }
-      return;
-    }
-    markMiss(room, index);
-  }
-
-  function markMiss(current: CrownRoom, index: number) {
-    const miss = { cursor: current.cursor, index };
-    rememberMiss(current.id, player, miss);
-    rememberMiss(current.id, 'local', miss);
-    setFlash('miss');
-    setShake(true);
-    const missed = noteMiss(current);
-    saveCrown(missed);
-    void pushCrownState(missed).catch(() => undefined);
-    window.setTimeout(() => setShake(false), 300);
-  }
-
-  const clockLeft = leftMs(room.deadlineAt, now);
-  // The bar measures the match's full length, not what is left of it. Scaling to the current
-  // deadline would hide the point of the game: every crown taken lops a visible chunk off.
-  const clockSpan = Math.max(1, room.durationMs || DEFAULT_DURATION_MS);
-  const clockProgress = room.deadlineAt == null ? 0 : Math.max(0, Math.min(100, (clockLeft / clockSpan) * 100));
-  const clock = playClock(room.deadlineAt, now);
-  const confirmingOpen =
-    chain && room.status === 'live' && Boolean(room.matchId) && !matchReady && room.round <= 1 && !room.king && room.potShannons === 0n;
-  const cellMoving = chain && room.status === 'live' && Boolean(room.matchId) && !matchReady && !confirmingOpen;
-  const sinceReady = medianAt != null && room.deadlineAt != null && medianAt >= room.deadlineAt;
-  const sinceWait = medianAt != null && room.deadlineAt != null ? Math.max(0, room.deadlineAt - medianAt) : null;
-  const shownError = !matchReady && chainError && /not on chain yet|still confirming/i.test(chainError) ? null : chainError;
-  const hostClose =
-    iHost && chain && room.matchId && room.status === 'live' && !confirmingOpen ? (
-      <div className="mb-4">
-        <button
-          type="button"
-          onClick={() => void closeMatch()}
-          disabled={Boolean(busy) || clock.counting || (medianAt != null && !sinceReady)}
-          className="bg-[#e1bf47] px-5 py-3 font-poster text-2xl uppercase leading-none text-[#111] disabled:opacity-40"
-        >
-          {busy === 'Closing…' ? busy : 'Close the crown'}
-        </button>
-        <p className="mt-2 text-sm text-white/55">
-          {clock.counting
-            ? 'You are the host. This pays whoever holds the crown once the play window ends.'
-            : sinceReady || medianAt == null
-              ? 'You are the host. This pays whoever holds the crown right now.'
-              : `The screen clock has ended. The chain clock is behind it. Close unlocks in about ${formatWait(sinceWait ?? 0)}.`}
-        </p>
-      </div>
-    ) : null;
-
   if (room.status === 'lobby') {
     return (
       <ArenaStage backHref="/play" backLabel="Crowns">
@@ -517,70 +462,89 @@ export function CrownPlayView({ id }: { id: string }) {
     );
   }
 
+  const closeButton =
+    chain && room.matchId && live && !confirmingOpen && isConnected ? (
+      <div className="mt-4">
+        <button
+          type="button"
+          onClick={() => void closeMatch()}
+          disabled={Boolean(busy) || clock.counting || (medianAt != null && !sinceReady)}
+          className="bg-[#e1bf47] px-5 py-3 font-poster text-2xl uppercase leading-none text-[#111] disabled:opacity-40"
+        >
+          {busy === 'Closing…' ? busy : 'Close the crown'}
+        </button>
+        <p className="mt-2 text-sm text-white/55">
+          {clock.counting
+            ? 'Opens when the clock runs out.'
+            : sinceReady || medianAt == null
+              ? 'Pays whoever holds the crown.'
+              : `Opens in about ${formatWait(sinceWait ?? 0)}.`}
+        </p>
+      </div>
+    ) : null;
+
   return (
     <ArenaStage backHref="/play" backLabel="Crowns">
-      <section className={`grid items-start gap-8 lg:grid-cols-[1fr_auto_minmax(260px,320px)] lg:gap-0 ${shake ? 'animate-[sdshake_0.4s_linear]' : ''}`}>
-        <div className="relative z-10 max-w-2xl pb-6">
+      <section className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(260px,320px)]">
+        <div className="relative z-10 min-w-0 pb-6">
           <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">
-            {room.title}
+            {room.title} · {GAMES[room.game].title}
           </p>
-          <div className="mt-4 flex items-end justify-between gap-6">
+          <div className="mt-4 flex flex-wrap items-end justify-between gap-6">
             <div>
               <p className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">Pot</p>
-              <p className="font-poster text-5xl uppercase leading-none text-[#99ee2d] sm:text-6xl">
-                {ckbWhole(room.potShannons)}
-              </p>
+              <p className="font-poster text-5xl uppercase leading-none text-[#99ee2d] sm:text-6xl">{ckbWhole(room.potShannons)}</p>
               <p className="font-mono text-[11px] uppercase text-white/45">CKB</p>
             </div>
+            <div>
+              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">Crown</p>
+              <p className="font-poster text-4xl uppercase leading-none text-[#e1bf47]">{room.kingScore}</p>
+              <p className="font-mono text-[11px] uppercase text-white/45">
+                {room.king ? `${iHold ? 'you' : room.king}` : 'open seat'}
+              </p>
+            </div>
             <div className="text-right">
-              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">Each steal</p>
-              <p className="font-poster text-4xl uppercase leading-none text-white">+{ckbWhole(room.feeShannons)}</p>
-              <p className="font-mono text-[11px] uppercase text-white/45">CKB into the pot</p>
+              <p className="font-mono text-[10px] font-bold uppercase text-white/40">
+                {entryWindow ? 'Round starts in' : clock.counting ? 'Time left' : live ? 'Time up' : 'Closed'}
+              </p>
+              <p
+                className={`font-poster text-4xl uppercase leading-none ${!entryWindow && panic ? 'text-[#af2a3a]' : 'text-white'}`}
+              >
+                {entryWindow && startsAt != null ? formatWait(startsAt - now) : live ? clock.face : 'Closed'}
+              </p>
+              <p className="font-mono text-[11px] uppercase text-white/45">+{ckbWhole(room.feeShannons)} CKB a crown</p>
             </div>
           </div>
+          {live ? (
+            <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
+              <div
+                className={`h-full rounded-full ${panic ? 'bg-[#af2a3a]' : 'bg-gradient-to-r from-[#ff56f6] to-[#406aff]'}`}
+                style={{ width: `${clockProgress}%` }}
+              />
+            </div>
+          ) : null}
+
           {confirmingOpen ? (
-            <>
-              <p className="mt-6 font-mono text-[10px] uppercase tracking-[0.16em] text-white/45">
-                Waiting on the match transaction
-              </p>
+            <div className="mt-6">
+              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/45">Waiting on the match transaction</p>
               <h1 className="mt-2 font-poster text-6xl uppercase leading-none text-[#99ee2d] sm:text-7xl">
                 {formatWait(now - (room.openedAt ?? now))}
               </h1>
               <p className="mt-4 max-w-md text-base font-light leading-relaxed text-white/70">
-                This is the match opening on chain. It is not the game clock. A block lands about every 8 seconds,
-                but a transaction is proposed in one block and committed two or more blocks later, so this usually
-                takes 20 to 90 seconds and sometimes longer.
+                Opening the match on chain, usually 20 to 90 seconds. Practise meanwhile.
               </p>
-              <p className="mt-3 max-w-md text-base font-light leading-relaxed text-white/70">
-                Once it confirms, everyone gets an entry window to lock their entry
-                {startsAt != null ? ` (it ends in ${formatWait(startsAt - now)})` : ''}. Then the{' '}
-                {Math.round((room.durationMs || DEFAULT_DURATION_MS) / 60_000)} minute round starts for the whole
-                lobby at the same moment, so the time spent waiting here never comes out of the round.
-              </p>
-            </>
-          ) : room.status === 'live' && !prompt ? (
-            <>
-              <h1 className="mt-3 font-poster text-[clamp(2.75rem,6vw,4.5rem)] uppercase leading-[0.92] text-white">
-                Bank finished
-              </h1>
+            </div>
+          ) : null}
+
+          {room.status === 'settled' ? (
+            <div className="mt-6">
+              <h1 className="font-poster text-[clamp(2.75rem,6vw,4.5rem)] uppercase leading-[0.92] text-white">Closed</h1>
               <p className="mt-4 max-w-md text-base font-light leading-relaxed text-white/60">
-                There is no next proof. {room.king ?? 'The open seat'} holds until the closing transaction lands.
+                {room.king
+                  ? `${ckbWhole(room.potShannons)} CKB went to ${iHold ? 'you' : room.king}, who held the crown at ${room.kingScore}.`
+                  : 'Nobody took the crown. The host got the treasury back.'}
               </p>
-              {hostClose}
-            </>
-          ) : room.status === 'settled' || !prompt ? (
-            <>
-              <h1 className="mt-3 font-poster text-[clamp(2.75rem,6vw,4.5rem)] uppercase leading-[0.92] text-white">
-                {room.status === 'settled' ? 'Closed' : room.king ? 'You hold it' : 'Open seat'}
-              </h1>
-              <p className="mt-4 max-w-md text-base font-light leading-relaxed text-white/60">
-                {room.status === 'settled'
-                  ? `${ckbWhole(room.potShannons)} CKB was paid to ${iHold ? 'you' : room.king ?? 'the open seat'}.`
-                  : `${ckbWhole(room.potShannons)} CKB in the pot. ${room.feed[0]?.text ?? ''}`}
-              </p>
-              {/* The one moment anyone actually wants this: the pot went somewhere, and if it
-                  did not go to you, you want to know why. */}
-              {room.status === 'settled' && room.matchOutPoint ? (
+              {room.matchOutPoint ? (
                 <>
                   <Link
                     href={`/verify/${room.matchOutPoint.txHash}`}
@@ -591,175 +555,119 @@ export function CrownPlayView({ id }: { id: string }) {
                   <CrownReceipt room={room} youWon={iHold} />
                 </>
               ) : null}
-            </>
-          ) : (
-            <>
-              <div className="mt-4 flex items-end justify-between gap-4">
-                <span className="font-mono text-[10px] uppercase text-[#e1bf47]">
-                  Round {room.round} · {prompt.tag} · Question {Math.min(room.cursor + 1, room.questions.length)} of {room.questions.length}
-                </span>
-                <span className="text-right">
-                  <span className="block font-mono text-[10px] font-bold uppercase text-white/40">
-                    {entryWindow ? 'Round starts in' : clock.counting ? 'Time left to play' : 'Host may close'}
-                  </span>
-                  <span
-                    className={`font-poster uppercase leading-none ${entryWindow || clock.counting ? 'text-4xl' : 'text-3xl'} ${!entryWindow && clock.counting && panic ? 'text-[#af2a3a]' : 'text-[#99ee2d]'}`}
+              {chain && entryBid && refund.at != null && !refund.sent ? (
+                <div className="mt-6 border border-white/10 bg-white/5 p-4">
+                  <p className="text-sm text-white/70">
+                    Unused entry.{' '}
+                    {now >= refund.at ? 'You can take it back now.' : `Returnable after ${new Date(refund.at).toLocaleTimeString()}.`}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void returnEntry()}
+                    disabled={Boolean(busy) || now < refund.at}
+                    className="mt-3 border border-[#99ee2d] px-4 py-2 font-mono text-[11px] uppercase text-[#99ee2d] disabled:opacity-40"
                   >
-                    {entryWindow && startsAt != null ? formatWait(startsAt - now) : clock.face}
-                  </span>
-                </span>
-              </div>
-              <p className="mt-1 text-sm text-white/55">
-                {entryWindow
-                  ? 'Entry window. Lock your entry now. The first question opens for everyone together when this reaches zero.'
-                  : clock.caption}
-              </p>
-              {entryWindow ? (
-                <div className="mt-6 border border-white/10 bg-white/5 p-5">
-                  <p className="font-poster text-3xl uppercase leading-none text-white">
-                    {entryBid ? 'You are in' : 'Lock your entry'}
-                  </p>
-                  <p className="mt-3 max-w-md text-sm leading-relaxed text-white/65">
-                    {entryBid
-                      ? 'Your entry is locked or confirming. Stay on this page. Question 1 opens for everyone at the same moment.'
-                      : 'An entry is a transaction, and it has to confirm before it can be used, which takes a few blocks. This window is the time to do it, so nobody starts the round ahead of anyone else.'}
-                  </p>
-                  <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.16em] text-[#99ee2d]">
-                    {seats.filter((seat) => seat.bidOutPoint).length} locked · {seats.length} seated
-                  </p>
+                    {busy === 'Returning your entry…' ? busy : 'Return my entry'}
+                  </button>
                 </div>
-              ) : (
-                <>
-              {prompt.image ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={prompt.image} alt="" className="mt-4 max-h-40 w-full object-cover" />
               ) : null}
-              <h1 className="mt-4 text-2xl font-semibold leading-snug text-white sm:text-3xl">
-                <PromptLine text={prompt.text} lyric={prompt.skin === 'lyric' || prompt.skin === 'chant'} />
-              </h1>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                {prompt.options.map((option, index) => {
-                  const on = picked === index;
-                  const good = flash === 'hit' && index === prompt.correct;
-                  const bad = flash === 'miss' && on;
-                  return (
-                    <button
-                      key={option}
-                      type="button"
-                      disabled={picked !== null || !isConnected || (iHold && !entryBid) || (chain && !matchReady)}
-                      onClick={() => answer(index)}
-                      className={`border px-4 py-3 text-left transition disabled:opacity-50 ${
-                        good
-                          ? 'border-[#99ee2d] bg-[#99ee2d]/15'
-                          : bad
-                            ? 'border-[#af2a3a] bg-[#af2a3a]/20'
-                            : 'border-white/10 bg-white/5 hover:border-[#99ee2d]/40'
-                      }`}
-                    >
-                      <span className="font-mono text-[10px] uppercase text-white/40">{LETTERS[index]}</span>
-                      <span className="mt-1 block text-base font-semibold text-white">{option}</span>
-                    </button>
-                  );
-                })}
-              </div>
-                </>
-              )}
-              <div className="mt-4">
-                {hostClose}
-                <p className="mb-3 font-mono text-[10px] uppercase tracking-[0.16em] text-white/45">
-                  {iHost ? 'Host' : iHold ? 'You hold the crown' : isConnected ? 'Player' : 'Spectator'}
-                </p>
+              {refund.sent ? <p className="mt-4 text-sm text-[#99ee2d]">Entry returned · {refund.sent.slice(0, 18)}…</p> : null}
+            </div>
+          ) : null}
+
+          {live && seed != null ? (
+            <div className="mt-6">
+              <LaneRunnerGame
+                seed={seed}
+                toBeat={room.kingScore}
+                onFinish={onFinish}
+                startLabel={entryWindow ? 'Practise' : iHold ? 'Practise' : 'Run for the crown'}
+              />
+              <div className="mt-4 border border-white/10 bg-white/5 p-4">
+                {entryWindow ? (
+                  <>
+                    <p className="font-poster text-2xl uppercase leading-none text-white">{entryBid ? 'You are in' : 'Lock your entry'}</p>
+                    <p className="mt-2 max-w-xl text-sm leading-relaxed text-white/65">
+                      The round starts for everyone together. Lock your entry now.
+                    </p>
+                    <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.16em] text-[#99ee2d]">
+                      {seats.filter((seat) => seat.bidOutPoint).length} locked · {seats.length} seated
+                    </p>
+                  </>
+                ) : iHold ? (
+                  <p className="text-sm text-white/70">
+                    You hold the crown at {room.kingScore}. If someone beats it, take it back.
+                  </p>
+                ) : best ? (
+                  <>
+                    <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/45">Your best run</p>
+                    <p className="mt-1 font-poster text-4xl uppercase leading-none text-white">
+                      {best.score} <span className="text-2xl text-white/40">vs {room.kingScore}</span>
+                    </p>
+                    <p className="mt-2 max-w-xl text-sm text-white/65">
+                      {beats
+                        ? `Send it to take the crown. +${ckbWhole(room.feeShannons)} CKB to the pot.`
+                        : 'Not enough yet. Same course every time.'}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm text-white/65">
+                    Practice is free. Beat {room.kingScore} to take the crown.
+                  </p>
+                )}
                 {!isConnected ? (
-                  <div className="mb-4">
-                    <ArenaCta onClick={() => void ensureAuth().catch(() => undefined)}>Connect to play</ArenaCta>
+                  <div className="mt-4">
+                    <ArenaCta onClick={() => void ensureAuth().catch(() => undefined)}>Connect to play for the pot</ArenaCta>
                   </div>
                 ) : null}
-                {iHold && !entryBid ? (
-                  <p className="mb-4 text-sm text-white/70">You hold the crown. The others can still take it. Lock again only after you lose it.</p>
+                {cellMoving ? (
+                  <p className="mt-3 text-sm text-white/60">The crown just moved. Confirming…</p>
                 ) : null}
-                {flash === 'miss' ? (
-                  <p className="mb-4 text-sm text-white/70">
-                    Wrong answer. That was your one try on this question.
+                {timeUp ? (
+                  <p className="mt-3 text-sm text-[#e1bf47]">
+                    Time&apos;s up. {room.king ? `${iHold ? 'You hold' : `${room.king} holds`} the crown at ${room.kingScore}.` : 'Nobody took the crown.'}
                   </p>
                 ) : null}
-                {chain && room.matchId && isConnected && cellMoving ? (
-                  <p className="mb-4 text-sm text-white/70">
-                    The crown just moved. Lock opens when that transaction confirms. That is one block, not the rest of the round.
-                    The person holding the crown does not lock again. Everyone else can, as soon as this confirm finishes.
-                  </p>
+                {beats && !entryWindow && !timeUp && !iHold && isConnected ? (
+                  <div className="mt-4">
+                    <ArenaCta onClick={() => void takeCrown()} disabled={!canTake}>
+                      {busy ?? (entryBid || !chain || !room.matchId ? `Take the crown with ${best?.score}` : `Lock entry and take the crown`)}
+                    </ArenaCta>
+                  </div>
                 ) : null}
-                {chain && room.matchId && isConnected && matchReady && !entryBid && !iHold && flash !== 'miss' ? (
-                  <div className="mb-4">
-                    {room.cursor > 0 ? (
-                      <p className="mb-3 text-sm text-white/55">
-                        Your entry was spent when you took the crown. Lock again to take it back.
-                      </p>
-                    ) : null}
+                {entryWindow && chain && room.matchId && isConnected && matchReady && !entryBid ? (
+                  <div className="mt-4">
                     <ArenaCta
                       onClick={() => {
-                        if (!signer) {
-                          setChainError('Connect JoyID to lock the entry bid.');
-                          return;
-                        }
-                        setBusy('Locking the entry fee…');
+                        setBusy('Locking your entry…');
                         setChainError(null);
-                        void lockBid(signer, loadCrown(id) ?? room)
-                          .then((next) => {
-                            saveCrown(next);
-                            if (address && next.bidOutPoint) {
-                              rememberBid(room.id, address, next.bidOutPoint);
-                              void joinCrownRemote(room.id, {
-                                address,
-                                displayName: formattedAddress || 'Player',
-                                bidOutPoint: next.bidOutPoint,
-                              }).catch(() => undefined);
-                            }
-                          })
+                        void lockEntry(loadCrown(id) ?? room)
                           .catch((error: unknown) => {
                             if (error instanceof MatchMovedError) saveCrown(error.room);
-                            setChainError(chainMessage(error, 'The bid failed.'));
+                            setChainError(chainMessage(error, 'The entry failed.'));
                           })
                           .finally(() => setBusy(null));
                       }}
                       disabled={Boolean(busy)}
                     >
-                      {busy ?? (room.cursor > 0 ? 'Lock to take it back' : 'Lock your entry')}
+                      {busy ?? 'Lock your entry'}
                     </ArenaCta>
                   </div>
                 ) : null}
-                <div className="h-2 overflow-hidden rounded-full bg-white/10">
-                  <div
-                    className={`h-full rounded-full ${panic ? 'bg-[#af2a3a]' : 'bg-gradient-to-r from-[#ff56f6] to-[#406aff]'}`}
-                    style={{ width: `${clockProgress}%` }}
-                  />
-                </div>
               </div>
-            </>
-          )}
-          {room.pendingTx ? (
-            <div className="mt-6">
-              <p className="max-w-md text-sm text-[#e1bf47]">
-                A previous signature is still waiting. Approve it once, then the rest of the crown moves without you.
-              </p>
-              <div className="mt-3">
-                <ArenaCta onClick={() => void signPending()} disabled={Boolean(busy)}>
-                  {busy ?? 'Sign'}
-                </ArenaCta>
-              </div>
+              {closeButton}
             </div>
           ) : null}
+
           {shownError ? <p className="mt-4 max-w-md text-sm text-[#af2a3a]">{shownError}</p> : null}
-          {busy && room.status === 'live' ? <p className="mt-3 font-mono text-[10px] uppercase text-white/50">{busy}</p> : null}
-          <p className="mt-6 font-mono text-[10px] uppercase text-white/40">
-            Pot {ckbWhole(room.potShannons)} CKB · {room.status === 'settled' && iHold ? 'you' : room.king ?? 'Open seat'}
-          </p>
-          <div className="mt-3 flex gap-4">
+          {busy && live ? <p className="mt-3 font-mono text-[10px] uppercase text-white/50">{busy}</p> : null}
+          <div className="mt-6 flex gap-4">
             <Link href={`/watch/${room.id}`} className="border-b border-[#bef970] pb-1 text-sm font-bold uppercase text-white">
               Watch →
             </Link>
-            {iHost && room.status === 'live' ? (
+            {iHost && live ? (
               <Link href={`/host/${room.id}`} className="border-b border-[#e1bf47] pb-1 text-sm font-bold uppercase text-[#e1bf47]">
-                Close the crown →
+                Host desk →
               </Link>
             ) : null}
           </div>
@@ -778,34 +686,15 @@ export function CrownPlayView({ id }: { id: string }) {
           ) : null}
         </div>
 
-        <div className="relative mx-auto hidden h-[min(52vh,480px)] w-[280px] shrink-0 lg:block xl:w-[320px]">
-          <div
-            className="pointer-events-none absolute left-1/2 top-1/3 h-64 w-64 -translate-x-1/2 rounded-full bg-[#a855f7]/35 blur-[80px]"
-            aria-hidden
-          />
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/uismod/organizer.png"
-            alt=""
-            className="relative z-10 h-full w-full object-contain object-bottom drop-shadow-[0_0_40px_rgba(168,85,247,0.45)]"
-          />
-        </div>
-
         <aside className="relative z-10 border-t border-white/10 pt-6 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
-          <div
-            className="pointer-events-none absolute left-0 top-8 hidden h-[70%] w-px bg-gradient-to-b from-[#99ee2d] via-[#a855f7] to-transparent lg:block"
-            aria-hidden
-          />
-          <p className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-[#99ee2d]">
-            Crowns
-          </p>
+          <p className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-[#99ee2d]">Crowns</p>
           <ul className="mt-4 space-y-2.5">
             <li>
               <ArenaRailCard
                 href={`/play/${room.id}`}
                 eyebrow="This crown"
                 title={room.title}
-                meta={`${ckbWhole(room.potShannons)} CKB pot · ${room.status === 'settled' && iHold ? 'you' : room.king ?? 'Open seat'}`}
+                meta={`${ckbWhole(room.potShannons)} CKB pot · ${room.king ? `${iHold ? 'you' : room.king} · ${room.kingScore}` : 'Open seat'}`}
                 cover={arenaCoverForSeed(room.title)}
                 cta="Here"
               />
@@ -813,11 +702,7 @@ export function CrownPlayView({ id }: { id: string }) {
             {others.map((item) => (
               <li key={item.id}>
                 <ArenaRailCard
-                  href={
-                    item.status === 'lobby' && isHostWallet(item, address, myLockHash)
-                      ? `/host/${item.id}`
-                      : `/play/${item.id}`
-                  }
+                  href={item.status === 'lobby' && isHostWallet(item, address, myLockHash) ? `/host/${item.id}` : `/play/${item.id}`}
                   eyebrow={item.status}
                   title={item.title}
                   meta={`${ckbWhole(item.potShannons)} CKB pot · ${item.king ?? 'Open seat'}`}
@@ -827,9 +712,18 @@ export function CrownPlayView({ id }: { id: string }) {
               </li>
             ))}
           </ul>
+          <div className="mt-6 border-t border-white/10 pt-4">
+            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/40">Feed</p>
+            <ul className="mt-2 space-y-1.5">
+              {room.feed.slice(0, 6).map((item) => (
+                <li key={item.id} className={`text-xs ${item.good ? 'text-white/70' : 'text-white/40'}`}>
+                  {item.text}
+                </li>
+              ))}
+            </ul>
+          </div>
         </aside>
       </section>
-      <style>{`@keyframes sdshake{0%,100%{transform:translateX(0)}20%{transform:translateX(-6px)}40%{transform:translateX(6px)}60%{transform:translateX(-4px)}80%{transform:translateX(4px)}}`}</style>
     </ArenaStage>
   );
 }

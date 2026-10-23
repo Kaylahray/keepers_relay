@@ -636,6 +636,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "crowns-game-core"
+version = "0.1.0"
+
+[[package]]
+name = "crowns-lane-runner"
+version = "0.1.0"
+dependencies = [
+ "ckb-std",
+ "crowns-game-core",
+]
+
+[[package]]
 name = "crypto-common"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1781,6 +1793,7 @@ version = "0.1.0"
 dependencies = [
  "blake2b-ref",
  "ckb-testtool",
+ "crowns-game-core",
  "serde_json",
 ]
 

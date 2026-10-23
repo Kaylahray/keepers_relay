@@ -1,0 +1,21 @@
+[package]
+name = "crowns-game-wasm"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Browser build of the Crowns lane runner: the exact rules the replay script checks"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+crowns-game-core = { path = "../contracts/game-core" }
+
+[workspace]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "symbols"

@@ -23,12 +23,3 @@ export interface BuilderProfile {
   /** ISO timestamp of last rescue — one soft rescue per day. */
   lastRescueAt?: string | null;
 }
-
-export interface UpsertBuilderInput {
-  address: string;
-  username: string;
-  displayName: string;
-  characterId?: CharacterId | null;
-  headline?: string;
-  avatarSporeId?: string | null;
-}

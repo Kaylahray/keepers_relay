@@ -56,8 +56,7 @@ export function CrownLobby({
         {room.title}
       </h1>
       <p className="mt-4 max-w-xl text-base font-light leading-relaxed text-white/60">
-        Share this lobby. Each player connects their own wallet and takes a seat. Starting the clock
-        is the host signature that mints the match. Entry bids come after that.
+        Share the link. Players connect and take a seat, then the host starts the clock.
       </p>
       <p className="mt-3 font-mono text-[11px] uppercase text-[#e1bf47]">
         {ckbWhole(room.feeShannons)} CKB entry · {seats.length} seated

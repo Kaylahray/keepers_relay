@@ -1,10 +1,19 @@
-import { DEFAULT_BANK } from '@/lib/sudden-death/bank';
-import { shrinkMs, shrunkDeadline, type BankQuestion, type QuestionBank } from '@/lib/sudden-death/codec';
+import { shrinkMs, shrunkDeadline } from '@/lib/sudden-death/codec';
 
 const KEY = 'keepers-crowns';
 
-/** Host-stamped length when a crown does not set one. Two hours. */
-export const DEFAULT_DURATION_MS = 2 * 60 * 60 * 1000;
+/** Host-stamped length when a crown does not set one. Steals cut 10, 5, 5, 2.5… minutes, so 30 bites. */
+export const DEFAULT_DURATION_MS = 30 * 60 * 1000;
+
+/** Games a crown can be played with. Each is a game script the match cell names by data hash. */
+export type GameId = 'lane-runner';
+
+export const GAMES: Record<GameId, { title: string; blurb: string }> = {
+  'lane-runner': {
+    title: 'Lane Runner',
+    blurb: 'Three lanes, rows of blocks, faster every few seconds. Survive and grab coins. Two minutes at most.',
+  },
+};
 
 export type CrownStatus = 'lobby' | 'live' | 'settled';
 
@@ -31,12 +40,13 @@ export type CrownRoom = {
   feeShannons: bigint;
   /** Length the host stamps into the match when the clock starts. */
   durationMs: number;
-  questions: BankQuestion[];
+  game: GameId;
   status: CrownStatus;
   round: number;
-  cursor: number;
   potShannons: bigint;
   king: string | null;
+  /** The score a run has to beat to take the crown. Read from the match cell. */
+  kingScore: number;
   openedAt: number | null;
   deadlineAt: number | null;
   feed: CrownFeedItem[];
@@ -48,67 +58,49 @@ export type CrownRoom = {
   treasuryOutPoint: OutPointRef | null;
   bidOutPoint: OutPointRef | null;
   kingLock: LockRef | null;
-  pendingTx: string | null;
-  pendingKind: 'steal' | 'close' | null;
+  /** The king's lock hash as the match cell records it. The server names the king from this. */
+  kingHash?: string | null;
   hostAddress: string | null;
-  /** This browser does not have the answer key. Proofs come from the server. */
-  answersOnServer?: boolean;
   /**
-   * When this browser sent a steal that the chain has not confirmed yet. It buys the player
-   * who answered the right to show the next question before everyone else does, and nothing
-   * more: the moment the server reads the new round, the shared clock takes over again.
+   * When this browser sent a steal that the chain has not confirmed yet. It lets the player who
+   * took the crown see it straight away, and nothing more: the moment the server reads the new
+   * round, the shared clock takes over again.
    */
   stealPendingAt?: number | null;
+  /** A quiz crown from before version 2. The current scripts cannot play or close it. */
+  legacy?: boolean;
 };
 
-type StoredQuestion = Omit<BankQuestion, 'salt'> & { salt: string };
-export type StoredRoom = Omit<CrownRoom, 'feeShannons' | 'potShannons' | 'questions'> & {
+export type StoredRoom = Omit<CrownRoom, 'feeShannons' | 'potShannons'> & {
   feeShannons: string;
   potShannons: string;
-  questions: StoredQuestion[];
 };
 
-function saltHex(salt: Uint8Array): string {
-  return [...salt].map((byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
-function saltFromHex(hex: string): Uint8Array {
-  const out = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < out.length; i += 1) {
-    out[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  }
-  return out;
-}
-
 export function roomToStored(room: CrownRoom): StoredRoom {
-  return toStored(room);
-}
-
-export function roomFromStored(room: StoredRoom): CrownRoom {
-  return fromStored(room);
-}
-
-function toStored(room: CrownRoom): StoredRoom {
   return {
     ...room,
     feeShannons: room.feeShannons.toString(),
     potShannons: room.potShannons.toString(),
-    questions: room.questions.map((question) => ({
-      ...question,
-      salt: saltHex(question.salt),
-    })),
   };
 }
 
-function fromStored(room: StoredRoom): CrownRoom {
+export function roomFromStored(room: StoredRoom): CrownRoom {
+  const raw = room as StoredRoom & { questions?: unknown };
   return {
-    ...room,
+    id: room.id,
+    title: room.title,
     feeShannons: BigInt(room.feeShannons),
     potShannons: BigInt(room.potShannons),
-    questions: room.questions.map((question) => ({
-      ...question,
-      salt: saltFromHex(question.salt),
-    })),
+    durationMs: room.durationMs || DEFAULT_DURATION_MS,
+    game: room.game ?? 'lane-runner',
+    status: room.status,
+    round: room.round ?? 0,
+    king: room.king ?? null,
+    kingScore: room.kingScore ?? 0,
+    openedAt: room.openedAt ?? null,
+    deadlineAt: room.deadlineAt ?? null,
+    feed: room.feed ?? [],
+    seals: room.seals ?? [],
     matchId: room.matchId ?? null,
     hostLockHash: room.hostLockHash ?? null,
     hostLock: room.hostLock ?? null,
@@ -116,12 +108,10 @@ function fromStored(room: StoredRoom): CrownRoom {
     treasuryOutPoint: room.treasuryOutPoint ?? null,
     bidOutPoint: room.bidOutPoint ?? null,
     kingLock: room.kingLock ?? null,
-    pendingTx: room.pendingTx ?? null,
-    pendingKind: room.pendingKind ?? null,
+    kingHash: room.kingHash ?? null,
     hostAddress: room.hostAddress ?? null,
-    answersOnServer: room.answersOnServer ?? false,
     stealPendingAt: room.stealPendingAt ?? null,
-    durationMs: room.durationMs || DEFAULT_DURATION_MS,
+    legacy: room.legacy ?? (!room.game && Array.isArray(raw.questions)),
   };
 }
 
@@ -131,14 +121,14 @@ function readAll(): CrownRoom[] {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw) as StoredRoom[];
-    return parsed.map(fromStored);
+    return parsed.map(roomFromStored);
   } catch {
     return [];
   }
 }
 
 function writeAll(rooms: CrownRoom[]) {
-  window.localStorage.setItem(KEY, JSON.stringify(rooms.map(toStored)));
+  window.localStorage.setItem(KEY, JSON.stringify(rooms.map(roomToStored)));
 }
 
 const listeners = new Set<() => void>();
@@ -155,7 +145,9 @@ function emit() {
 }
 
 export function listCrowns(): CrownRoom[] {
-  return readAll().sort((a, b) => (b.openedAt ?? 0) - (a.openedAt ?? 0));
+  return readAll()
+    .filter((room) => !room.legacy)
+    .sort((a, b) => (b.openedAt ?? 0) - (a.openedAt ?? 0));
 }
 
 export function loadCrown(id: string): CrownRoom | null {
@@ -185,18 +177,33 @@ function crownId(): string {
   return `crown-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-export function sealCrown(bank: QuestionBank): CrownRoom {
+export type CrownSetup = {
+  title: string;
+  feeShannons: bigint;
+  durationMs: number;
+  game: GameId;
+};
+
+/** A practice floor anyone can open: no stake beyond the entry fee, the default clock. */
+export const FLOOR_CROWN: CrownSetup = {
+  title: 'Lane Runner floor',
+  feeShannons: 50n * 100_000_000n,
+  durationMs: DEFAULT_DURATION_MS,
+  game: 'lane-runner',
+};
+
+export function sealCrown(setup: CrownSetup): CrownRoom {
   const room: CrownRoom = {
     id: crownId(),
-    title: bank.title,
-    feeShannons: bank.feeShannons,
-    durationMs: bank.durationMs || DEFAULT_DURATION_MS,
-    questions: bank.questions,
+    title: setup.title,
+    feeShannons: setup.feeShannons,
+    durationMs: setup.durationMs || DEFAULT_DURATION_MS,
+    game: setup.game,
     status: 'lobby',
     round: 0,
-    cursor: 0,
     potShannons: 0n,
     king: null,
+    kingScore: 0,
     openedAt: null,
     deadlineAt: null,
     stealPendingAt: null,
@@ -209,17 +216,10 @@ export function sealCrown(bank: QuestionBank): CrownRoom {
     treasuryOutPoint: null,
     bidOutPoint: null,
     kingLock: null,
-    pendingTx: null,
-    pendingKind: null,
     hostAddress: null,
-    answersOnServer: false,
   };
   saveCrown(room);
   return room;
-}
-
-export function sealFloorCrown(): CrownRoom {
-  return sealCrown(DEFAULT_BANK);
 }
 
 export function kickoff(room: CrownRoom, deadlineAt = Date.now() + (room.durationMs || DEFAULT_DURATION_MS)): CrownRoom {
@@ -228,16 +228,16 @@ export function kickoff(room: CrownRoom, deadlineAt = Date.now() + (room.duratio
     ...room,
     status: 'live',
     round: 1,
-    cursor: 0,
     potShannons: 0n,
     king: null,
+    kingScore: 0,
     openedAt: now,
     deadlineAt,
     stealPendingAt: null,
     feed: [
       {
         id: `${now}`,
-        text: 'Clock started. The countdown is the deadline written in the match cell.',
+        text: 'Clock started.',
         good: true,
       },
       ...room.feed,
@@ -256,53 +256,26 @@ export function settleCrown(room: CrownRoom, reason: string): CrownRoom {
   };
 }
 
-export function applySteal(room: CrownRoom, proofNote: string): CrownRoom {
+/** A run took the crown. `king` is how the new holder is shown to everyone else. */
+export function applySteal(room: CrownRoom, score: number, king: string, note: string): CrownRoom {
   const cut = shrinkMs(room.round);
   const fee = ckbWhole(room.feeShannons);
   const now = Date.now();
-  const nextCursor = room.cursor + 1;
-  const bankDone = nextCursor >= room.questions.length;
   const deadlineAt = shrunkDeadline(room.deadlineAt ?? now, room.round);
-  const seal: CrownSeal = {
-    id: `${now}`,
-    label: 'Steal',
-    detail: proofNote,
-    txHash: null,
-  };
-  const stolen: CrownRoom = {
-    ...room,
-    round: room.round + 1,
-    cursor: nextCursor,
-    potShannons: room.potShannons + room.feeShannons,
-    king: 'You',
-    deadlineAt,
-    stealPendingAt: now,
-    seals: [seal, ...room.seals].slice(0, 8),
-    feed: [
-      {
-        id: `${now}`,
-        text: `Steal · +${fee} CKB · −${Math.round(cut / 60_000)} min on the clock`,
-        good: true,
-      },
-      ...room.feed,
-    ].slice(0, 8),
-  };
-  if (!bankDone || room.matchId) return stolen;
-  return settleCrown(
-    stolen,
-    'The bank is finished. On a live cell the deadline would still be whatever the last steal wrote.',
-  );
-}
-
-export function noteMiss(room: CrownRoom): CrownRoom {
-  const now = Date.now();
   return {
     ...room,
+    round: room.round + 1,
+    potShannons: room.potShannons + room.feeShannons,
+    king,
+    kingScore: score,
+    deadlineAt,
+    stealPendingAt: now,
+    seals: [{ id: `${now}`, label: 'Crown', detail: note, txHash: null }, ...room.seals].slice(0, 8),
     feed: [
       {
         id: `${now}`,
-        text: 'Miss. That question is closed for them. The cell does not move.',
-        good: false,
+        text: `${king} took the crown with ${score} · +${fee} CKB · −${Math.round(cut / 6_000) / 10} min on the clock`,
+        good: true,
       },
       ...room.feed,
     ].slice(0, 8),
