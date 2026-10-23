@@ -45,6 +45,14 @@ function sizedFee(tx: ccc.Transaction): bigint {
 }
 
 /** The bid was signed against a match cell a steal has already consumed. */
+/** The entry this browser remembered is gone: spent by an earlier steal, or never confirmed. */
+export class EntryGoneError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'EntryGoneError';
+  }
+}
+
 export class MatchMovedError extends Error {
   readonly room: CrownRoom;
 
@@ -134,10 +142,10 @@ async function waitLive(
 
     const status = (await client.getTransaction(point.txHash).catch(() => null))?.status;
     if (status === 'rejected') {
-      throw new Error('That entry was rejected by the network. Lock a new one.');
+      throw new EntryGoneError('That entry was rejected by the network. Lock a new one.');
     }
     if (status === 'committed') {
-      throw new Error('That entry was already spent. Lock a new one.');
+      throw new EntryGoneError('That entry was already spent. Lock a new one.');
     }
 
     const waited = Date.now() - started;

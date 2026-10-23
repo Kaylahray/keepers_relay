@@ -19,6 +19,7 @@ import {
   closeCrown,
   expireBid,
   lockBid,
+  EntryGoneError,
   MatchMovedError,
   openMatch,
   RunBeatenError,
@@ -318,6 +319,18 @@ export function CrownPlayView({ id }: { id: string }) {
     return next;
   }
 
+  function forgetEntry() {
+    if (!room) return;
+    const local = loadCrown(id);
+    if (local?.bidOutPoint) saveCrown({ ...local, bidOutPoint: null });
+    if (address) {
+      forgetBid(room.id, address);
+      void joinCrownRemote(room.id, { address, displayName: formattedAddress || 'Player', clearBid: true }).catch(
+        () => undefined,
+      );
+    }
+  }
+
   async function takeCrown() {
     if (!room || !best) return;
     setChainError(null);
@@ -347,7 +360,20 @@ export function CrownPlayView({ id }: { id: string }) {
         current = await lockEntry(current);
       }
       setBusy('Sending your run…');
-      const result = await stealCrown(signer.client, current, { tape: best.tape, score: best.score }, setBusy);
+      const run = { tape: best.tape, score: best.score };
+      let result;
+      try {
+        result = await stealCrown(signer.client, current, run, setBusy);
+      } catch (error) {
+        if (!(error instanceof EntryGoneError)) throw error;
+        // The entry this phone remembered was used by an earlier steal (or never landed). Forget it
+        // everywhere it was kept, lock a fresh one, and send the same run once more.
+        forgetEntry();
+        setBusy('Locking a new entry…');
+        current = await lockEntry({ ...current, bidOutPoint: null });
+        setBusy('Sending your run…');
+        result = await stealCrown(signer.client, current, run, setBusy);
+      }
       const named = { ...result.room, king: name };
       if (address) forgetBid(room.id, address);
       forgetBestRun(room.id, best.seed);

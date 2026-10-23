@@ -33,6 +33,9 @@ const COLORS = {
  */
 export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run' }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  // On a phone the run takes the whole screen, like any mobile game. Desktop keeps it in the page.
+  const [immersive, setImmersive] = useState(false);
   const runnerRef = useRef<LaneRunner | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [phase, setPhase] = useState<'loading' | 'ready' | 'playing' | 'over'>('loading');
@@ -153,6 +156,12 @@ export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run' }: P
   const start = useCallback(() => {
     const runner = runnerRef.current;
     if (!runner) return;
+    if (window.matchMedia('(max-width: 767px)').matches) {
+      setImmersive(true);
+      // Hides the browser bars where the phone allows it (Android). iOS keeps them; the fixed
+      // layer still fills the screen.
+      if (!document.fullscreenElement) void rootRef.current?.requestFullscreen?.().catch(() => undefined);
+    }
     runner.start(seed);
     play.current = { target: 1, wanted: 1, recorder: new TapeRecorder(), frame: 0, carry: 0, at: performance.now() };
     setPhase('playing');
@@ -225,10 +234,39 @@ export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run' }: P
     [],
   );
 
+  const leave = useCallback(() => {
+    setImmersive(false);
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    if (!immersive) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    // Leaving system full screen (back gesture) leaves the game layer too.
+    const onChange = () => {
+      if (!document.fullscreenElement) setImmersive(false);
+    };
+    document.addEventListener('fullscreenchange', onChange);
+    return () => {
+      document.body.style.overflow = previous;
+      document.removeEventListener('fullscreenchange', onChange);
+    };
+  }, [immersive]);
+
+  // The canvas changes size when the layer opens or closes; draw the still frame again at the new size.
+  useEffect(() => {
+    if (phase !== 'playing') requestAnimationFrame(() => draw());
+  }, [immersive, phase, draw]);
+
   const beats = last != null && last > toBeat;
 
   return (
-    <div className="relative">
+    <div
+      ref={rootRef}
+      className={immersive ? 'fixed inset-0 z-[80] bg-[#0b0b12]' : 'relative'}
+      style={immersive ? { height: '100dvh' } : undefined}
+    >
       <canvas
         ref={canvasRef}
         tabIndex={0}
@@ -238,9 +276,14 @@ export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run' }: P
           const box = event.currentTarget.getBoundingClientRect();
           steer(event.clientX - box.left < box.width / 2 ? -1 : 1);
         }}
-        className="block h-[min(62vh,520px)] w-full touch-none select-none border border-white/10 outline-none focus:border-[#99ee2d]/60"
+        className={`block w-full touch-none select-none outline-none ${
+          immersive ? 'h-full' : 'h-[min(62vh,520px)] border border-white/10 focus:border-[#99ee2d]/60'
+        }`}
       />
-      <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between p-3 font-mono text-[11px] uppercase">
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between p-3 font-mono text-[11px] uppercase"
+        style={immersive ? { paddingTop: 'max(0.75rem, env(safe-area-inset-top))' } : undefined}
+      >
         <span className="text-white">
           <span className="block text-[10px] text-white/45">Score</span>
           <span className="font-poster text-3xl leading-none text-[#99ee2d]">{hud.score}</span>
@@ -285,6 +328,17 @@ export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run' }: P
               >
                 {phase === 'over' ? 'Run again' : startLabel}
               </button>
+              {immersive ? (
+                <button
+                  type="button"
+                  onClick={leave}
+                  className={`mt-3 px-6 py-3 font-mono text-xs font-bold uppercase ${
+                    beats ? 'bg-[#e1bf47] text-[#111]' : 'border border-white/30 text-white/80'
+                  }`}
+                >
+                  {beats ? 'Take the crown with this run' : 'Exit'}
+                </button>
+              ) : null}
             </>
           )}
         </div>
