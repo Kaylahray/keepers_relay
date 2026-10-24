@@ -525,29 +525,30 @@ export function CrownPlayView({ id }: { id: string }) {
           <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">
             {room.title} · {GAMES[room.game].title}
           </p>
-          <div className="mt-4 flex flex-wrap items-end justify-between gap-6">
-            <div>
+          {/* Three fixed columns that never wrap: a ticking clock changing width must not reflow the page. */}
+          <div className="mt-4 grid grid-cols-3 items-end gap-3 sm:gap-6">
+            <div className="min-w-0">
               <p className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">Pot</p>
-              <p className="font-poster text-5xl uppercase leading-none text-[#99ee2d] sm:text-6xl">{ckbWhole(room.potShannons)}</p>
+              <p className="truncate whitespace-nowrap font-poster text-3xl uppercase leading-none tabular-nums text-[#99ee2d] sm:text-6xl">{ckbWhole(room.potShannons)}</p>
               <p className="font-mono text-[11px] uppercase text-white/45">CKB</p>
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">Crown</p>
-              <p className="font-poster text-4xl uppercase leading-none text-[#e1bf47]">{room.kingScore}</p>
-              <p className="font-mono text-[11px] uppercase text-white/45">
+              <p className="whitespace-nowrap font-poster text-3xl uppercase leading-none tabular-nums text-[#e1bf47] sm:text-4xl">{room.kingScore}</p>
+              <p className="truncate font-mono text-[11px] uppercase text-white/45">
                 {room.king ? `${iHold ? 'you' : room.king}` : 'open seat'}
               </p>
             </div>
-            <div className="text-right">
-              <p className="font-mono text-[10px] font-bold uppercase text-white/40">
+            <div className="min-w-0 text-right">
+              <p className="truncate font-mono text-[10px] font-bold uppercase text-white/40">
                 {entryWindow ? 'Round starts in' : clock.counting ? 'Time left' : live ? 'Time up' : 'Closed'}
               </p>
               <p
-                className={`font-poster text-4xl uppercase leading-none ${!entryWindow && panic ? 'text-[#af2a3a]' : 'text-white'}`}
+                className={`whitespace-nowrap font-poster text-3xl uppercase leading-none tabular-nums sm:text-4xl ${!entryWindow && panic ? 'text-[#af2a3a]' : 'text-white'}`}
               >
                 {entryWindow && startsAt != null ? formatWait(startsAt - now) : live ? clock.face : 'Closed'}
               </p>
-              <p className="font-mono text-[11px] uppercase text-white/45">+{ckbWhole(room.feeShannons)} CKB a crown</p>
+              <p className="truncate font-mono text-[11px] uppercase text-white/45">+{ckbWhole(room.feeShannons)} CKB a crown</p>
             </div>
           </div>
           {live ? (

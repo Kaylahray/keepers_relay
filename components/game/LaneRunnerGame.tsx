@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { LANE, loadLaneRunner, TapeRecorder, type LaneRunner } from '@/lib/game/lane-runner';
 
 export type FinishedRun = { tape: Uint8Array; score: number; seed: bigint };
@@ -33,7 +34,6 @@ const COLORS = {
  */
 export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run' }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const rootRef = useRef<HTMLDivElement | null>(null);
   // On a phone the run takes the whole screen, like any mobile game. Desktop keeps it in the page.
   const [immersive, setImmersive] = useState(false);
   const runnerRef = useRef<LaneRunner | null>(null);
@@ -159,8 +159,9 @@ export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run' }: P
     if (window.matchMedia('(max-width: 767px)').matches) {
       setImmersive(true);
       // Hides the browser bars where the phone allows it (Android). iOS keeps them; the fixed
-      // layer still fills the screen.
-      if (!document.fullscreenElement) void rootRef.current?.requestFullscreen?.().catch(() => undefined);
+      // layer still fills the screen. The whole document goes full screen, because the game layer
+      // itself is about to move to the end of <body>.
+      if (!document.fullscreenElement) void document.documentElement.requestFullscreen?.().catch(() => undefined);
     }
     runner.start(seed);
     play.current = { target: 1, wanted: 1, recorder: new TapeRecorder(), frame: 0, carry: 0, at: performance.now() };
@@ -261,9 +262,8 @@ export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run' }: P
 
   const beats = last != null && last > toBeat;
 
-  return (
+  const game = (
     <div
-      ref={rootRef}
       className={immersive ? 'fixed inset-0 z-[80] bg-[#0b0b12]' : 'relative'}
       style={immersive ? { height: '100dvh' } : undefined}
     >
@@ -281,20 +281,20 @@ export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run' }: P
         }`}
       />
       <div
-        className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between p-3 font-mono text-[11px] uppercase"
+        className="pointer-events-none absolute inset-x-0 top-0 grid grid-cols-3 items-start p-3 font-mono text-[11px] uppercase"
         style={immersive ? { paddingTop: 'max(0.75rem, env(safe-area-inset-top))' } : undefined}
       >
         <span className="text-white">
           <span className="block text-[10px] text-white/45">Score</span>
-          <span className="font-poster text-3xl leading-none text-[#99ee2d]">{hud.score}</span>
+          <span className="block whitespace-nowrap font-poster text-2xl leading-none tabular-nums text-[#99ee2d] sm:text-3xl">{hud.score}</span>
         </span>
         <span className="text-center text-white/60">
           <span className="block text-[10px] text-white/45">To beat</span>
-          <span className="font-poster text-2xl leading-none text-[#e1bf47]">{toBeat}</span>
+          <span className="block whitespace-nowrap font-poster text-2xl leading-none tabular-nums text-[#e1bf47]">{toBeat}</span>
         </span>
         <span className="text-right text-white/60">
           <span className="block text-[10px] text-white/45">Run</span>
-          <span className="font-poster text-2xl leading-none text-white">{hud.seconds}s</span>
+          <span className="block whitespace-nowrap font-poster text-2xl leading-none tabular-nums text-white">{hud.seconds}s</span>
         </span>
       </div>
       {phase !== 'playing' ? (
@@ -344,5 +344,15 @@ export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run' }: P
         </div>
       ) : null}
     </div>
+  );
+
+  if (!immersive) return game;
+  // Full screen on a phone: the layer goes to the end of <body>, outside the page's own layers, or the
+  // header and side lists stack over it. A placeholder keeps the page the same height underneath.
+  return (
+    <>
+      <div className="h-[min(62vh,520px)]" aria-hidden />
+      {createPortal(game, document.body)}
+    </>
   );
 }
