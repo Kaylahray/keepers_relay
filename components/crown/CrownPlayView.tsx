@@ -117,7 +117,8 @@ export function CrownPlayView({ id }: { id: string }) {
   // players here.
   const [nextCrowns, setNextCrowns] = useState<CrownRoom[]>([]);
   const [committed, setCommitted] = useState<{ txHash: string; ok: boolean } | null>(null);
-  const [medianAt, setMedianAt] = useState<number | null>(null);
+  // The chain's median time and when this page read it, so the wait can count down between reads.
+  const [median, setMedian] = useState<{ at: number; readAt: number } | null>(null);
   const [bestRun, setBest] = useState<FinishedRun | null>(null);
   const [refund, setRefund] = useState<{ at: number | null; sent: string | null }>({ at: null, sent: null });
   const now = useNow(room?.status === 'live');
@@ -177,35 +178,44 @@ export function CrownPlayView({ id }: { id: string }) {
   }, [matchTx]);
 
   // Closing is gated on the chain's median time, which runs a few minutes behind the wall clock.
+  // Reading starts the moment the on-screen clock hits zero, not only when the page loads after it.
+  const pastDeadline = room?.deadlineAt != null && room.deadlineAt <= now;
   useEffect(() => {
-    if (!chain || room?.status !== 'live' || room.deadlineAt == null) return;
-    if (leftMs(room.deadlineAt, nowMs()) > 0) return;
+    if (!chain || room?.status !== 'live' || !pastDeadline) return;
     let stop = false;
+    // Block timestamps never change, so each block is fetched once; later reads only fetch new ones.
+    const stampOf = new Map<number, number>();
     const look = async () => {
       try {
         const client = getCkbClient();
         const tip = await client.getTipHeader();
         const tipNum = Number(tip.number);
-        const headers = await Promise.all(
-          Array.from({ length: 37 }, (_, index) => client.getHeaderByNumber(tipNum - index)),
-        );
-        const stamps = headers
-          .map((header) => (header ? Number(header.timestamp) : 0))
+        stampOf.set(tipNum, Number(tip.timestamp));
+        const wanted = Array.from({ length: 37 }, (_, index) => tipNum - index);
+        const missing = wanted.filter((num) => !stampOf.has(num));
+        const fetched = await Promise.all(missing.map((num) => client.getHeaderByNumber(num)));
+        missing.forEach((num, index) => {
+          const header = fetched[index];
+          if (header) stampOf.set(num, Number(header.timestamp));
+        });
+        for (const num of stampOf.keys()) if (num < tipNum - 36) stampOf.delete(num);
+        const stamps = wanted
+          .map((num) => stampOf.get(num) ?? 0)
           .filter((stamp) => stamp > 0)
           .sort((left, right) => left - right);
         const mid = stamps[Math.floor(stamps.length / 2)];
-        if (!stop && mid) setMedianAt(mid);
+        if (!stop && mid) setMedian({ at: mid, readAt: Date.now() });
       } catch {
-        if (!stop) setMedianAt(null);
+        // A failed read leaves the last answer in place; the next one tries again.
       }
     };
     void look();
-    const timer = window.setInterval(() => void look(), 15_000);
+    const timer = window.setInterval(() => void look(), 5_000);
     return () => {
       stop = true;
       window.clearInterval(timer);
     };
-  }, [chain, room?.status, room?.deadlineAt]);
+  }, [chain, room?.status, pastDeadline]);
 
   // A crown with no match cell has nothing on chain to close, so its screen closes it.
   useEffect(() => {
@@ -345,8 +355,12 @@ export function CrownPlayView({ id }: { id: string }) {
   const confirmingOpen =
     chain && live && clock.counting && Boolean(room.matchId) && matchPending && room.round <= 1 && !room.king && room.potShannons === 0n;
   const cellMoving = chain && live && Boolean(room.matchId) && matchPending && !confirmingOpen;
+  const medianAt = median?.at ?? null;
+  // Confirmed by the last read: the chain will accept a close now.
   const sinceReady = medianAt != null && room.deadlineAt != null && medianAt >= room.deadlineAt;
-  const sinceWait = medianAt != null && room.deadlineAt != null ? Math.max(0, room.deadlineAt - medianAt) : null;
+  // Between reads the median keeps moving at about wall-clock speed, so the wait counts down every second.
+  const sinceWait =
+    median != null && room.deadlineAt != null ? Math.max(0, room.deadlineAt - (median.at + (now - median.readAt))) : null;
   const shownError = !matchReady && chainError && /not on chain yet|still confirming/i.test(chainError) ? null : chainError;
   const beats = best != null && best.score > room.kingScore;
   // Time up means time up. The chain can only enforce "not before", so a better run would still
@@ -573,7 +587,9 @@ export function CrownPlayView({ id }: { id: string }) {
             ? 'Opens when the clock runs out.'
             : sinceReady || medianAt == null
               ? 'Pays whoever holds the crown.'
-              : `Opens in about ${formatWait(sinceWait ?? 0)}.`}
+              : sinceWait != null && sinceWait > 0
+                ? `Opens in about ${formatWait(sinceWait)}.`
+                : 'Opening now…'}
         </p>
       </div>
     ) : null;
