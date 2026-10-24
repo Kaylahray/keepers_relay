@@ -5,6 +5,7 @@ import { getServerCkbClient } from '@/lib/ckb/server-client';
 import { readLiveCell } from '@/lib/ckb/live-cell';
 import { ApiError } from '@/lib/server/errors';
 import { normalizeAddress } from '@/lib/server/auth';
+import { chainUsernameOfLockHash, chainUsernames } from '@/lib/server/username-registry';
 import { roomFromStored, roomToStored, type CrownRoom } from '@/lib/crown/rooms';
 import { suddenDeathMatchType } from '@/lib/registry/config';
 import { bytesToHex, decodeMatchCell, hexToBytes } from '@/lib/sudden-death/codec';
@@ -48,10 +49,21 @@ function asVault(raw: unknown): Vault {
   };
 }
 
-/** Nothing in a v2 room is secret: the winner is whoever the chain says, by score. */
+/**
+ * Nothing in a v2 room is secret: the winner is whoever the chain says, by score.
+ *
+ * A practice crown has no match cell, so nothing on chain ever closes it. Once its clock has run
+ * out it is over, whatever the stored row says; otherwise it would show as live forever.
+ */
 export function publicRoom(room: CrownRoom): CrownRoom {
+  if (!room.matchId && room.status === 'live' && room.deadlineAt != null && room.deadlineAt < Date.now()) {
+    return { ...room, status: 'settled' };
+  }
   return room;
 }
+
+/** A lobby nobody has opened or sat in for two days is abandoned; the list stops showing it. */
+const STALE_LOBBY_MS = 2 * 24 * 60 * 60 * 1000;
 
 function sameHex(left: string, right: string): boolean {
   return left.trim().toLowerCase().replace(/^0x/, '') === right.trim().toLowerCase().replace(/^0x/, '');
@@ -61,10 +73,15 @@ export async function listCrownVaults(): Promise<CrownRoom[]> {
   if (!databaseConfigured()) return [];
   await ensureCrownTables();
   const sql = sqlClient();
-  const rows = await sql`SELECT payload FROM keepers_crowns ORDER BY updated_at DESC LIMIT 40`;
-  return rows
-    .map((row) => publicRoom(roomFromStored(asVault(row.payload).room)))
-    .filter((room) => !room.legacy);
+  const rows = await sql`SELECT payload, updated_at FROM keepers_crowns ORDER BY updated_at DESC LIMIT 40`;
+  const cutoff = Date.now() - STALE_LOBBY_MS;
+  const vaults = rows
+    .filter((row) => !(asVault(row.payload).room.status === 'lobby' && new Date(row.updated_at).getTime() < cutoff))
+    .map((row) => asVault(row.payload))
+    .map((vault) => ({ room: roomFromStored(vault.room), seats: vault.seats }))
+    .filter(({ room }) => !room.legacy);
+  // The cards show the king by name, the same name the lobby shows.
+  return Promise.all(vaults.map(async ({ room, seats }) => publicRoom(await nameKing(room, seats))));
 }
 
 export async function readVault(id: string): Promise<Vault | null> {
@@ -372,12 +389,47 @@ async function lockHashOf(address: string): Promise<string | null> {
  */
 async function nameKing(room: CrownRoom, seats: CrownSeat[]): Promise<CrownRoom> {
   if (!room.kingHash) return room;
+  // The king's username on chain is the name, whether or not they ever sat in this lobby.
+  const onChain = await chainUsernameOfLockHash(room.kingHash).catch(() => null);
+  if (onChain) return { ...room, king: onChain };
   for (const seat of seats) {
     if ((await lockHashOf(seat.address)) === room.kingHash.toLowerCase()) {
       return { ...room, king: seat.displayName };
     }
   }
   return { ...room, king: shortHash(room.kingHash) };
+}
+
+/**
+ * Seats as the lobby should show them: each player under their on-chain username. A seat keeps
+ * the name it was saved with when the player joined, which for older seats is a short address;
+ * this puts the real name on every seat each time the lobby is read. If the chain cannot be read,
+ * the saved names stand.
+ */
+async function nameSeats(seats: CrownSeat[]): Promise<CrownSeat[]> {
+  const names = await chainUsernames().catch(() => null);
+  if (!names) return seats;
+  return seats.map((seat) => {
+    const name = names.get(normalizeAddress(seat.address));
+    return name ? { ...seat, displayName: name } : seat;
+  });
+}
+
+/**
+ * Older feed lines name players by a short address ("ckt1qrfr…rk7p9f joined the lobby"). Swap
+ * those for usernames when the line is read; the stored line is left as it was.
+ */
+async function nameFeed(room: CrownRoom): Promise<CrownRoom> {
+  const names = await chainUsernames().catch(() => null);
+  if (!names || room.feed.length === 0) return room;
+  const shortNames = new Map<string, string>();
+  for (const [address, name] of names) shortNames.set(`${address.slice(0, 8)}…${address.slice(-6)}`, name);
+  const feed = room.feed.map((item) => {
+    let text = item.text;
+    for (const [short, name] of shortNames) if (text.includes(short)) text = text.split(short).join(name);
+    return text === item.text ? item : { ...item, text };
+  });
+  return { ...room, feed };
 }
 
 /** Names the king and, when the crown has moved since `before`, tells the whole lobby. */
@@ -408,9 +460,12 @@ export async function readPublicCrown(id: string): Promise<{ room: CrownRoom; se
   if (refreshed.seen === 'match' && !sameLiveState(current, refreshed.room)) {
     const named = await announce(current, refreshed.room, existing.seats);
     await writeVault({ ...existing, room: roomToStored(named) });
-    return { room: publicRoom(named), seats: existing.seats };
+    return { room: publicRoom(await nameFeed(named)), seats: await nameSeats(existing.seats) };
   }
-  return { room: publicRoom(await nameKing(refreshed.room, existing.seats)), seats: existing.seats };
+  return {
+    room: publicRoom(await nameFeed(await nameKing(refreshed.room, existing.seats))),
+    seats: await nameSeats(existing.seats),
+  };
 }
 
 export async function createCrown(room: CrownRoom, hostAddress: string): Promise<void> {
@@ -552,7 +607,7 @@ export async function joinCrown(
   await writeVault({ ...existing, seats });
   // Heartbeats arrive every 8s from every seat. They must not each cost a chain read.
   const refreshed = await refreshCached(roomFromStored(existing.room));
-  return { room: publicRoom(await nameKing(refreshed.room, seats)), seats };
+  return { room: publicRoom(await nameFeed(await nameKing(refreshed.room, seats))), seats: await nameSeats(seats) };
 }
 
 /** Host removes a lobby that never started, or a crown that is already closed. */

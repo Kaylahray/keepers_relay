@@ -1,6 +1,24 @@
+import type { Metadata } from 'next';
 import { CrownPlayView } from '@/components/crown/CrownPlayView';
+import { crownPreview } from '@/lib/server/crown-preview';
 
-export default async function CrownPlayPage({ params }: { params: Promise<{ id: string }> }) {
+type Props = { params: Promise<{ id: string }> };
+
+/** What chat apps show when a crown link is shared: the challenge, the pot and the clock. */
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { id } = await params;
+  const preview = await crownPreview(id);
+  if (!preview) return { title: 'Crowns' };
+  const title = `${preview.headline} · ${preview.title}`;
+  return {
+    title,
+    description: preview.description,
+    openGraph: { title, description: preview.description, type: 'website', siteName: 'Crowns' },
+    twitter: { card: 'summary_large_image', title, description: preview.description },
+  };
+}
+
+export default async function CrownPlayPage({ params }: Props) {
   const { id } = await params;
   return <CrownPlayView id={id} />;
 }

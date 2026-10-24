@@ -1,15 +1,17 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useSyncExternalStore } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
+
+function noSubscription() {
+  return () => undefined;
+}
 
 /** Same job as the prototype watch code: a phone scans this and opens the play page. */
 export function PlayCode({ id, size = 160 }: { id: string; size?: number }) {
-  const [url, setUrl] = useState('');
-
-  useEffect(() => {
-    setUrl(`${window.location.origin}/play/${id}`);
-  }, [id]);
+  // The origin is only known in the browser; the server renders the empty placeholder.
+  const origin = useSyncExternalStore(noSubscription, () => window.location.origin, () => '');
+  const url = origin ? `${origin}/play/${id}` : '';
 
   if (!url) return <div className="bg-white" style={{ width: size + 24, height: size + 24 }} />;
 

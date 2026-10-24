@@ -30,6 +30,16 @@ type SignerLike = {
  * One “Connect” path: wallet + session signature.
  * Callers should never show a separate “Sign in” control.
  */
+/** The current session as the server sees it. A failed read counts as signed out. */
+async function readSession(): Promise<{ authenticated: boolean; address: string | null }> {
+  try {
+    const data = await request<{ authenticated: boolean; address?: string }>('/api/auth/session');
+    return { authenticated: Boolean(data.authenticated), address: data.address ?? null };
+  } catch {
+    return { authenticated: false, address: null };
+  }
+}
+
 export function useAuthSession(): SessionState {
   const { address, signer, isConnected, isReady, connect } = useWallet();
   const { isOpen } = ccc.useCcc();
@@ -47,33 +57,31 @@ export function useAuthSession(): SessionState {
   /** One automatic sign-in prompt per restored address. A dismiss does not loop. */
   const promptedRef = useRef<string | null>(null);
   const connectedRef = useRef(isConnected);
-  connectedRef.current = isConnected;
+  useEffect(() => {
+    connectedRef.current = isConnected;
+  }, [isConnected]);
 
-  const refresh = useCallback(async () => {
-    try {
-      const data = await request<{
-        authenticated: boolean;
-        address?: string;
-      }>('/api/auth/session');
-      const next = {
-        authenticated: Boolean(data.authenticated),
-        address: data.address ?? null,
-      };
-      setAuthenticated(next.authenticated);
-      setSessionAddress(next.address);
-      return next;
-    } catch {
-      setAuthenticated(false);
-      setSessionAddress(null);
-      return { authenticated: false, address: null };
-    } finally {
-      setChecked(true);
-    }
+  const applySession = useCallback((next: { authenticated: boolean; address: string | null }) => {
+    setAuthenticated(next.authenticated);
+    setSessionAddress(next.address);
+    setChecked(true);
+    return next;
   }, []);
 
+  const refresh = useCallback(async () => {
+    const next = await readSession();
+    return applySession(next);
+  }, [applySession]);
+
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    let stop = false;
+    void readSession().then((next) => {
+      if (!stop) applySession(next);
+    });
+    return () => {
+      stop = true;
+    };
+  }, [applySession]);
 
   const clearWaiter = useCallback(() => {
     if (timeoutRef.current) {
@@ -217,9 +225,12 @@ export function useAuthSession(): SessionState {
     waiterRef.current = null;
     clearWaiter();
 
-    void runChallenge(address, signer).then(waiter.resolve, (err: unknown) => {
-      waiter.reject(err instanceof Error ? err : new Error('Connect failed.'));
-    });
+    // Start the sign-in after this render: it is the reply to the wallet connecting, not render work.
+    void Promise.resolve()
+      .then(() => runChallenge(address, signer))
+      .then(waiter.resolve, (err: unknown) => {
+        waiter.reject(err instanceof Error ? err : new Error('Connect failed.'));
+      });
   }, [address, clearWaiter, isConnected, runChallenge, signer]);
 
   useEffect(() => () => clearWaiter(), [clearWaiter]);

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ccc } from '@ckb-ccc/connector-react';
 import { ArenaStage } from '@/components/arena/ArenaStage';
 import { playClock, useNow } from '@/components/crown/BleedingClock';
@@ -11,6 +11,7 @@ import { PlayCode } from '@/components/crown/PlayCode';
 import { VerifiedSeal } from '@/components/crown/VerifiedSeal';
 import { useCrown } from '@/components/crown/useCrown';
 import { useWallet } from '@/hooks/useWallet';
+import { useMyLockHash } from '@/hooks/useMyLockHash';
 import { useAuth } from '@/context/auth-provider';
 import { closeCrown } from '@/lib/crown/chain';
 import { suddenDeathConfigured } from '@/lib/registry/config';
@@ -23,29 +24,12 @@ export function CrownDeskView({ id }: { id: string }) {
   const { room, ready } = useCrown(id);
   const { address, isConnected } = useWallet();
   const { ensureAuth } = useAuth();
-  const [myLockHash, setMyLockHash] = useState<string | null>(null);
+  const myLockHash = useMyLockHash();
   const now = useNow(room?.status === 'live');
   const signer = ccc.useSigner();
   const chain = suddenDeathConfigured();
   const [busy, setBusy] = useState<string | null>(null);
   const [chainError, setChainError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!signer) {
-      setMyLockHash(null);
-      return;
-    }
-    let stop = false;
-    void signer
-      .getRecommendedAddressObj()
-      .then((obj) => {
-        if (!stop) setMyLockHash(obj.script.hash());
-      })
-      .catch(() => undefined);
-    return () => {
-      stop = true;
-    };
-  }, [signer]);
 
   async function removeCrown() {
     setChainError(null);

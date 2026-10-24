@@ -1,7 +1,6 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
 import { ccc } from '@ckb-ccc/connector-react';
 import { ArenaStage } from '@/components/arena/ArenaStage';
 import { BleedingClock, leftMs, useNow } from '@/components/crown/BleedingClock';
@@ -10,6 +9,7 @@ import { PlayCode } from '@/components/crown/PlayCode';
 import { VerifiedSeal } from '@/components/crown/VerifiedSeal';
 import { useCrown } from '@/components/crown/useCrown';
 import { useWallet } from '@/hooks/useWallet';
+import { useMyLockHash } from '@/hooks/useMyLockHash';
 import { DEFAULT_DURATION_MS, ckbWhole } from '@/lib/crown/rooms';
 import { isHostWallet } from '@/lib/crown/standing';
 
@@ -20,20 +20,10 @@ function scriptHash(lock: { codeHash: string; hashType: 'type' | 'data' | 'data1
 export function CrownWatchView({ id }: { id: string }) {
   const { room, ready } = useCrown(id);
   const { address } = useWallet();
-  const signer = ccc.useSigner();
-  const [myLockHash, setMyLockHash] = useState<string | null>(null);
+  const myLockHash = useMyLockHash();
   const now = useNow(room?.status === 'live');
   const playPath = `/play/${id}`;
 
-  useEffect(() => {
-    if (!signer) {
-      setMyLockHash(null);
-      return;
-    }
-    void signer.getRecommendedAddressObj().then((obj) => {
-      setMyLockHash(obj.script.hash());
-    }).catch(() => setMyLockHash(null));
-  }, [signer]);
   const panic =
     room?.status === 'live' && room.deadlineAt != null && leftMs(room.deadlineAt, now) <= 4_000 && leftMs(room.deadlineAt, now) > 0;
 

@@ -139,7 +139,7 @@ export function CrownsLobby() {
                     eyebrow={room.status}
                     title={room.title}
                     meta={crownMeta(room)}
-                    cover={arenaCoverForSeed(room.title)}
+                    cover={arenaCoverForSeed(room.id)}
                     cta={room.status === 'live' ? 'Play' : 'Enter'}
                   />
                 </li>

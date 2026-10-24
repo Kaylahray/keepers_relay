@@ -115,6 +115,17 @@ export function roomFromStored(room: StoredRoom): CrownRoom {
   };
 }
 
+/** The raw stored list, for useSyncExternalStore: a string, so unchanged storage compares equal. */
+export function storedCrownsRaw(): string {
+  return window.localStorage.getItem(KEY) ?? '';
+}
+
+/** Storage changes from other tabs. Changes from this tab show on the next render anyway. */
+export function subscribeCrownStorage(onChange: () => void): () => void {
+  window.addEventListener('storage', onChange);
+  return () => window.removeEventListener('storage', onChange);
+}
+
 function readAll(): CrownRoom[] {
   if (typeof window === 'undefined') return [];
   const raw = window.localStorage.getItem(KEY);

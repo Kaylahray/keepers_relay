@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { ArenaCta } from '@/components/arena/ArenaPrimitives';
 import { ArenaRailCard, ArenaStage } from '@/components/arena/ArenaStage';
 import { leftMs, playClock, useNow } from '@/components/crown/BleedingClock';
@@ -29,6 +29,7 @@ import { forgetBid, rememberBid, rememberedBid } from '@/lib/crown/my-bid';
 import { forgetBestRun, loadBestRun, saveBestRun } from '@/lib/crown/my-run';
 import { deleteCrownRemote, joinCrownRemote, pushCrownState } from '@/lib/crown/remote';
 import { useWallet } from '@/hooks/useWallet';
+import { useMyLockHash } from '@/hooks/useMyLockHash';
 import { useRequireUsername } from '@/hooks/useRequireUsername';
 import { useAuth } from '@/context/auth-provider';
 import { suddenDeathConfigured } from '@/lib/registry/config';
@@ -48,6 +49,8 @@ import {
   saveCrown,
   settleCrown,
   type CrownRoom,
+  storedCrownsRaw,
+  subscribeCrownStorage,
 } from '@/lib/crown/rooms';
 
 function scriptHash(lock: { codeHash: string; hashType: 'type' | 'data' | 'data1' | 'data2'; args: string }) {
@@ -96,9 +99,14 @@ export function CrownPlayView({ id }: { id: string }) {
   const chain = suddenDeathConfigured();
   const [busy, setBusy] = useState<string | null>(null);
   const [chainError, setChainError] = useState<string | null>(null);
-  const [myLockHash, setMyLockHash] = useState<string | null>(null);
-  const [others, setOthers] = useState<CrownRoom[]>([]);
-  const [matchReady, setMatchReady] = useState(false);
+  const myLockHash = useMyLockHash();
+  // Other crowns this browser has seen, read straight from storage on each render.
+  const storedCrowns = useSyncExternalStore(subscribeCrownStorage, storedCrownsRaw, () => '');
+  const others = useMemo(
+    () => (storedCrowns ? listCrowns().filter((item) => item.id !== id).slice(0, 4) : []),
+    [storedCrowns, id],
+  );
+  const [committed, setCommitted] = useState<{ txHash: string; ok: boolean } | null>(null);
   const [medianAt, setMedianAt] = useState<number | null>(null);
   const [bestRun, setBest] = useState<FinishedRun | null>(null);
   const [refund, setRefund] = useState<{ at: number | null; sent: string | null }>({ at: null, sent: null });
@@ -106,40 +114,21 @@ export function CrownPlayView({ id }: { id: string }) {
   const settling = useRef(false);
   const seenDeadline = useRef<number | null>(null);
 
-  useEffect(() => {
-    if (!signer) {
-      setMyLockHash(null);
-      return;
-    }
-    let stop = false;
-    void signer
-      .getRecommendedAddressObj()
-      .then((obj) => {
-        if (!stop) setMyLockHash(obj.script.hash());
-      })
-      .catch(() => undefined);
-    return () => {
-      stop = true;
-    };
-  }, [signer]);
+  // A live match is ready once its newest transaction is committed. Without a chain there is
+  // nothing to wait for; a crown that is not live has no match to wait on.
+  const matchTx = chain && room?.status === 'live' ? room.matchOutPoint?.txHash ?? null : null;
+  const matchReady = matchTx ? committed?.txHash === matchTx && committed.ok : !chain;
 
   useEffect(() => {
-    setOthers(listCrowns().filter((item) => item.id !== id).slice(0, 4));
-  }, [id, room]);
-
-  useEffect(() => {
-    if (!chain || !room?.matchOutPoint || room.status !== 'live') {
-      setMatchReady(!chain);
-      return;
-    }
-    const txHash = room.matchOutPoint.txHash;
+    if (!matchTx) return;
+    const txHash = matchTx;
     let stop = false;
     const look = async () => {
       try {
         const tx = await getCkbClient().getTransaction(txHash);
-        if (!stop) setMatchReady(tx?.status === 'committed');
+        if (!stop) setCommitted({ txHash, ok: tx?.status === 'committed' });
       } catch {
-        if (!stop) setMatchReady(false);
+        if (!stop) setCommitted({ txHash, ok: false });
       }
     };
     void look();
@@ -148,7 +137,7 @@ export function CrownPlayView({ id }: { id: string }) {
       stop = true;
       window.clearInterval(timer);
     };
-  }, [chain, room?.matchOutPoint?.txHash, room?.status]);
+  }, [matchTx]);
 
   // Closing is gated on the chain's median time, which runs a few minutes behind the wall clock.
   useEffect(() => {
@@ -741,7 +730,7 @@ export function CrownPlayView({ id }: { id: string }) {
                 eyebrow="This crown"
                 title={room.title}
                 meta={`${ckbWhole(room.potShannons)} CKB pot · ${room.king ? `${iHold ? 'you' : room.king} · ${room.kingScore}` : 'Open seat'}`}
-                cover={arenaCoverForSeed(room.title)}
+                cover={arenaCoverForSeed(room.id)}
                 cta="Here"
               />
             </li>
@@ -752,7 +741,7 @@ export function CrownPlayView({ id }: { id: string }) {
                   eyebrow={item.status}
                   title={item.title}
                   meta={`${ckbWhole(item.potShannons)} CKB pot · ${item.king ?? 'Open seat'}`}
-                  cover={arenaCoverForSeed(item.title)}
+                  cover={arenaCoverForSeed(item.id)}
                   cta="Enter"
                 />
               </li>

@@ -10,7 +10,7 @@ import { normalizeUsername } from '@/lib/rewards/milestones';
 import { registryConfigured } from '@/lib/registry/config';
 import { estimateUsernameCapacityCkb } from '@/lib/registry/capacity';
 
-/** One on-chain action: claim @handle. Profile / pledge live in Studio later. */
+/** One on-chain action: claim @handle. A bio and avatar can be added later from the profile. */
 export function JoinHandleForm({ nextHref = '/' }: { nextHref?: string }) {
   const router = useRouter();
   const { isConnected, address, formattedAddress, connect, isReady } = useWallet();
@@ -83,7 +83,7 @@ export function JoinHandleForm({ nextHref = '/' }: { nextHref?: string }) {
         <p className="mt-2 font-poster text-3xl uppercase leading-none">
           @{onChainUsername?.username || myBuilder.data?.builder?.username}
         </p>
-        <p className="mt-3 text-sm font-semibold">Add a bio, avatar, and pledge in Studio anytime.</p>
+        <p className="mt-3 text-sm font-semibold">Add a bio and avatar from your profile anytime.</p>
         <button
           type="button"
           onClick={() => router.push(nextHref)}

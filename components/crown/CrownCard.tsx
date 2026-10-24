@@ -14,7 +14,7 @@ function statusWord(status: CrownStatus) {
 export function CrownCard({ room }: { room: CrownRoom; index?: number }) {
   const plate = YELLOW;
   const href = `/play/${room.id}`;
-  const art = arenaCoverForSeed(room.title);
+  const art = arenaCoverForSeed(room.id);
 
   return (
     <Link

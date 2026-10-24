@@ -1,11 +1,11 @@
-/** Crown covers: our own drawings, a crown over the lane road, one per colour. */
+/** Crown covers: our own drawings of the lane road at dusk, one per colour. */
 
 export const ARENA_COVERS: { id: string; label: string; src: string }[] = [
-  { id: 'lime', label: 'Lime', src: '/arena/cover-lime.svg' },
-  { id: 'magenta', label: 'Magenta', src: '/arena/cover-magenta.svg' },
-  { id: 'gold', label: 'Gold', src: '/arena/cover-gold.svg' },
-  { id: 'blue', label: 'Blue', src: '/arena/cover-blue.svg' },
-  { id: 'violet', label: 'Violet', src: '/arena/cover-violet.svg' },
+  { id: 'lime', label: 'Lime', src: '/arena/road-lime.svg' },
+  { id: 'magenta', label: 'Magenta', src: '/arena/road-magenta.svg' },
+  { id: 'gold', label: 'Gold', src: '/arena/road-gold.svg' },
+  { id: 'blue', label: 'Blue', src: '/arena/road-blue.svg' },
+  { id: 'violet', label: 'Violet', src: '/arena/road-violet.svg' },
 ];
 
 export function hashSeed(seed: string): number {

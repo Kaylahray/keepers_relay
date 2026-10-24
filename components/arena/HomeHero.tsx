@@ -109,12 +109,12 @@ export function HomeHero() {
 
           <div className="relative z-20 w-full xl:self-center">
             <div className="border border-white/10 bg-[#111]/85 backdrop-blur-md [clip-path:polygon(0_0,100%_0,100%_92%,94%_100%,0_100%)]">
-              {/* The selected crown's own cover, so the panel changes colour as the crowns rotate. */}
+              {/* The selected crown's cover, in its own colour, so the panel changes as the crowns rotate. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={arenaCoverForSeed(room?.title ?? 'crowns')}
+                src={arenaCoverForSeed(room?.id ?? 'crowns')}
                 alt=""
-                className="h-40 w-full object-cover object-top sm:h-44"
+                className="h-40 w-full object-cover object-center sm:h-44"
               />
               {rooms == null ? (
                 <div className="p-5">

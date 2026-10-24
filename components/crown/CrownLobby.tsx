@@ -9,6 +9,7 @@ import { useAuth } from '@/context/auth-provider';
 import { joinCrownRemote } from '@/lib/crown/remote';
 import type { CrownSeat } from '@/lib/crown/seats';
 import { ckbWhole, type CrownRoom } from '@/lib/crown/rooms';
+import { useNow } from '@/components/crown/BleedingClock';
 import { sameAddress } from '@/lib/crown/standing';
 
 export function CrownLobby({
@@ -44,6 +45,8 @@ export function CrownLobby({
     return () => window.clearInterval(timer);
   }, [authenticated, isConnected, mine, name, room.id]);
 
+  // Ticks once a second so a seat goes quiet on screen without a new poll.
+  const now = useNow(true);
   const slots: Array<CrownSeat | null> = seats.slice();
   while (slots.length < Math.max(4, seats.length + 1)) slots.push(null);
 
@@ -98,7 +101,7 @@ export function CrownLobby({
       </div>
       <ul className="mt-8 grid gap-3 sm:grid-cols-2">
         {slots.map((seat, index) => {
-          const live = seat ? Date.now() - seat.lastSeenAt < 20_000 : false;
+          const live = seat ? now - seat.lastSeenAt < 20_000 : false;
           const you = seat && mine && seat.address === mine;
           if (!seat) {
             return (

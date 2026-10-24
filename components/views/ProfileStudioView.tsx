@@ -61,15 +61,10 @@ export function ProfileStudioView() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [compressionNote, setCompressionNote] = useState<string | null>(null);
-  const [headline, setHeadline] = useState('');
+  // The studio has no bio field, so a save keeps the saved bio.
+  const headline = builder?.headline ?? '';
   const [profileError, setProfileError] = useState<string | null>(null);
   const [settingSporeId, setSettingSporeId] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (builder) {
-      setHeadline(builder.headline);
-    }
-  }, [builder]);
 
   const profileAttempt = useRef<string | null>(null);
 
