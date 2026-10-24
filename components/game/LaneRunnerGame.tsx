@@ -280,23 +280,39 @@ export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run' }: P
           immersive ? 'h-full' : 'h-[min(62vh,520px)] border border-white/10 focus:border-[#99ee2d]/60'
         }`}
       />
-      <div
-        className="pointer-events-none absolute inset-x-0 top-0 grid grid-cols-3 items-start p-3 font-mono text-[11px] uppercase"
-        style={immersive ? { paddingTop: 'max(0.75rem, env(safe-area-inset-top))' } : undefined}
-      >
-        <span className="text-white">
-          <span className="block text-[10px] text-white/45">Score</span>
-          <span className="block whitespace-nowrap font-poster text-2xl leading-none tabular-nums text-[#99ee2d] sm:text-3xl">{hud.score}</span>
-        </span>
-        <span className="text-center text-white/60">
-          <span className="block text-[10px] text-white/45">To beat</span>
-          <span className="block whitespace-nowrap font-poster text-2xl leading-none tabular-nums text-[#e1bf47]">{toBeat}</span>
-        </span>
-        <span className="text-right text-white/60">
-          <span className="block text-[10px] text-white/45">Run</span>
-          <span className="block whitespace-nowrap font-poster text-2xl leading-none tabular-nums text-white">{hud.seconds}s</span>
-        </span>
-      </div>
+      {/* Shown only during a run. Your score sits in the middle, where your eyes already are on the road.
+          The crown's score is in the row above the game, so it is not repeated here, except on a phone in
+          full screen, where that row is hidden. Sizes shrink with the screen so any number of digits fits. */}
+      {phase === 'playing' ? (
+        <div
+          className="pointer-events-none absolute inset-x-0 top-0 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-2 p-3 font-mono text-[10px] uppercase"
+          style={immersive ? { paddingTop: 'max(0.75rem, env(safe-area-inset-top))' } : undefined}
+        >
+          <span className="min-w-0 text-white/45">
+            {immersive ? (
+              <>
+                <span className="block">To beat</span>
+                <span className="block truncate font-poster text-[clamp(0.95rem,4.5vw,1.25rem)] leading-none tabular-nums text-[#e1bf47]">
+                  {toBeat}
+                </span>
+              </>
+            ) : null}
+          </span>
+          <span
+            className={`text-center font-poster text-[clamp(1.75rem,9vw,3rem)] leading-none tabular-nums ${
+              hud.score > toBeat ? 'text-[#e1bf47]' : 'text-[#99ee2d]'
+            }`}
+          >
+            {hud.score}
+          </span>
+          <span className="min-w-0 text-right text-white/45">
+            <span className="block">Run</span>
+            <span className="block truncate font-poster text-[clamp(0.95rem,4.5vw,1.25rem)] leading-none tabular-nums text-white">
+              {hud.seconds}s
+            </span>
+          </span>
+        </div>
+      ) : null}
       {phase !== 'playing' ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/55 p-6 text-center">
           {loadError ? (

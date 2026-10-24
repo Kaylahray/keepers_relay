@@ -1,16 +1,20 @@
 import { ImageResponse } from 'next/og';
 import { crownPreview } from '@/lib/server/crown-preview';
 
-export const alt = 'A crown on Crowns: the challenge, the pot and the clock';
-export const size = { width: 1200, height: 630 };
-export const contentType = 'image/png';
+const size = { width: 1200, height: 630 };
+
+export const dynamic = 'force-dynamic';
 
 const LIME = '#99ee2d';
 const GOLD = '#e1bf47';
 const MAGENTA = '#ff56f6';
 
-/** The card a shared crown link shows: game, pot, score to beat and time left, in the app's colours. */
-export default async function Image({ params }: { params: Promise<{ id: string }> }) {
+/**
+ * The card a shared crown link shows: game, pot, score to beat and time left, in the app's colours.
+ * A plain route rather than the opengraph-image file, so the page can add the round to its address
+ * and chat apps that remember images by address fetch a fresh one each round.
+ */
+export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const preview = await crownPreview(id);
   const stats = preview

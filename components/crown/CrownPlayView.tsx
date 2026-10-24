@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArenaCta } from '@/components/arena/ArenaPrimitives';
 import { ArenaRailCard, ArenaStage } from '@/components/arena/ArenaStage';
 import { leftMs, playClock, useNow } from '@/components/crown/BleedingClock';
@@ -12,6 +12,7 @@ import { CrownReceipt } from '@/components/crown/CrownReceipt';
 import { useCrown } from '@/components/crown/useCrown';
 import { LaneRunnerGame, type FinishedRun } from '@/components/game/LaneRunnerGame';
 import { arenaCoverForSeed } from '@/lib/poster';
+import { InviteButton } from '@/components/InviteButton';
 import { ccc } from '@ckb-ccc/connector-react';
 import { ckbHash, runSeed } from '@/lib/sudden-death/codec';
 import {
@@ -20,6 +21,7 @@ import {
   expireBid,
   lockBid,
   EntryGoneError,
+  isLostRace,
   MatchMovedError,
   openMatch,
   RunBeatenError,
@@ -27,7 +29,7 @@ import {
 } from '@/lib/crown/chain';
 import { forgetBid, rememberBid, rememberedBid } from '@/lib/crown/my-bid';
 import { forgetBestRun, loadBestRun, saveBestRun } from '@/lib/crown/my-run';
-import { deleteCrownRemote, joinCrownRemote, pushCrownState } from '@/lib/crown/remote';
+import { deleteCrownRemote, fetchCrownList, joinCrownRemote, pushCrownState } from '@/lib/crown/remote';
 import { useWallet } from '@/hooks/useWallet';
 import { useMyLockHash } from '@/hooks/useMyLockHash';
 import { useRequireUsername } from '@/hooks/useRequireUsername';
@@ -44,18 +46,29 @@ import {
   forgetCrown,
   GAMES,
   kickoff,
-  listCrowns,
   loadCrown,
   saveCrown,
   settleCrown,
   type CrownRoom,
-  storedCrownsRaw,
-  subscribeCrownStorage,
+  crownShareUrl,
 } from '@/lib/crown/rooms';
 
 function scriptHash(lock: { codeHash: string; hashType: 'type' | 'data' | 'data1' | 'data2'; args: string }) {
   return ccc.Script.from({ codeHash: lock.codeHash, hashType: lock.hashType, args: lock.args }).hash();
 }
+
+/**
+ * Font size for a number in the pot / crown / clock row. As large as the design allows on a wide
+ * screen; on a phone it shrinks with the number's length so it always fits a third of the row,
+ * whether it is "0" or "1250000" or "47:59:59".
+ */
+function fitFont(text: string, maxRem: number): string {
+  const chars = Math.max(3, text.length);
+  return `min(${maxRem}rem, calc((100vw - 64px) / 3 / ${(chars * 0.82).toFixed(2)}))`;
+}
+
+/** Automatic resends after losing a same-moment race for the crown, before handing back to the player. */
+const RESEND_LIMIT = 3;
 
 function formatWait(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
@@ -100,17 +113,33 @@ export function CrownPlayView({ id }: { id: string }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [chainError, setChainError] = useState<string | null>(null);
   const myLockHash = useMyLockHash();
-  // Other crowns this browser has seen, read straight from storage on each render.
-  const storedCrowns = useSyncExternalStore(subscribeCrownStorage, storedCrownsRaw, () => '');
-  const others = useMemo(
-    () => (storedCrowns ? listCrowns().filter((item) => item.id !== id).slice(0, 4) : []),
-    [storedCrowns, id],
-  );
+  // Live crowns to play next. Only fetched once this crown is over; during a match the page keeps
+  // players here.
+  const [nextCrowns, setNextCrowns] = useState<CrownRoom[]>([]);
   const [committed, setCommitted] = useState<{ txHash: string; ok: boolean } | null>(null);
   const [medianAt, setMedianAt] = useState<number | null>(null);
   const [bestRun, setBest] = useState<FinishedRun | null>(null);
   const [refund, setRefund] = useState<{ at: number | null; sent: string | null }>({ at: null, sent: null });
   const now = useNow(room?.status === 'live');
+  const matchOver =
+    room?.status === 'settled' || (room?.status === 'live' && room.deadlineAt != null && room.deadlineAt <= now);
+
+  useEffect(() => {
+    if (!matchOver) return;
+    let stop = false;
+    void fetchCrownList()
+      .then((rooms) => {
+        if (stop) return;
+        const live = rooms.filter(
+          (item) => item.id !== id && item.status === 'live' && item.deadlineAt != null && item.deadlineAt > Date.now(),
+        );
+        setNextCrowns(live.slice(0, 3));
+      })
+      .catch(() => undefined);
+    return () => {
+      stop = true;
+    };
+  }, [id, matchOver]);
   const settling = useRef(false);
   const seenDeadline = useRef<number | null>(null);
 
@@ -118,21 +147,29 @@ export function CrownPlayView({ id }: { id: string }) {
   // nothing to wait for; a crown that is not live has no match to wait on.
   const matchTx = chain && room?.status === 'live' ? room.matchOutPoint?.txHash ?? null : null;
   const matchReady = matchTx ? committed?.txHash === matchTx && committed.ok : !chain;
+  // Only a confirmed "not yet" counts as waiting. Before the first answer arrives the page does not
+  // know, and showing a wait then flashes a timer on every page load.
+  const matchPending = Boolean(matchTx && committed?.txHash === matchTx && !committed.ok);
 
   useEffect(() => {
     if (!matchTx) return;
     const txHash = matchTx;
     let stop = false;
+    let timer = 0;
     const look = async () => {
       try {
         const tx = await getCkbClient().getTransaction(txHash);
-        if (!stop) setCommitted({ txHash, ok: tx?.status === 'committed' });
+        if (stop) return;
+        const ok = tx?.status === 'committed';
+        setCommitted({ txHash, ok });
+        // Committed is final for this transaction; stop asking until the match moves again.
+        if (ok) window.clearInterval(timer);
       } catch {
-        if (!stop) setCommitted({ txHash, ok: false });
+        // A failed read says nothing about the transaction. Keep the last answer and ask again.
       }
     };
     void look();
-    const timer = window.setInterval(() => void look(), 2000);
+    timer = window.setInterval(() => void look(), 2000);
     return () => {
       stop = true;
       window.clearInterval(timer);
@@ -298,11 +335,14 @@ export function CrownPlayView({ id }: { id: string }) {
   const clockLeft = leftMs(room.deadlineAt, now);
   const panic = live && !entryWindow && room.deadlineAt != null && clockLeft <= 4_000 && clockLeft > 0;
   // The bar measures the match's full length, so every crown taken visibly lops a chunk off.
+  const potText = ckbWhole(room.potShannons);
+  const clockText = entryWindow && startsAt != null ? formatWait(startsAt - now) : live ? clock.face : 'Closed';
   const clockSpan = Math.max(1, room.durationMs || DEFAULT_DURATION_MS);
   const clockProgress = room.deadlineAt == null ? 0 : Math.max(0, Math.min(100, (clockLeft / clockSpan) * 100));
+  // The open is still confirming: only while the clock is running, and only once the chain has said "not yet".
   const confirmingOpen =
-    chain && live && Boolean(room.matchId) && !matchReady && room.round <= 1 && !room.king && room.potShannons === 0n;
-  const cellMoving = chain && live && Boolean(room.matchId) && !matchReady && !confirmingOpen;
+    chain && live && clock.counting && Boolean(room.matchId) && matchPending && room.round <= 1 && !room.king && room.potShannons === 0n;
+  const cellMoving = chain && live && Boolean(room.matchId) && matchPending && !confirmingOpen;
   const sinceReady = medianAt != null && room.deadlineAt != null && medianAt >= room.deadlineAt;
   const sinceWait = medianAt != null && room.deadlineAt != null ? Math.max(0, room.deadlineAt - medianAt) : null;
   const shownError = !matchReady && chainError && /not on chain yet|still confirming/i.test(chainError) ? null : chainError;
@@ -370,9 +410,27 @@ export function CrownPlayView({ id }: { id: string }) {
       }
       setBusy('Sending your run…');
       const run = { tape: best.tape, score: best.score };
+      const client = signer.client;
+      // Sends the run, and if another player's steal got there in the same few seconds, sends it
+      // again on top of their round. The chain re-checks every try, so a resend can only win what
+      // the run still earns: once it no longer beats the crown, stealCrown says so and this stops.
+      const send = async (from: CrownRoom) => {
+        for (let attempt = 1; ; attempt += 1) {
+          try {
+            return await stealCrown(client, from, run, setBusy);
+          } catch (error) {
+            const deadline = loadCrown(id)?.deadlineAt ?? from.deadlineAt;
+            const clockRunning = deadline != null && deadline > Date.now();
+            if (!isLostRace(error) || attempt > RESEND_LIMIT || !clockRunning) throw error;
+            setBusy(`Someone took it first. Your ${run.score} still beats it, sending again (${attempt}/${RESEND_LIMIT})…`);
+            // Give the winning steal a moment to land, so the next try builds on the new round.
+            await new Promise((resolve) => setTimeout(resolve, 4_000));
+          }
+        }
+      };
       let result;
       try {
-        result = await stealCrown(signer.client, current, run, setBusy);
+        result = await send(current);
       } catch (error) {
         if (!(error instanceof EntryGoneError)) throw error;
         // The entry this phone remembered was used by an earlier steal (or never landed). Forget it
@@ -381,7 +439,7 @@ export function CrownPlayView({ id }: { id: string }) {
         setBusy('Locking a new entry…');
         current = await lockEntry({ ...current, bidOutPoint: null });
         setBusy('Sending your run…');
-        result = await stealCrown(signer.client, current, run, setBusy);
+        result = await send(current);
       }
       const named = { ...result.room, king: name };
       if (address) forgetBid(room.id, address);
@@ -529,12 +587,22 @@ export function CrownPlayView({ id }: { id: string }) {
           <div className="mt-4 grid grid-cols-3 items-end gap-3 sm:gap-6">
             <div className="min-w-0">
               <p className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">Pot</p>
-              <p className="truncate whitespace-nowrap font-poster text-3xl uppercase leading-none tabular-nums text-[#99ee2d] sm:text-6xl">{ckbWhole(room.potShannons)}</p>
+              <p
+                className="whitespace-nowrap font-poster uppercase leading-none tabular-nums text-[#99ee2d]"
+                style={{ fontSize: fitFont(potText, 3.75) }}
+              >
+                {potText}
+              </p>
               <p className="font-mono text-[11px] uppercase text-white/45">CKB</p>
             </div>
             <div className="min-w-0">
               <p className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">Crown</p>
-              <p className="whitespace-nowrap font-poster text-3xl uppercase leading-none tabular-nums text-[#e1bf47] sm:text-4xl">{room.kingScore}</p>
+              <p
+                className="whitespace-nowrap font-poster uppercase leading-none tabular-nums text-[#e1bf47]"
+                style={{ fontSize: fitFont(String(room.kingScore), 2.25) }}
+              >
+                {room.kingScore}
+              </p>
               <p className="truncate font-mono text-[11px] uppercase text-white/45">
                 {room.king ? `${iHold ? 'you' : room.king}` : 'open seat'}
               </p>
@@ -544,9 +612,10 @@ export function CrownPlayView({ id }: { id: string }) {
                 {entryWindow ? 'Round starts in' : clock.counting ? 'Time left' : live ? 'Time up' : 'Closed'}
               </p>
               <p
-                className={`whitespace-nowrap font-poster text-3xl uppercase leading-none tabular-nums sm:text-4xl ${!entryWindow && panic ? 'text-[#af2a3a]' : 'text-white'}`}
+                className={`whitespace-nowrap font-poster uppercase leading-none tabular-nums ${!entryWindow && panic ? 'text-[#af2a3a]' : 'text-white'}`}
+                style={{ fontSize: fitFont(clockText, 2.25) }}
               >
-                {entryWindow && startsAt != null ? formatWait(startsAt - now) : live ? clock.face : 'Closed'}
+                {clockText}
               </p>
               <p className="truncate font-mono text-[11px] uppercase text-white/45">+{ckbWhole(room.feeShannons)} CKB a crown</p>
             </div>
@@ -723,32 +792,47 @@ export function CrownPlayView({ id }: { id: string }) {
         </div>
 
         <aside className="relative z-10 border-t border-white/10 pt-6 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
-          <p className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-[#99ee2d]">Crowns</p>
-          <ul className="mt-4 space-y-2.5">
-            <li>
-              <ArenaRailCard
-                href={`/play/${room.id}`}
-                eyebrow="This crown"
+          {matchOver ? (
+            <div className="mb-6 border-b border-white/10 pb-6">
+              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-[#99ee2d]">Play another crown</p>
+              {nextCrowns.length > 0 ? (
+                <ul className="mt-4 space-y-2.5">
+                  {nextCrowns.map((item) => (
+                    <li key={item.id}>
+                      <ArenaRailCard
+                        href={`/play/${item.id}`}
+                        eyebrow="Live"
+                        title={item.title}
+                        meta={`${ckbWhole(item.potShannons)} CKB pot · ${item.king ? `${item.king} · ${item.kingScore}` : 'Open seat'}`}
+                        cover={arenaCoverForSeed(item.id)}
+                        cta="Enter"
+                      />
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-3 text-sm text-white/55">No other crown is live right now.</p>
+              )}
+              <Link
+                href="/create"
+                className="mt-4 inline-flex font-mono text-[11px] font-bold uppercase text-[#99ee2d]"
+              >
+                Host your own →
+              </Link>
+            </div>
+          ) : null}
+          {live && !matchOver ? (
+            // Mid-match sharing: the link carries this round, so the preview shows today's score.
+            <div className="mb-6">
+              <InviteButton
+                url={crownShareUrl(room)}
                 title={room.title}
-                meta={`${ckbWhole(room.potShannons)} CKB pot · ${room.king ? `${iHold ? 'you' : room.king} · ${room.kingScore}` : 'Open seat'}`}
-                cover={arenaCoverForSeed(room.id)}
-                cta="Here"
+                text={room.kingScore > 0 ? `Beat ${room.kingScore} to take the crown on Crowns.` : `Take the crown on Crowns.`}
+                variant="arena"
               />
-            </li>
-            {others.map((item) => (
-              <li key={item.id}>
-                <ArenaRailCard
-                  href={item.status === 'lobby' && isHostWallet(item, address, myLockHash) ? `/host/${item.id}` : `/play/${item.id}`}
-                  eyebrow={item.status}
-                  title={item.title}
-                  meta={`${ckbWhole(item.potShannons)} CKB pot · ${item.king ?? 'Open seat'}`}
-                  cover={arenaCoverForSeed(item.id)}
-                  cta="Enter"
-                />
-              </li>
-            ))}
-          </ul>
-          <div className="mt-6 border-t border-white/10 pt-4">
+            </div>
+          ) : null}
+          <div>
             <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/40">Feed</p>
             <ul className="mt-2 space-y-1.5">
               {room.feed.slice(0, 6).map((item) => (

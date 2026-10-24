@@ -8,7 +8,7 @@ import { useWallet } from '@/hooks/useWallet';
 import { useAuth } from '@/context/auth-provider';
 import { joinCrownRemote } from '@/lib/crown/remote';
 import type { CrownSeat } from '@/lib/crown/seats';
-import { ckbWhole, type CrownRoom } from '@/lib/crown/rooms';
+import { ckbWhole, crownShareUrl, type CrownRoom } from '@/lib/crown/rooms';
 import { useNow } from '@/components/crown/BleedingClock';
 import { sameAddress } from '@/lib/crown/standing';
 
@@ -72,7 +72,7 @@ export function CrownLobby({
         </p>
       ) : null}
       <div className="mt-6 flex flex-wrap items-center gap-3">
-        <InviteButton url={`/play/${room.id}`} title={room.title} text={`Join ${room.title} on Crowns.`} variant="arena" />
+        <InviteButton url={crownShareUrl(room)} title={room.title} text={`Join ${room.title} on Crowns.`} variant="arena" />
         {!isConnected ? (
           <ArenaCta onClick={() => void ensureAuth().catch(() => undefined)}>Connect wallet</ArenaCta>
         ) : iHost ? (

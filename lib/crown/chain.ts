@@ -63,6 +63,25 @@ export class MatchMovedError extends Error {
   }
 }
 
+/**
+ * The node turned a steal away because the match cell it spends is already being spent: another
+ * player's steal got there in the same few seconds. Nothing moved, the entry is untouched, and the
+ * same run can be sent again on top of the new round. Any other failure is not a lost race.
+ */
+export function isLostRace(error: unknown): boolean {
+  // CCC turns the node's double-spend replies into these: an input already spent ("Unknown"), the
+  // same transaction twice, or a replacement the pool refused.
+  if (
+    error instanceof ccc.ErrorClientResolveUnknown ||
+    error instanceof ccc.ErrorClientDuplicatedTransaction ||
+    error instanceof ccc.ErrorClientRBFRejected
+  ) {
+    return true;
+  }
+  const text = error instanceof Error ? `${error.message} ${(error as { data?: string }).data ?? ''}` : String(error ?? '');
+  return /dead|unknown ?\(?out ?point|conflict|rbf|duplicated|failedtoresolve|failed to resolve/i.test(text);
+}
+
 /** The run no longer beats the standing king — someone posted a better one first. */
 export class RunBeatenError extends Error {
   readonly kingScore: number;

@@ -115,17 +115,6 @@ export function roomFromStored(room: StoredRoom): CrownRoom {
   };
 }
 
-/** The raw stored list, for useSyncExternalStore: a string, so unchanged storage compares equal. */
-export function storedCrownsRaw(): string {
-  return window.localStorage.getItem(KEY) ?? '';
-}
-
-/** Storage changes from other tabs. Changes from this tab show on the next render anyway. */
-export function subscribeCrownStorage(onChange: () => void): () => void {
-  window.addEventListener('storage', onChange);
-  return () => window.removeEventListener('storage', onChange);
-}
-
 function readAll(): CrownRoom[] {
   if (typeof window === 'undefined') return [];
   const raw = window.localStorage.getItem(KEY);
@@ -175,6 +164,20 @@ export function saveCrown(room: CrownRoom) {
 export function forgetCrown(id: string) {
   writeAll(readAll().filter((room) => room.id !== id));
   emit();
+}
+
+/**
+ * The link to share for a crown. The marker after "?r=" changes whenever the crown does (lobby, each
+ * round, the end), so chat apps that remember previews by link build a fresh card with the current
+ * score instead of showing an old one. The page itself ignores it.
+ */
+export function crownShareUrl(room: Pick<CrownRoom, 'id' | 'status' | 'round'>): string {
+  return `/play/${room.id}?r=${crownStage(room)}`;
+}
+
+/** Where a crown is: "lobby", the round number, or "end". Changes whenever the preview should. */
+export function crownStage(room: Pick<CrownRoom, 'status' | 'round'>): string {
+  return room.status === 'lobby' ? 'lobby' : room.status === 'settled' ? 'end' : String(room.round);
 }
 
 export function ckbWhole(shannons: bigint): string {

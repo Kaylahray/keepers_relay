@@ -10,11 +10,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const preview = await crownPreview(id);
   if (!preview) return { title: 'Crowns' };
   const title = `${preview.headline} · ${preview.title}`;
+  // The round is in the image address too: chat apps remember images by address.
+  const image = { url: `/play/${id}/preview?r=${preview.stage}`, width: 1200, height: 630, alt: preview.headline };
   return {
     title,
     description: preview.description,
-    openGraph: { title, description: preview.description, type: 'website', siteName: 'Crowns' },
-    twitter: { card: 'summary_large_image', title, description: preview.description },
+    openGraph: { title, description: preview.description, type: 'website', siteName: 'Crowns', images: [image] },
+    twitter: { card: 'summary_large_image', title, description: preview.description, images: [image.url] },
   };
 }
 

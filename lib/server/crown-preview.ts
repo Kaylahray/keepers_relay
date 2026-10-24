@@ -1,4 +1,4 @@
-import { ckbWhole, GAMES, roomFromStored } from '@/lib/crown/rooms';
+import { ckbWhole, crownStage, GAMES, roomFromStored } from '@/lib/crown/rooms';
 import { getBuilder } from '@/lib/server/builders-store';
 import { publicRoom, readVault } from '@/lib/server/crowns-store';
 import { chainUsernameOfLockHash } from '@/lib/server/username-registry';
@@ -18,6 +18,8 @@ export type CrownPreview = {
   description: string;
   /** The match is over or out of time, so the score is the winning one, not one to beat. */
   finished: boolean;
+  /** "lobby", the round number, or "end": part of the image address, so each round gets a fresh image. */
+  stage: string;
 };
 
 function clockWords(ms: number): string {
@@ -77,5 +79,5 @@ export async function crownPreview(id: string): Promise<CrownPreview | null> {
     room.status === 'settled' || clock === 'Time up'
       ? `${game} · ${pot} CKB pot · ${clock}${by}.`
       : `${game} · pot ${pot} CKB · ${fee} CKB entry · ${clock}${by}. Practise free, then beat the score.`;
-  return { title: room.title, game, pot, fee, toBeat: room.kingScore, clock, host: hostName, headline, description, finished: room.status === 'settled' || clock === 'Time up' };
+  return { title: room.title, game, pot, fee, toBeat: room.kingScore, clock, host: hostName, headline, description, finished: room.status === 'settled' || clock === 'Time up', stage: crownStage(room) };
 }
