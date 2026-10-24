@@ -59,6 +59,8 @@ export function useCrown(id: string) {
   const [room, setRoom] = useState<CrownRoom | null>(null);
   const [seats, setSeats] = useState<CrownSeat[]>([]);
   const [ready, setReady] = useState(false);
+  /** The last read failed on the network, as opposed to the crown not existing. Polling keeps retrying. */
+  const [unreachable, setUnreachable] = useState(false);
   /** Read by the poll to decide its own cadence, without restarting the interval. */
   const liveNow = useRef(false);
 
@@ -73,7 +75,11 @@ export function useCrown(id: string) {
       }
       reading = true;
       try {
-        const remote = await fetchCrown(id).catch(() => null);
+        let failed = false;
+        const remote = await fetchCrown(id).catch(() => {
+          failed = true;
+          return null;
+        });
         if (stop) return;
         const local = loadCrown(id);
         let merged = mergeCrown(local, remote?.room ?? null, remote?.seats ?? [], address);
@@ -100,6 +106,7 @@ export function useCrown(id: string) {
         liveNow.current = next?.status === 'live';
         setRoom(next);
         setSeats(remote?.seats ?? []);
+        setUnreachable(failed);
         setReady(true);
       } finally {
         reading = false;
@@ -141,5 +148,5 @@ export function useCrown(id: string) {
     };
   }, [address, id]);
 
-  return { room, seats, ready };
+  return { room, seats, ready, unreachable };
 }

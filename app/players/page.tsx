@@ -24,6 +24,8 @@ export default function PlayersPage() {
       </p>
       {players.isLoading ? (
         <p className="mt-8 font-mono text-xs uppercase text-white/40">Loading players…</p>
+      ) : players.isError ? (
+        <p className="mt-8 text-sm text-[#ff8b98]">Could not load the players. Refresh to try again.</p>
       ) : (players.data ?? []).length === 0 ? (
         <p className="mt-8 text-sm text-white/55">No one has a profile yet.</p>
       ) : (

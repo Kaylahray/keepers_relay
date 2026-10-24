@@ -21,7 +21,7 @@ import { ckbWhole, forgetCrown, GAMES, loadCrown, saveCrown } from '@/lib/crown/
 
 export function CrownDeskView({ id }: { id: string }) {
   const router = useRouter();
-  const { room, ready } = useCrown(id);
+  const { room, ready, unreachable } = useCrown(id);
   const { address, isConnected } = useWallet();
   const { ensureAuth } = useAuth();
   const myLockHash = useMyLockHash();
@@ -74,7 +74,10 @@ export function CrownDeskView({ id }: { id: string }) {
   if (!room) {
     return (
       <ArenaStage backHref="/play" backLabel="Crowns">
-        <h1 className="font-poster text-5xl uppercase text-white">Missing crown</h1>
+        <h1 className="font-poster text-5xl uppercase text-white">{unreachable ? 'Connection lost' : 'Missing crown'}</h1>
+        <p className="mt-3 text-sm text-white/55">
+          {unreachable ? 'Could not reach this crown. Retrying…' : 'This crown does not exist or was deleted.'}
+        </p>
       </ArenaStage>
     );
   }

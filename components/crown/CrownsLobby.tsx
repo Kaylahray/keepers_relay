@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { Loader2 } from 'lucide-react';
 import { ArenaCta } from '@/components/arena/ArenaPrimitives';
 import { ArenaRailCard, ArenaStage } from '@/components/arena/ArenaStage';
 import { CrownCard } from '@/components/crown/CrownCard';
@@ -25,7 +26,10 @@ export function CrownsLobby() {
   const router = useRouter();
   const { isConnected, address } = useWallet();
   const { username: onChainUsername } = useUsername();
-  const [rooms, setRooms] = useState<CrownRoom[]>([]);
+  // null until the first read finishes, so the page never says "nothing here" while it is still looking.
+  const [rooms, setRooms] = useState<CrownRoom[] | null>(null);
+  const [listFailed, setListFailed] = useState(false);
+  const [openingFloor, setOpeningFloor] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -34,6 +38,7 @@ export function CrownsLobby() {
       const local = listCrowns();
       const remote = await fetchCrownList().catch(() => null);
       if (stop) return;
+      setListFailed(remote == null);
       const byId = new Map((remote ?? []).map((room) => [room.id, room]));
       for (const room of local) {
         const shared = byId.get(room.id);
@@ -64,7 +69,7 @@ export function CrownsLobby() {
     };
   }, []);
 
-  const rail = rooms.slice(0, 4);
+  const rail = (rooms ?? []).slice(0, 4);
 
   return (
     <ArenaStage>
@@ -98,15 +103,18 @@ export function CrownsLobby() {
                 };
                 saveCrown(room);
                 setShareError(null);
+                setOpeningFloor(true);
                 void publishCrown(room, room.hostAddress)
                   .then(() => router.push(`/play/${room.id}`))
                   .catch((error: unknown) => {
                     setShareError(error instanceof Error ? error.message : 'The lobby could not be saved.');
+                    setOpeningFloor(false);
                   });
               }}
-              className="border-b border-[#bef970] pb-1 text-sm font-bold uppercase tracking-wide text-white"
+              disabled={openingFloor}
+              className="border-b border-[#bef970] pb-1 text-sm font-bold uppercase tracking-wide text-white disabled:opacity-50"
             >
-              Play the floor →
+              {openingFloor ? 'Opening the floor…' : 'Play the floor →'}
             </button>
           </div>
           {shareError ? <p className="mt-4 text-sm text-[#af2a3a]">{shareError}</p> : null}
@@ -130,7 +138,7 @@ export function CrownsLobby() {
           </p>
           <ul className="mt-4 space-y-2.5">
             {rail.length === 0 ? (
-              <li className="text-sm text-white/50">No crowns yet.</li>
+              <li className="text-sm text-white/50">{rooms == null ? 'Loading…' : 'No crowns yet.'}</li>
             ) : (
               rail.map((room) => (
                 <li key={room.id}>
@@ -151,8 +159,15 @@ export function CrownsLobby() {
 
       <section className="relative z-10 mt-14">
         <h2 className="mb-6 font-poster text-3xl uppercase text-white sm:text-4xl">All crowns</h2>
-        {rooms.length === 0 ? (
-          <p className="text-sm text-white/55">Nothing here yet. Open one, or play the floor.</p>
+        {rooms == null ? (
+          <p className="flex items-center gap-2 text-sm text-white/55">
+            <Loader2 className="h-4 w-4 animate-spin text-[#99ee2d]" />
+            Loading crowns…
+          </p>
+        ) : rooms.length === 0 ? (
+          <p className="text-sm text-white/55">
+            {listFailed ? 'Could not load the crowns. Retrying…' : 'Nothing here yet. Open one, or play the floor.'}
+          </p>
         ) : (
           <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {rooms.map((room, index) => (

@@ -103,7 +103,7 @@ function floorSeed(roomId: string, who: string): bigint {
 
 export function CrownPlayView({ id }: { id: string }) {
   const router = useRouter();
-  const { room, seats, ready } = useCrown(id);
+  const { room, seats, ready, unreachable } = useCrown(id);
   // A connected wallet with no username is sent to /join and comes back here after claiming one.
   const named = useRequireUsername();
   const { address, formattedAddress, isConnected } = useWallet();
@@ -298,8 +298,10 @@ export function CrownPlayView({ id }: { id: string }) {
   if (!room) {
     return (
       <ArenaStage backHref="/play" backLabel="Crowns">
-        <h1 className="font-poster text-5xl uppercase text-white">Missing crown</h1>
-        <p className="mt-3 text-sm text-white/55">This crown doesn&apos;t exist or was deleted.</p>
+        <h1 className="font-poster text-5xl uppercase text-white">{unreachable ? 'Connection lost' : 'Missing crown'}</h1>
+        <p className="mt-3 text-sm text-white/55">
+          {unreachable ? 'Could not reach this crown. Retrying…' : 'This crown does not exist or was deleted.'}
+        </p>
       </ArenaStage>
     );
   }
