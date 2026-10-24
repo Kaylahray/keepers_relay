@@ -29,6 +29,7 @@ import { forgetBid, rememberBid, rememberedBid } from '@/lib/crown/my-bid';
 import { forgetBestRun, loadBestRun, saveBestRun } from '@/lib/crown/my-run';
 import { deleteCrownRemote, joinCrownRemote, pushCrownState } from '@/lib/crown/remote';
 import { useWallet } from '@/hooks/useWallet';
+import { useRequireUsername } from '@/hooks/useRequireUsername';
 import { useAuth } from '@/context/auth-provider';
 import { suddenDeathConfigured } from '@/lib/registry/config';
 import { getCkbClient } from '@/lib/ckb/client';
@@ -87,8 +88,10 @@ function floorSeed(roomId: string, who: string): bigint {
 export function CrownPlayView({ id }: { id: string }) {
   const router = useRouter();
   const { room, seats, ready } = useCrown(id);
+  // A connected wallet with no username is sent to /join and comes back here after claiming one.
+  const named = useRequireUsername();
   const { address, formattedAddress, isConnected } = useWallet();
-  const { ensureAuth } = useAuth();
+  const { ensureAuth, authenticated } = useAuth();
   const signer = ccc.useSigner();
   const chain = suddenDeathConfigured();
   const [busy, setBusy] = useState<string | null>(null);
@@ -245,6 +248,23 @@ export function CrownPlayView({ id }: { id: string }) {
     return (
       <ArenaStage>
         <p className="text-sm text-white/50">Loading crown.</p>
+      </ArenaStage>
+    );
+  }
+
+  if (isConnected && !named.ready) {
+    return (
+      <ArenaStage>
+        {named.username && !authenticated ? (
+          <>
+            <p className="text-sm text-white/60">Sign in as @{named.username} to join this crown.</p>
+            <ArenaCta onClick={() => void ensureAuth().catch(() => undefined)} className="mt-4">
+              Sign in
+            </ArenaCta>
+          </>
+        ) : (
+          <p className="text-sm text-white/50">Checking your username…</p>
+        )}
       </ArenaStage>
     );
   }

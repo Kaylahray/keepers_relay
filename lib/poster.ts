@@ -1,11 +1,11 @@
-/** Curated arena covers — select, never generate. */
+/** Crown covers: our own drawings, a crown over the lane road, one per colour. */
 
 export const ARENA_COVERS: { id: string; label: string; src: string }[] = [
-  { id: 'blitz', label: 'Blitz', src: '/arena/kind-blitz.png' },
-  { id: 'quest', label: 'Quest', src: '/arena/kind-quest.png' },
-  { id: 'archive', label: 'Archive', src: '/arena/kind-archive.png' },
-  { id: 'razzael', label: 'Keeper', src: '/arena/keeper-razzael.png' },
-  { id: 'featured', label: 'Featured', src: '/arena/featured-hero.png' },
+  { id: 'lime', label: 'Lime', src: '/arena/cover-lime.svg' },
+  { id: 'magenta', label: 'Magenta', src: '/arena/cover-magenta.svg' },
+  { id: 'gold', label: 'Gold', src: '/arena/cover-gold.svg' },
+  { id: 'blue', label: 'Blue', src: '/arena/cover-blue.svg' },
+  { id: 'violet', label: 'Violet', src: '/arena/cover-violet.svg' },
 ];
 
 export function hashSeed(seed: string): number {

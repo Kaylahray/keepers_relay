@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ArenaStage } from '@/components/arena/ArenaStage';
 import { loadAvatarSpore } from '@/hooks/usePublicProfile';
 import { listBuilders } from '@/lib/api/keeperApi';
+import type { BuilderProfile } from '@/types/builder';
 
 export default function PlayersPage() {
   const players = useQuery({
@@ -27,13 +28,23 @@ export default function PlayersPage() {
         <p className="mt-8 text-sm text-white/55">No one has a profile yet.</p>
       ) : (
         <ul className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {(players.data ?? []).map((player) => (
-            <PlayerCard key={player.address} address={player.address} name={player.displayName || player.username || 'Player'} sporeId={player.avatarSporeId} />
+          {sortPlayers(players.data ?? []).map((player) => (
+            <PlayerCard
+              key={player.address}
+              address={player.address}
+              name={player.displayName || player.username}
+              sporeId={player.avatarSporeId}
+            />
           ))}
         </ul>
       )}
     </ArenaStage>
   );
+}
+
+/** Only players who claimed a username are listed, most recently seen first. */
+function sortPlayers(list: BuilderProfile[]): BuilderProfile[] {
+  return list.filter((player) => player.username).sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt));
 }
 
 function PlayerCard({

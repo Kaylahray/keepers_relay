@@ -4,6 +4,7 @@ import { databaseConfigured, getDb } from '@/lib/db/client';
 import { builders } from '@/lib/db/schema';
 import { ApiError } from '@/lib/server/errors';
 import { normalizeAddress } from '@/lib/server/auth';
+import { chainUsernameOf, chainUsernames } from '@/lib/server/username-registry';
 import type { BuilderProfile } from '@/types/builder';
 import type { CharacterId } from '@/lib/characters';
 import type { RewardMilestone } from '@/lib/rewards/milestones';
@@ -63,11 +64,32 @@ function toProfile(row: typeof builders.$inferSelect): BuilderProfile {
   };
 }
 
+/**
+ * Everyone who has claimed a username. Names come from the username cells on chain; the table adds
+ * pictures and bios. A name claimed on chain that the table never heard of is saved to it here, so
+ * the list and the seat check agree with the chain. If the chain cannot be read, the table alone is
+ * used.
+ */
 export async function listBuilderProfiles(): Promise<BuilderProfile[]> {
   if (!databaseConfigured()) return [];
   await ensureBuilders();
-  const rows = await getDb().select().from(builders);
-  return rows.map(toProfile);
+  const names = await chainUsernames().catch((error) => {
+    console.warn('[players] could not read usernames from chain:', error);
+    return null;
+  });
+  let rows = (await getDb().select().from(builders)).map(toProfile);
+  if (!names) return rows;
+  const byAddress = new Map(rows.map((row) => [row.address, row]));
+  let changed = false;
+  for (const [address, username] of names) {
+    const row = byAddress.get(address);
+    if (row?.username === username) continue;
+    await upsertBuilder({ address, username, displayName: row?.displayName || username });
+    changed = true;
+  }
+  if (changed) rows = (await getDb().select().from(builders)).map(toProfile);
+  // A name released on chain is no longer a name, whatever the table still says.
+  return rows.filter((row) => names.get(row.address) === row.username);
 }
 
 export async function getBuilder(address: string): Promise<BuilderProfile | null> {
@@ -122,6 +144,22 @@ export async function upsertBuilder(input: {
   const saved = await getBuilder(address);
   if (!saved) throw new ApiError('The profile could not be saved.', 500);
   return saved;
+}
+
+/**
+ * The name a player goes by in lobbies. Every player claims a username before taking a seat or
+ * hosting, so a wallet without one is refused here. The name comes from the profile, never from
+ * what the browser sends.
+ */
+export async function requirePlayerName(address: string): Promise<string> {
+  if (!databaseConfigured()) return `${address.slice(0, 10)}…`;
+  const player = await getBuilder(address);
+  if (player?.username) return player.displayName || player.username;
+  // Claimed on chain but never saved here: save it now rather than turn the player away.
+  const onChain = await chainUsernameOf(address).catch(() => null);
+  if (!onChain) throw new ApiError('Claim a username to play.', 403);
+  const saved = await upsertBuilder({ address, username: onChain, displayName: player?.displayName || onChain });
+  return saved.displayName || saved.username;
 }
 
 export async function setBuilderAvatar(address: string, avatarSporeId: string | null): Promise<BuilderProfile> {

@@ -6,6 +6,7 @@ import { ArenaStage } from '@/components/arena/ArenaStage';
 import { NeonPlate } from '@/components/crown/CrownCard';
 import { useWallet } from '@/hooks/useWallet';
 import { useUsername } from '@/hooks/useUsername';
+import { useRequireUsername } from '@/hooks/useRequireUsername';
 import { publishCrown } from '@/lib/crown/remote';
 import { DEFAULT_DURATION_MS, FLOOR_CROWN, GAMES, saveCrown, sealCrown, type CrownSetup, type GameId } from '@/lib/crown/rooms';
 import { registryConfigured } from '@/lib/registry/config';
@@ -22,6 +23,8 @@ export function OpenCrownView() {
   const duel = useSearchParams().get('duel');
   const { address, isConnected, isReady } = useWallet();
   const { username: onChainUsername, isLoading: nameLoading } = useUsername();
+  // Sends a host with no username to /join, and saves a name claimed elsewhere to their profile.
+  useRequireUsername();
   const [step, setStep] = useState(0);
   const [setup, setSetup] = useState<CrownSetup>(() => ({ ...FLOOR_CROWN, title: duel ? 'Duel' : 'Lane Runner crown' }));
   const [lengthText, setLengthText] = useState(() => String(minutesOf(FLOOR_CROWN.durationMs)));

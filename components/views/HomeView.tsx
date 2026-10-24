@@ -72,8 +72,7 @@ export function HomeView() {
           className="pointer-events-none absolute left-0 top-1/2 hidden h-48 w-auto -translate-y-1/2 opacity-80 lg:block"
         />
         <div className="relative mx-auto grid max-w-[1440px] items-center gap-10 px-5 py-16 sm:px-10 lg:grid-cols-2">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/uismod/organizer.png" alt="" className="mx-auto max-h-72 w-auto object-contain lg:ml-16" />
+          <ReplayArt />
           <div>
             <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">Fair by construction</p>
             <h2 className="mt-3 font-poster text-3xl uppercase leading-none text-white sm:text-4xl">Nobody picks the winner</h2>
@@ -121,9 +120,11 @@ export function HomeView() {
       <section className="border-t border-white/10 bg-[#111]">
         <div className="mx-auto grid max-w-[1440px] items-center gap-10 px-5 py-14 sm:px-10 lg:grid-cols-[1fr_auto]">
           <div className="max-w-xl">
-            <h2 className="font-poster text-3xl uppercase leading-none text-white sm:text-4xl">Bring your people</h2>
+            <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">Multiplayer</p>
+            <h2 className="mt-3 font-poster text-3xl uppercase leading-none text-white sm:text-4xl">Play with your friends</h2>
             <p className="mt-4 text-base font-light leading-relaxed text-white/55">
-              Challenge a player or open a crown and share the link.
+              Open a crown and drop the link in your group chat. Everyone races the same clock, and the last king takes
+              the pot.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3">
               <ArenaCta href="/players">Challenge a friend</ArenaCta>
@@ -132,9 +133,85 @@ export function HomeView() {
               </Link>
             </div>
           </div>
-          <LaneArt className="h-[220px] w-full max-w-md border border-white/10 shadow-[-8px_8px_0_#99ee2d] lg:w-[420px]" />
+          <LobbyArt />
         </div>
       </section>
+    </div>
+  );
+}
+
+/** How the chain judges a run: the recording goes in, CKB-VM plays it again, the score comes out. */
+function ReplayArt() {
+  const moves = ['0012·1', '0047·2', '0081·0', '0133·1', '0190·2', '0244·0'];
+  return (
+    <div className="relative z-10 mx-auto w-full max-w-md border border-white/10 bg-[#0b0b12] p-5 lg:ml-16" aria-hidden>
+      <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/40">Your run</p>
+      <ul className="mt-2 grid grid-cols-3 gap-1.5 font-mono text-[11px] text-[#ff8bf9]">
+        {moves.map((move) => (
+          <li key={move} className="border border-[#ff56f6]/30 px-2 py-1">
+            {move}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-1.5 font-mono text-[10px] text-white/35">tick · lane, every move you made</p>
+      <div className="my-4 flex items-center gap-3">
+        <span className="h-px flex-1 bg-white/15" />
+        <span className="border border-[#406aff]/60 bg-[#406aff]/10 px-3 py-1.5 font-mono text-[11px] uppercase text-[#9db3ff]">
+          CKB-VM replays it
+        </span>
+        <span className="h-px flex-1 bg-white/15" />
+      </div>
+      <div className="flex items-end justify-between">
+        <div>
+          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/40">Chain&apos;s score</p>
+          <p className="font-poster text-5xl leading-none text-[#99ee2d]">412</p>
+        </div>
+        <div className="text-right">
+          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/40">To beat</p>
+          <p className="font-poster text-3xl leading-none text-white/60">388</p>
+        </div>
+      </div>
+      <p className="mt-3 border-t border-white/10 pt-3 font-mono text-[11px] uppercase text-[#e1bf47]">Crown moves · pot +50 CKB</p>
+    </div>
+  );
+}
+
+/** A lobby in miniature: seats filling up around one shared clock. */
+function LobbyArt() {
+  const seats = [
+    { name: 'ada', note: 'King · 412', king: true },
+    { name: 'tunde', note: 'Best 388' },
+    { name: 'you', note: 'Practising' },
+    { name: 'mira', note: 'Joined' },
+  ];
+  return (
+    <div className="w-full max-w-md border border-white/10 bg-black/50 p-5 shadow-[-8px_8px_0_#99ee2d] lg:w-[420px]" aria-hidden>
+      <div className="flex items-end justify-between">
+        <div>
+          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/40">Pot</p>
+          <p className="font-poster text-4xl leading-none text-[#99ee2d]">150</p>
+        </div>
+        <div className="text-right">
+          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/40">Clock</p>
+          <p className="font-poster text-4xl leading-none text-white">4:12</p>
+        </div>
+      </div>
+      <div className="mt-3 h-1.5 w-full bg-white/10">
+        <div className="h-full w-[38%] bg-gradient-to-r from-[#ff56f6] to-[#406aff]" />
+      </div>
+      <ul className="mt-4 grid grid-cols-2 gap-2">
+        {seats.map((seat) => (
+          <li
+            key={seat.name}
+            className={`border px-3 py-2.5 ${seat.king ? 'border-[#e1bf47]/60 bg-[#e1bf47]/10' : 'border-white/10'}`}
+          >
+            <p className="font-poster text-lg uppercase leading-none text-white">@{seat.name}</p>
+            <p className={`mt-1 font-mono text-[10px] uppercase ${seat.king ? 'text-[#e1bf47]' : 'text-white/45'}`}>
+              {seat.note}
+            </p>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

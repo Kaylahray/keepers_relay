@@ -2,6 +2,7 @@ import { deleteCrown, joinCrown, readPublicCrown } from '@/lib/server/crowns-sto
 import { roomToStored } from '@/lib/crown/rooms';
 import { ApiError } from '@/lib/server/errors';
 import { requireSession } from '@/lib/server/auth';
+import { requirePlayerName } from '@/lib/server/builders-store';
 import { readBody, respond } from '@/lib/server/respond';
 
 export const dynamic = 'force-dynamic';
@@ -33,7 +34,7 @@ export async function POST(
     const { id } = await params;
     const result = await joinCrown(id, {
       address: session.address,
-      displayName: body.displayName?.trim() || session.address.slice(0, 10),
+      displayName: await requirePlayerName(session.address),
       bidOutPoint: body.bidOutPoint,
       clearBid: body.clearBid,
     });

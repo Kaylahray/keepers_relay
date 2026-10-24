@@ -3,6 +3,7 @@ import { syncCrown } from '@/lib/server/crowns-store';
 import { roomFromStored, roomToStored, type StoredRoom } from '@/lib/crown/rooms';
 import { normalizeAddress, requireSession } from '@/lib/server/auth';
 import { readBody, respond } from '@/lib/server/respond';
+import { requirePlayerName } from '@/lib/server/builders-store';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,6 +19,7 @@ export async function POST(request: Request) {
   return respond(async () => {
     const session = requireSession(request);
     if (!body.room?.id) throw new Error('A crown id is required.');
+    await requirePlayerName(session.address);
     const room = roomFromStored(body.room);
     room.hostAddress = normalizeAddress(session.address);
     await createCrown(room, session.address);

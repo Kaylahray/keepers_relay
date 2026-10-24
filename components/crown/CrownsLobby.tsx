@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { ArenaCta } from '@/components/arena/ArenaPrimitives';
 import { ArenaRailCard, ArenaStage } from '@/components/arena/ArenaStage';
 import { CrownCard } from '@/components/crown/CrownCard';
+import { LaneArt } from '@/components/game/LaneArt';
 import { arenaCoverForSeed } from '@/lib/poster';
 import { fetchCrownList, publishCrown } from '@/lib/crown/remote';
 import { ckbWhole, FLOOR_CROWN, listCrowns, saveCrown, sealCrown, type CrownRoom } from '@/lib/crown/rooms';
@@ -116,12 +117,7 @@ export function CrownsLobby() {
             className="pointer-events-none absolute left-1/2 top-1/3 h-64 w-64 -translate-x-1/2 rounded-full bg-[#a855f7]/35 blur-[80px]"
             aria-hidden
           />
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/uismod/organizer.png"
-            alt=""
-            className="relative z-10 h-full w-full object-contain object-bottom drop-shadow-[0_0_40px_rgba(168,85,247,0.45)]"
-          />
+          <LaneArt className="relative z-10 h-full w-full border border-white/10" />
         </div>
 
         <aside className="relative z-10 border-t border-white/10 pt-6 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">

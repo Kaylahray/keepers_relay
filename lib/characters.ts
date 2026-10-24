@@ -105,26 +105,11 @@ export function getCharacter(id: CharacterId | string | null | undefined): Chara
   return CHARACTERS.find((character) => character.id === id);
 }
 
-const FULL_BODY_ART: Record<CharacterId, string> = {
-  nova: '/arena/kind-archive.png',
-  ember: '/arena/kind-quest.png',
-  volt: '/arena/keeper-razzael.png',
-  mira: '/arena/kind-blitz.png',
-  kai: '/arena/featured-hero.png',
-  rune: '/arena/kind-archive.png',
-  haze: '/arena/keeper-razzael.png',
-  spark: '/arena/kind-blitz.png',
-};
-
 /**
- * Prefer curated local art when we have it; otherwise a fixed SVG plate.
+ * A fixed SVG plate in the character's colours, drawn here.
  * Never a random face generator.
  */
 export function characterPortraitUrl(character: Character, size = 256): string {
-  // Small avatars still use full-body art cropped carefully via object-position in UI.
-  if (FULL_BODY_ART[character.id]) {
-    return FULL_BODY_ART[character.id];
-  }
   const accent = character.accent;
   const fill = character.fill;
   const initial = character.name.slice(0, 1).toUpperCase();

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { fetchCrownList } from '@/lib/crown/remote';
 import { ckbWhole, GAMES, type CrownRoom } from '@/lib/crown/rooms';
-import { LaneArt } from '@/components/game/LaneArt';
+import { arenaCoverForSeed } from '@/lib/poster';
 
 const HERO_BLURB =
   'Every crown taken grows the pot and cuts the clock. Hold it at zero to win.';
@@ -100,16 +100,22 @@ export function HomeHero() {
               <div className="absolute bottom-[20%] left-1/2 size-[240px] -translate-x-1/2 rounded-full bg-black/45 blur-[60px]" />
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/uismod/hero-character.png"
+                src="/arena/hero-runner.svg"
                 alt=""
-                className="relative h-full max-h-[540px] w-auto rotate-[6deg] object-contain object-bottom drop-shadow-[-16px_-4px_40px_rgba(0,0,0,0.55)]"
+                className="relative h-full max-h-[540px] w-auto object-contain object-bottom"
               />
             </div>
           </div>
 
           <div className="relative z-20 w-full xl:self-center">
             <div className="border border-white/10 bg-[#111]/85 backdrop-blur-md [clip-path:polygon(0_0,100%_0,100%_92%,94%_100%,0_100%)]">
-              <LaneArt className="h-40 w-full sm:h-44" />
+              {/* The selected crown's own cover, so the panel changes colour as the crowns rotate. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={arenaCoverForSeed(room?.title ?? 'crowns')}
+                alt=""
+                className="h-40 w-full object-cover object-top sm:h-44"
+              />
               {rooms == null ? (
                 <div className="p-5">
                   <p className="font-mono text-[11px] uppercase text-white/45">Reading the crowns…</p>
