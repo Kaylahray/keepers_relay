@@ -93,14 +93,14 @@ export function CrownReceipt({ room, youWon }: { room: CrownRoom; youWon: boolea
 
         <div className="mt-5 flex items-end gap-6">
           <div>
-            <p className="font-mono text-[10px] uppercase tracking-wider text-white/40">Pot</p>
+            <p className="font-mono text-[10px] uppercase tracking-wider text-white/40">Prize</p>
             <p className="font-poster text-3xl leading-none text-[#e1bf47]">
               {ckbWhole(room.potShannons)} CKB
             </p>
           </div>
           <div>
-            <p className="font-mono text-[10px] uppercase tracking-wider text-white/40">Crown</p>
-            <p className="font-mono text-sm text-white">{room.king ?? 'open seat'}</p>
+            <p className="font-mono text-[10px] uppercase tracking-wider text-white/40">Best score</p>
+            <p className="font-mono text-sm text-white">{room.king ?? 'nobody yet'}</p>
           </div>
         </div>
 

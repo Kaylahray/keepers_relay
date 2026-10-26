@@ -7,8 +7,8 @@ const YELLOW = { bg: '#e1bf47', ink: '#111', mute: 'rgba(17,17,17,0.7)' };
 
 function statusWord(status: CrownStatus) {
   if (status === 'live') return 'Live';
-  if (status === 'lobby') return 'Sealed';
-  return 'Settled';
+  if (status === 'lobby') return 'Lobby';
+  return 'Finished';
 }
 
 export function CrownCard({ room }: { room: CrownRoom; index?: number }) {
@@ -42,14 +42,14 @@ export function CrownCard({ room }: { room: CrownRoom; index?: number }) {
           {room.title}
         </h3>
         <p className="mt-3 text-sm font-light" style={{ color: plate.mute }}>
-          {room.king ? `${room.king} · ${room.kingScore}` : 'Open seat'} · {GAMES[room.game].title}
+          {room.king ? `${room.king} · ${room.kingScore}` : 'No crown holder yet'} · {GAMES[room.game].title}
         </p>
       </div>
 
       <div className="absolute inset-x-0 bottom-0 z-10 flex h-24 items-center justify-between gap-3 bg-black/50 px-4 text-white backdrop-blur-[8px]">
         <div className="flex gap-4">
           <div>
-            <p className="text-[11px] opacity-60">Pot</p>
+            <p className="text-[11px] opacity-60">Prize</p>
             <p className="text-sm font-bold">{ckbWhole(room.potShannons)} CKB</p>
           </div>
           <div>

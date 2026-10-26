@@ -19,7 +19,23 @@ function crownHref(room: CrownRoom) {
 }
 
 function crownMeta(room: CrownRoom) {
-  return `${ckbWhole(room.potShannons)} CKB pot · ${room.king ?? 'Open seat'}`;
+  return `${ckbWhole(room.potShannons)} CKB prize · ${room.king ?? 'no crown holder yet'}`;
+}
+
+type Filter = 'live' | 'lobby' | 'finished' | 'all';
+
+const FILTERS: { id: Filter; label: string; empty: string }[] = [
+  { id: 'live', label: 'Live', empty: 'No game is running right now. Start one, or play a quick game.' },
+  { id: 'lobby', label: 'Lobbies', empty: 'No lobbies are waiting for players right now.' },
+  { id: 'finished', label: 'Finished', empty: 'No finished games yet.' },
+  { id: 'all', label: 'All', empty: 'No games yet. Start one, or play a quick game.' },
+];
+
+/** Live means the clock is still running; a game whose time is up counts as finished. */
+function stageOf(room: CrownRoom, now: number): Exclude<Filter, 'all'> {
+  if (room.status === 'lobby') return 'lobby';
+  if (room.status === 'live' && (room.deadlineAt == null || room.deadlineAt > now)) return 'live';
+  return 'finished';
 }
 
 export function CrownsLobby() {
@@ -30,6 +46,10 @@ export function CrownsLobby() {
   const [rooms, setRooms] = useState<CrownRoom[] | null>(null);
   const [listFailed, setListFailed] = useState(false);
   const [openingFloor, setOpeningFloor] = useState(false);
+  // The time of the last list read, so live and finished are judged without reading the clock while drawing.
+  const [listedAt, setListedAt] = useState(0);
+  // null until the player picks a tab: then Live if anything is live, otherwise All.
+  const [chosen, setChosen] = useState<Filter | null>(null);
   const [shareError, setShareError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -50,6 +70,7 @@ export function CrownsLobby() {
         );
       }
       setRooms([...byId.values()]);
+      setListedAt(Date.now());
     };
     void read();
     // A list of lobbies is not a live clock. Polling it every three seconds filled the
@@ -70,6 +91,10 @@ export function CrownsLobby() {
   }, []);
 
   const rail = (rooms ?? []).slice(0, 4);
+  const counts = { live: 0, lobby: 0, finished: 0, all: rooms?.length ?? 0 };
+  for (const room of rooms ?? []) counts[stageOf(room, listedAt)] += 1;
+  const filter: Filter = chosen ?? (counts.live > 0 ? 'live' : 'all');
+  const shown = (rooms ?? []).filter((room) => filter === 'all' || stageOf(room, listedAt) === filter);
 
   return (
     <ArenaStage>
@@ -85,7 +110,7 @@ export function CrownsLobby() {
             Beat the score to take the crown. Hold it at zero to win the pot.
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-3">
-            <ArenaCta href="/create">Open a crown</ArenaCta>
+            <ArenaCta href="/create">Start a game</ArenaCta>
             <button
               type="button"
               onClick={() => {
@@ -114,7 +139,7 @@ export function CrownsLobby() {
               disabled={openingFloor}
               className="border-b border-[#bef970] pb-1 text-sm font-bold uppercase tracking-wide text-white disabled:opacity-50"
             >
-              {openingFloor ? 'Opening the floor…' : 'Play the floor →'}
+              {openingFloor ? 'Opening a quick game…' : 'Quick game →'}
             </button>
           </div>
           {shareError ? <p className="mt-4 text-sm text-[#af2a3a]">{shareError}</p> : null}
@@ -125,7 +150,7 @@ export function CrownsLobby() {
             className="pointer-events-none absolute left-1/2 top-1/3 h-64 w-64 -translate-x-1/2 rounded-full bg-[#a855f7]/35 blur-[80px]"
             aria-hidden
           />
-          <LaneArt className="relative z-10 h-full w-full border border-white/10" />
+          <LaneArt shape="tall" className="relative z-10 h-full w-full border border-white/10" />
         </div>
 
         <aside className="relative z-10 border-t border-white/10 pt-6 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
@@ -138,7 +163,7 @@ export function CrownsLobby() {
           </p>
           <ul className="mt-4 space-y-2.5">
             {rail.length === 0 ? (
-              <li className="text-sm text-white/50">{rooms == null ? 'Loading…' : 'No crowns yet.'}</li>
+              <li className="text-sm text-white/50">{rooms == null ? 'Loading…' : 'No games yet.'}</li>
             ) : (
               rail.map((room) => (
                 <li key={room.id}>
@@ -158,19 +183,42 @@ export function CrownsLobby() {
       </section>
 
       <section className="relative z-10 mt-14">
-        <h2 className="mb-6 font-poster text-3xl uppercase text-white sm:text-4xl">All crowns</h2>
+        <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+          <h2 className="font-poster text-3xl uppercase text-white sm:text-4xl">Games</h2>
+          {rooms != null && rooms.length > 0 ? (
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Show games">
+              {FILTERS.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  aria-pressed={filter === item.id}
+                  onClick={() => setChosen(item.id)}
+                  className={`border px-3 py-1.5 font-mono text-[11px] font-bold uppercase ${
+                    filter === item.id
+                      ? 'border-[#99ee2d] bg-[#99ee2d] text-[#111]'
+                      : 'border-white/20 text-white/70 hover:border-white/50'
+                  }`}
+                >
+                  {item.label} · {counts[item.id]}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
         {rooms == null ? (
           <p className="flex items-center gap-2 text-sm text-white/55">
             <Loader2 className="h-4 w-4 animate-spin text-[#99ee2d]" />
-            Loading crowns…
+            Loading games…
           </p>
         ) : rooms.length === 0 ? (
           <p className="text-sm text-white/55">
-            {listFailed ? 'Could not load the crowns. Retrying…' : 'Nothing here yet. Open one, or play the floor.'}
+            {listFailed ? 'Could not load the games. Retrying…' : 'No games yet. Start one, or play a quick game.'}
           </p>
+        ) : shown.length === 0 ? (
+          <p className="text-sm text-white/55">{FILTERS.find((item) => item.id === filter)?.empty}</p>
         ) : (
           <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {rooms.map((room, index) => (
+            {shown.map((room, index) => (
               <li key={room.id}>
                 <CrownCard room={room} index={index} />
               </li>

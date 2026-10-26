@@ -2,105 +2,86 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { PageShell } from '@/components/PageShell';
 import { ArenaCta } from '@/components/arena/ArenaPrimitives';
+import { STORY, StoryPicture } from '@/components/explain/StoryPicture';
 
 export const metadata: Metadata = {
   title: 'How it works — Crowns',
-  description: 'Beat the score to take the crown. Each crown grows the pot and cuts the clock.',
+  description: 'Beat the best score to grab the crown. Each grab grows the prize and shortens the clock. Hold it at zero to win.',
 };
 
-const ACTS = [
+/** The details, each in a sentence or two, for anyone who wants more than the four steps. */
+const DETAILS = [
   {
-    act: 'Act one',
-    title: 'Open',
-    lines: ['The host picks the game, the clock and the entry fee, then starts the clock. The pot starts empty.'],
+    title: 'The prize',
+    body: 'It starts empty. Every time someone grabs the crown, their entry fee goes into it. The winner takes all of it.',
   },
   {
-    act: 'Act two',
-    title: 'Steal',
-    lines: [
-      'Practise for free on your own course. When a run beats the crown, send it. The chain replays it and, if it scores more, you are king.',
-    ],
+    title: 'The clock',
+    body: 'Each grab takes time off: 10 minutes the first time, then 5, then less, never under 72 seconds. The more people play, the faster it ends.',
   },
   {
-    act: 'Act three',
-    title: 'Pay out',
-    lines: ['At zero, anyone can close. The king takes the pot. Unused entries go back to their owners.'],
+    title: 'Your entry',
+    body: 'You only pay when you grab the crown. Practice is always free. If your entry never gets used, you get it back after the game.',
   },
-];
-
-const RULES = [
-  { title: 'The pot', body: 'Grows by the entry fee with every crown taken.' },
-  { title: 'The clock', body: 'The first crown cuts 10 minutes. Cuts halve every two crowns, never below 72 seconds.' },
-  { title: 'The king', body: 'Whoever sent the last winning run. A king cannot steal from themselves.' },
-  { title: 'Your run', body: 'Tied to your wallet. A copied run scores nothing for anyone else.' },
+  {
+    title: 'Your road',
+    body: 'Your road is made just for you, from the game and your wallet. Someone copying your moves would crash on their own road.',
+  },
+  {
+    title: 'Holding the crown',
+    body: "You can't grab the crown from yourself. To win, keep it until the clock hits zero.",
+  },
+  {
+    title: 'Ending the game',
+    body: 'When the clock hits zero, anyone can end the game. The prize goes to whoever holds the crown, and unused entries go back to their owners.',
+  },
 ];
 
 export default function HowItWorksPage() {
   return (
     <PageShell
-      eyebrow="The rules"
+      eyebrow="How to play"
       title="How it works"
-      intro="Beat the score. Take the crown. Hold it at zero."
+      intro="Beat the best score. Grab the crown. Hold it at zero to win the prize."
       backHref="/"
-      backLabel="Arena"
+      backLabel="Home"
     >
-      <div className="space-y-4">
-        {ACTS.map((act) => (
-          <section
-            key={act.title}
-            className="rounded-2xl border border-white/10 bg-gradient-to-br from-[#2a1850]/60 to-[#15121d] p-5 text-white sm:p-7"
-          >
-            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[#ff56f6]">
-              {act.act}
-            </p>
-            <h2 className="mt-2 font-poster text-4xl uppercase leading-[.9] sm:text-5xl">
-              {act.title}
-            </h2>
-            {act.lines.map((line) => (
-              <p
-                key={line}
-                className="mt-3 max-w-2xl text-sm font-medium leading-relaxed text-white/75"
-              >
-                {line}
-              </p>
-            ))}
-          </section>
+      <ol className="grid gap-4 sm:grid-cols-2">
+        {STORY.map((step, index) => (
+          <li key={step.kind} className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]">
+            <StoryPicture kind={step.kind} className="aspect-[16/10] border-0 border-b" />
+            <div className="p-5">
+              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">Step {index + 1}</p>
+              <h2 className="mt-2 font-poster text-2xl uppercase leading-none text-white">{step.title}</h2>
+              <p className="mt-3 text-sm leading-relaxed text-white/75">{step.body}</p>
+            </div>
+          </li>
         ))}
-      </div>
+      </ol>
 
-      <h2 className="mt-10 font-poster text-3xl uppercase leading-none text-white">
-        The finer print
-      </h2>
+      <h2 className="mt-10 font-poster text-3xl uppercase leading-none text-white">The details</h2>
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
-        {RULES.map((rule) => (
-          <section
-            key={rule.title}
-            className="rounded-2xl border border-white/10 bg-white/5 p-5"
-          >
-            <h3 className="font-poster text-2xl uppercase leading-[.95] text-white">
-              {rule.title}
-            </h3>
-            <p className="mt-3 text-sm font-medium leading-relaxed text-white/65">{rule.body}</p>
+        {DETAILS.map((detail) => (
+          <section key={detail.title} className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <h3 className="font-poster text-xl uppercase leading-[.95] text-white">{detail.title}</h3>
+            <p className="mt-3 text-sm leading-relaxed text-white/70">{detail.body}</p>
           </section>
         ))}
       </div>
 
-      <div className="mt-10">
-        <Link
-          href="/verify"
-          className="inline-flex items-center rounded-md border border-[#99ee2d] px-4 py-3 text-xs font-bold uppercase text-[#99ee2d] hover:bg-[#99ee2d]/10"
-        >
-          Check a crown →
-        </Link>
-      </div>
-
-      <div className="mt-8 flex flex-wrap gap-3">
-        <ArenaCta href="/play">Crowns</ArenaCta>
+      <div className="mt-10 flex flex-wrap items-center gap-3">
+        <ArenaCta href="/play">Find a game</ArenaCta>
         <Link
           href="/create"
           className="inline-flex items-center rounded-md border border-white/20 bg-white/5 px-4 py-3 text-xs font-bold uppercase text-white hover:bg-white/10"
         >
-          Open a crown
+          Start a game
+        </Link>
+        <Link
+          href="/verify"
+          className="inline-flex items-center rounded-md border border-[#99ee2d] px-4 py-3 text-xs font-bold uppercase text-[#99ee2d] hover:bg-[#99ee2d]/10"
+        >
+          Check any game →
         </Link>
       </div>
     </PageShell>

@@ -106,3 +106,7 @@ pnpm exec tsx scripts/crowns-testnet/check-config.ts
 # Fill player stats from the chain (also runs on the first profile view)
 pnpm exec tsx --env-file=.env.local scripts/crowns-testnet/backfill-steals.ts
 ```
+
+## Credits
+
+The home page character is "Character Animated" by [Quaternius](https://quaternius.com), released as CC0 (public domain), via [poly.pizza](https://poly.pizza/m/DgOCW9ZCRJ). Everything else is drawn in code.

@@ -89,7 +89,7 @@ export function OpenCrownView() {
 
   return (
     <ArenaStage backHref="/play" backLabel="Crowns">
-      <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">Open a crown</p>
+      <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">Start a game</p>
       <h1 className="mt-2 font-poster text-5xl uppercase leading-none text-white sm:text-6xl">{STEPS[step]}</h1>
       {duel ? (
         <p className="mt-3 max-w-xl text-sm text-white/60">
@@ -139,7 +139,7 @@ export function OpenCrownView() {
             Set the clock and the entry fee. Each crown taken adds the fee to the pot and cuts the clock: 10 minutes first, then less.
           </p>
           <label className="mt-8 block max-w-md">
-            <span className="font-mono text-[10px] uppercase text-white/50">Crown title</span>
+            <span className="font-mono text-[10px] uppercase text-white/50">Game name</span>
             <input
               value={setup.title}
               onChange={(event) => setSetup((current) => ({ ...current, title: event.target.value }))}
@@ -233,7 +233,7 @@ export function OpenCrownView() {
             }}
             className="arena-cta px-4 py-2 font-mono text-[11px] font-bold uppercase disabled:opacity-40"
           >
-            {sealing ? 'Saving the lobby…' : 'Open the lobby'}
+            {sealing ? 'Saving the lobby…' : 'Open the lobby and invite friends'}
           </button>
         )}
       </div>

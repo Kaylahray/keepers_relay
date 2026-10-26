@@ -40,7 +40,7 @@ export function CrownDeskView({ id }: { id: string }) {
       forgetCrown(id);
       router.push('/play');
     } catch (error) {
-      setChainError(error instanceof Error ? error.message : 'The crown could not be deleted.');
+      setChainError(error instanceof Error ? error.message : 'The game could not be deleted.');
       setBusy(null);
     }
   }
@@ -66,7 +66,7 @@ export function CrownDeskView({ id }: { id: string }) {
   if (!ready) {
     return (
       <ArenaStage>
-        <p className="text-sm text-white/50">Loading crown.</p>
+        <p className="text-sm text-white/50">Loading the game…</p>
       </ArenaStage>
     );
   }
@@ -74,9 +74,9 @@ export function CrownDeskView({ id }: { id: string }) {
   if (!room) {
     return (
       <ArenaStage backHref="/play" backLabel="Crowns">
-        <h1 className="font-poster text-5xl uppercase text-white">{unreachable ? 'Connection lost' : 'Missing crown'}</h1>
+        <h1 className="font-poster text-5xl uppercase text-white">{unreachable ? 'Connection lost' : 'Game not found'}</h1>
         <p className="mt-3 text-sm text-white/55">
-          {unreachable ? 'Could not reach this crown. Retrying…' : 'This crown does not exist or was deleted.'}
+          {unreachable ? 'Could not reach this game. Retrying…' : 'This game does not exist or was deleted.'}
         </p>
       </ArenaStage>
     );
@@ -87,11 +87,11 @@ export function CrownDeskView({ id }: { id: string }) {
 
   return (
     <ArenaStage backHref="/play" backLabel="Crowns">
-      <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">Host desk</p>
+      <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">Your game</p>
       <h1 className="mt-2 font-poster text-5xl uppercase leading-none text-white sm:text-6xl">{room.title}</h1>
       <p className="mt-3 font-mono text-[10px] uppercase text-white/45">
         {GAMES[room.game].title} · {room.status} · {ckbWhole(room.feeShannons)} CKB entry · pot{' '}
-        {ckbWhole(room.potShannons)} CKB · {room.king ? `${room.king} holds it with ${room.kingScore}` : 'Open seat'}
+        {ckbWhole(room.potShannons)} CKB · {room.king ? `${room.king} holds it with ${room.kingScore}` : 'nobody yet'}
       </p>
       {room.status === 'lobby' ? (
         <p className="mt-4 max-w-xl text-sm text-white/70">
@@ -106,10 +106,10 @@ export function CrownDeskView({ id }: { id: string }) {
           You are the host.
         </p>
       ) : isConnected ? (
-        <p className="mt-4 max-w-xl text-sm text-white/70">You are a player.</p>
+        <p className="mt-4 max-w-xl text-sm text-white/70">You are playing in this game.</p>
       ) : (
         <div className="mt-4">
-          <p className="max-w-xl text-sm text-white/70">Connect a wallet to close the crown.</p>
+          <p className="max-w-xl text-sm text-white/70">Connect a wallet to end the game.</p>
           <button type="button" onClick={() => void ensureAuth().catch(() => undefined)} className="arena-cta mt-3 px-4 py-2 font-mono text-[11px] font-bold uppercase">
             Connect
           </button>
@@ -123,12 +123,12 @@ export function CrownDeskView({ id }: { id: string }) {
             disabled={Boolean(busy) || counting}
             className="bg-[#e1bf47] px-5 py-3 font-poster text-3xl uppercase leading-none text-[#111] disabled:opacity-40"
           >
-            {busy === 'Closing…' ? busy : 'Close the crown'}
+            {busy === 'Closing…' ? busy : 'End the game and pay the winner'}
           </button>
           <p className="mt-3 max-w-xl text-sm text-white/60">
             {counting
-              ? 'Opens when the clock runs out.'
-              : 'Pays whoever holds the crown.'}
+              ? 'You can end it once the clock runs out.'
+              : 'The prize goes to whoever holds the crown.'}
           </p>
         </div>
       ) : iHost && room.status !== 'live' ? (
@@ -139,7 +139,7 @@ export function CrownDeskView({ id }: { id: string }) {
             disabled={Boolean(busy)}
             className="border border-white/20 px-4 py-2 font-mono text-[11px] uppercase text-white/70 disabled:opacity-40"
           >
-            {busy === 'Deleting…' ? busy : 'Delete this crown'}
+            {busy === 'Deleting…' ? busy : 'Delete this game'}
           </button>
           <p className="mt-3 max-w-xl text-sm text-white/60">
             Removes it from the list. A live crown must be closed first.
@@ -160,10 +160,10 @@ export function CrownDeskView({ id }: { id: string }) {
       </div>
 
       <NeonPlate className="mt-6 p-4">
-        <p className="font-mono text-[10px] uppercase text-white/40">Seals</p>
+        <p className="font-mono text-[10px] uppercase text-white/40">History</p>
         <ul className="mt-3 space-y-2">
           {room.seals.length === 0 ? (
-            <li className="text-sm text-white/40">No crown taken yet.</li>
+            <li className="text-sm text-white/40">Nobody has grabbed the crown yet.</li>
           ) : (
             room.seals.map((seal) => (
               <li key={seal.id}>

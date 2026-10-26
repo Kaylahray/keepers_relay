@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { LANE, loadLaneRunner, TapeRecorder, type LaneRunner } from '@/lib/game/lane-runner';
+import { createNightDrive, type NightDrive } from '@/lib/game/night-drive';
 
 export type FinishedRun = { tape: Uint8Array; score: number; seed: bigint };
 
@@ -66,10 +67,36 @@ export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run' }: P
     };
   }, [seed]);
 
+  // The 3D night drive when the device can draw WebGL; otherwise the flat view below.
+  const driveRef = useRef<NightDrive | null>(null);
+  const flatOnly = useRef(false);
+
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
     const runner = runnerRef.current;
     if (!canvas || !runner) return;
+    if (!flatOnly.current) {
+      let drive = driveRef.current;
+      // The canvas is replaced when the game goes full screen on a phone; start a scene on the new one.
+      if (!drive || drive.canvas !== canvas) {
+        drive?.dispose();
+        drive = createNightDrive(canvas);
+        driveRef.current = drive;
+        if (!drive) flatOnly.current = true;
+      }
+      if (drive) {
+        drive.render(
+          {
+            x: runner.x(),
+            rows: runner.rows(),
+            tick: runner.tick(),
+            crashed: runner.over() && runner.tick() < LANE.MAX_TICKS,
+          },
+          performance.now(),
+        );
+        return;
+      }
+    }
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     const dpr = window.devicePixelRatio || 1;
@@ -231,6 +258,8 @@ export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run' }: P
   useEffect(
     () => () => {
       if (play.current) cancelAnimationFrame(play.current.frame);
+      driveRef.current?.dispose();
+      driveRef.current = null;
     },
     [],
   );
@@ -331,7 +360,7 @@ export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run' }: P
                 </>
               ) : (
                 <p className="max-w-xs text-sm text-white/70">
-                  Dodge pink, grab gold. ← → or tap left and right.
+                  Dodge the pink barriers, grab the gold coins. Use ← → or tap the left or right side.
                 </p>
               )}
               <button

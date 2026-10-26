@@ -4,26 +4,7 @@ import Link from 'next/link';
 import { ArenaCta } from '@/components/arena/ArenaPrimitives';
 import { HomeHero } from '@/components/arena/HomeHero';
 import { LaneArt } from '@/components/game/LaneArt';
-
-const STEPS = [
-  {
-    n: '01',
-    title: 'Practise for free',
-    body: 'Your own course, as many runs as you like. Pay only to send a winning score.',
-  },
-  {
-    n: '02',
-    title: 'Beat the crown',
-    body: 'Send a run that beats the standing score. The chain replays it before the crown moves.',
-  },
-  {
-    n: '03',
-    title: 'Watch the clock bleed',
-    body: 'Each crown adds the fee to the pot and cuts the clock. Hold it at zero to win.',
-  },
-];
-
-const CUTS = ['10 min', '5 min', '5 min', '2.5 min', '2.5 min', '…', '72 s floor'];
+import { STORY, StoryPicture } from '@/components/explain/StoryPicture';
 
 const SOON = ['Bullet Dodge', 'Rhythm Tap', 'Gap Flyer', 'Stacker', 'One-Shot Golf'];
 
@@ -34,33 +15,26 @@ export function HomeView() {
 
       <section className="border-y border-white/10 bg-[#111]">
         <div className="mx-auto max-w-[1440px] px-5 py-14 sm:px-10">
-          <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">How a crown works</p>
+          <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">How to play</p>
           <h2 className="mt-3 max-w-2xl font-poster text-3xl uppercase leading-none text-white sm:text-5xl">
-            The pot grows. The clock bleeds.
+            Beat the score. Hold the crown. Win the prize.
           </h2>
-          <ol className="mt-10 grid gap-4 md:grid-cols-3">
-            {STEPS.map((step) => (
-              <li key={step.n} className="border border-white/10 bg-white/[0.03] p-6">
-                <p className="font-poster text-4xl leading-none text-[#99ee2d]">{step.n}</p>
-                <h3 className="mt-4 font-poster text-2xl uppercase leading-none text-white">{step.title}</h3>
-                <p className="mt-3 text-sm font-light leading-relaxed text-white/60">{step.body}</p>
+          <ol className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {STORY.map((step, index) => (
+              <li key={step.kind} className="border border-white/10 bg-white/[0.03]">
+                <StoryPicture kind={step.kind} className="aspect-[16/10] border-0 border-b" />
+                <div className="p-5">
+                  <p className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-[#99ee2d]">Step {index + 1}</p>
+                  <h3 className="mt-2 font-poster text-xl uppercase leading-none text-white">{step.title}</h3>
+                  <p className="mt-3 text-sm font-light leading-relaxed text-white/65">{step.body}</p>
+                </div>
               </li>
             ))}
           </ol>
-          <div className="mt-8 border border-white/10 bg-black/40 p-5">
-            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/45">Time each crown takes off the clock</p>
-            <ol className="mt-3 flex flex-wrap gap-2">
-              {CUTS.map((cut, index) => (
-                <li
-                  key={`${cut}-${index}`}
-                  className={`px-3 py-1.5 font-mono text-[12px] uppercase ${cut === '…' ? 'text-white/40' : 'border border-[#ff56f6]/40 text-[#ff8bf9]'}`}
-                >
-                  {cut === '…' ? cut : `−${cut}`}
-                </li>
-              ))}
-            </ol>
-
-          </div>
+          <p className="mt-6 max-w-2xl text-sm text-white/55">
+            Each grab takes time off the clock: 10 minutes the first time, then 5, then less, never under 72 seconds. So the
+            more people play, the faster it ends.
+          </p>
         </div>
       </section>
 
@@ -74,14 +48,14 @@ export function HomeView() {
         <div className="relative mx-auto grid max-w-[1440px] items-center gap-10 px-5 py-16 sm:px-10 lg:grid-cols-2">
           <ReplayArt />
           <div>
-            <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">Fair by construction</p>
+            <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">Fair play</p>
             <h2 className="mt-3 font-poster text-3xl uppercase leading-none text-white sm:text-4xl">Nobody picks the winner</h2>
             <p className="mt-4 max-w-md text-base font-light leading-relaxed text-white/60">
-              The rules run on chain, so neither the host nor the app picks the winner. Every crown can be replayed from
-              the chain.
+              Your phone sends your moves, not your score. The CKB chain plays your moves again and works out the score
+              itself, so nobody (not the host, not us) can change who wins.
             </p>
             <div className="mt-6">
-              <ArenaCta href="/verify">Check a crown</ArenaCta>
+              <ArenaCta href="/verify">Check any game</ArenaCta>
             </div>
           </div>
         </div>
@@ -93,7 +67,7 @@ export function HomeView() {
             <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">Games</p>
             <h2 className="mt-3 font-poster text-3xl uppercase leading-none text-white sm:text-4xl">One referee, many games</h2>
             <p className="mt-4 max-w-md text-base font-light leading-relaxed text-white/60">
-              Every game plugs into the same clock, pot and crown.
+              More games are coming. They all use the same clock, prize and crown.
             </p>
             <ul className="mt-6 flex flex-wrap gap-2">
               {SOON.map((game) => (
@@ -109,7 +83,7 @@ export function HomeView() {
               <div>
                 <p className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-[#99ee2d]">Live</p>
                 <p className="mt-1 font-poster text-3xl uppercase leading-none text-white">Lane Runner</p>
-                <p className="mt-2 max-w-sm text-sm text-white/60">Dodge blocks, grab gold, last two minutes.</p>
+                <p className="mt-2 max-w-sm text-sm text-white/60">Drive through the neon city. Dodge barriers, grab coins. Two minutes a run.</p>
               </div>
               <span className="arena-cta shrink-0 px-4 py-2 font-poster text-sm uppercase text-[#111]">Play</span>
             </div>
@@ -123,8 +97,8 @@ export function HomeView() {
             <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">Multiplayer</p>
             <h2 className="mt-3 font-poster text-3xl uppercase leading-none text-white sm:text-4xl">Play with your friends</h2>
             <p className="mt-4 text-base font-light leading-relaxed text-white/55">
-              Open a crown and drop the link in your group chat. Everyone races the same clock, and the last king takes
-              the pot.
+              Open a game and drop the link in your group chat. Everyone races the same clock, and whoever holds the crown at
+              zero wins the prize.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3">
               <ArenaCta href="/players">Challenge a friend</ArenaCta>
@@ -171,7 +145,7 @@ function ReplayArt() {
           <p className="font-poster text-3xl leading-none text-white/60">388</p>
         </div>
       </div>
-      <p className="mt-3 border-t border-white/10 pt-3 font-mono text-[11px] uppercase text-[#e1bf47]">Crown moves · pot +50 CKB</p>
+      <p className="mt-3 border-t border-white/10 pt-3 font-mono text-[11px] uppercase text-[#e1bf47]">Crown moves · prize +50 CKB</p>
     </div>
   );
 }
@@ -188,7 +162,7 @@ function LobbyArt() {
     <div className="w-full max-w-md border border-white/10 bg-black/50 p-5 shadow-[-8px_8px_0_#99ee2d] lg:w-[420px]" aria-hidden>
       <div className="flex items-end justify-between">
         <div>
-          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/40">Pot</p>
+          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/40">Prize</p>
           <p className="font-poster text-4xl leading-none text-[#99ee2d]">150</p>
         </div>
         <div className="text-right">

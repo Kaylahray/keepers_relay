@@ -195,7 +195,7 @@ export function VerifyView({ initialTx }: { initialTx?: string }) {
               <dd className="text-white">{ckbWhole(replay.fee)} CKB</dd>
             </div>
             <div>
-              <dt className="text-white/40 uppercase tracking-wider">Pot</dt>
+              <dt className="text-white/40 uppercase tracking-wider">Prize</dt>
               <dd className="text-[#e1bf47]">{ckbWhole(replay.finalPot)} CKB</dd>
             </div>
             <div>

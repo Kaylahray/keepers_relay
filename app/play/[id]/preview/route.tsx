@@ -19,7 +19,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const preview = await crownPreview(id);
   const stats = preview
     ? [
-        { label: 'Pot', value: `${preview.pot} CKB`, color: LIME },
+        { label: 'Prize', value: `${preview.pot} CKB`, color: LIME },
         { label: preview.finished ? 'Winning score' : 'Score to beat', value: String(preview.toBeat), color: GOLD },
         { label: 'Clock', value: preview.clock, color: '#ffffff' },
       ]

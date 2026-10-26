@@ -30,7 +30,7 @@ export function CrownWatchView({ id }: { id: string }) {
   if (!ready) {
     return (
       <ArenaStage>
-        <p className="text-sm text-white/50">Loading crown.</p>
+        <p className="text-sm text-white/50">Loading the game…</p>
       </ArenaStage>
     );
   }
@@ -38,9 +38,9 @@ export function CrownWatchView({ id }: { id: string }) {
   if (!room) {
     return (
       <ArenaStage backHref="/play" backLabel="Crowns">
-        <h1 className="font-poster text-5xl uppercase text-white">{unreachable ? 'Connection lost' : 'Missing crown'}</h1>
+        <h1 className="font-poster text-5xl uppercase text-white">{unreachable ? 'Connection lost' : 'Game not found'}</h1>
         <p className="mt-3 text-sm text-white/55">
-          {unreachable ? 'Could not reach this crown. Retrying…' : 'This crown does not exist or was deleted.'}
+          {unreachable ? 'Could not reach this game. Retrying…' : 'This game does not exist or was deleted.'}
         </p>
       </ArenaStage>
     );
@@ -60,7 +60,7 @@ export function CrownWatchView({ id }: { id: string }) {
   }
   const iHost = isHostWallet(room, address, myLockHash);
   const closed = room.status === 'settled';
-  const kingName = paidYou ? 'You' : room.king ?? 'Open seat';
+  const kingName = paidYou ? 'You' : room.king ?? 'nobody yet';
 
   return (
     <ArenaStage backHref="/play" backLabel="Crowns">
@@ -86,7 +86,7 @@ export function CrownWatchView({ id }: { id: string }) {
               <p className="mt-1 font-poster text-4xl uppercase">{kingName}</p>
             </div>
             <div>
-              <p className="font-mono text-[10px] uppercase text-white/50">Pot</p>
+              <p className="font-mono text-[10px] uppercase text-white/50">Prize</p>
               <p className="mt-1 font-poster text-4xl uppercase">{ckbWhole(room.potShannons)}</p>
               <p className="font-mono text-[10px] uppercase text-white/50">CKB</p>
             </div>
@@ -95,8 +95,8 @@ export function CrownWatchView({ id }: { id: string }) {
             {room.status === 'lobby'
               ? 'Waiting for the clock to start.'
               : closed
-                ? `${ckbWhole(room.potShannons)} CKB was paid to ${paidYou ? 'you' : room.king ?? 'the open seat'}.`
-                : 'Beat the score to take the crown before the clock runs out.'}
+                ? `${ckbWhole(room.potShannons)} CKB was paid to ${paidYou ? 'you' : room.king ?? 'the host'}.`
+                : 'Beat the best score to grab the crown before the clock runs out.'}
           </p>
         </NeonPlate>
         <NeonPlate className="p-6">
@@ -113,7 +113,7 @@ export function CrownWatchView({ id }: { id: string }) {
             </Link>
             {iHost ? (
               <Link href={`/host/${id}`} className="border border-[#e1bf47] px-4 py-2 font-mono text-[11px] uppercase text-[#e1bf47]">
-                Host desk
+                Your game
               </Link>
             ) : null}
           </div>

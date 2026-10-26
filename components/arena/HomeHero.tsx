@@ -4,10 +4,10 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { fetchCrownList } from '@/lib/crown/remote';
 import { ckbWhole, GAMES, type CrownRoom } from '@/lib/crown/rooms';
-import { arenaCoverForSeed } from '@/lib/poster';
+import { HeroCharacter } from '@/components/arena/HeroCharacter';
 
 const HERO_BLURB =
-  'Every crown taken grows the pot and cuts the clock. Hold it at zero to win.';
+  'Beat the best score to grab the crown. Each grab grows the prize and shortens the clock. Hold it at zero to win.';
 
 function clockFace(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
@@ -59,16 +59,13 @@ export function HomeHero() {
 
   return (
     <section className="relative isolate overflow-hidden bg-[#111]">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src="/uismod/hero-bg.png"
-        alt=""
-        className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-25"
-      />
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-b from-transparent to-[#111]" />
+      {/* The whole hero is one 3D scene: the city, the crowned character, the light. Gradients keep the words readable. */}
+      <HeroCharacter className="absolute inset-0 h-full w-full" />
+      <div className="pointer-events-none absolute inset-0 bg-[#111]/55 xl:bg-transparent xl:bg-gradient-to-r xl:from-[#111]/90 xl:via-[#111]/35 xl:to-transparent" />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/4 bg-gradient-to-b from-transparent to-[#111]" />
 
       <div className="relative mx-auto flex min-h-[560px] w-full max-w-[1440px] flex-col px-5 pb-16 pt-10 sm:px-10 sm:pt-12 xl:min-h-[620px] xl:pt-14">
-        <div className="grid flex-1 grid-cols-1 items-center gap-8 xl:grid-cols-[minmax(0,1fr)_minmax(240px,340px)_minmax(300px,380px)] xl:gap-6">
+        <div className="grid flex-1 grid-cols-1 items-center gap-8 xl:grid-cols-[minmax(0,1fr)_minmax(300px,360px)] xl:gap-6">
           <div className="relative z-10 max-w-xl xl:pb-8">
             <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">
               Live on CKB testnet
@@ -95,30 +92,12 @@ export function HomeHero() {
             </div>
           </div>
 
-          <div className="pointer-events-none relative z-[5] hidden justify-center xl:flex xl:h-full xl:self-end">
-            <div className="relative flex h-full max-h-[540px] w-full max-w-[380px] items-end justify-center">
-              <div className="absolute bottom-[20%] left-1/2 size-[240px] -translate-x-1/2 rounded-full bg-black/45 blur-[60px]" />
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/arena/hero-runner.svg"
-                alt=""
-                className="relative h-full max-h-[540px] w-auto object-contain object-bottom"
-              />
-            </div>
-          </div>
 
           <div className="relative z-20 w-full xl:self-center">
             <div className="border border-white/10 bg-[#111]/85 backdrop-blur-md [clip-path:polygon(0_0,100%_0,100%_92%,94%_100%,0_100%)]">
-              {/* The selected crown's cover, in its own colour, so the panel changes as the crowns rotate. */}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={arenaCoverForSeed(room?.id ?? 'crowns')}
-                alt=""
-                className="h-40 w-full object-cover object-center sm:h-44"
-              />
               {rooms == null ? (
                 <div className="p-5">
-                  <p className="font-mono text-[11px] uppercase text-white/45">Reading the crowns…</p>
+                  <p className="font-mono text-[11px] uppercase text-white/45">Loading games…</p>
                 </div>
               ) : room ? (
                 <div className="p-5">
@@ -128,7 +107,7 @@ export function HomeHero() {
                   <p className="mt-2 truncate font-poster text-3xl uppercase leading-none text-white">{room.title}</p>
                   <dl className="mt-4 grid grid-cols-3 gap-3 font-mono text-[10px] uppercase text-white/45">
                     <div>
-                      <dt>Pot</dt>
+                      <dt>Prize</dt>
                       <dd className="mt-1 font-poster text-2xl leading-none text-[#99ee2d]">{ckbWhole(room.potShannons)}</dd>
                     </div>
                     <div>
@@ -136,7 +115,7 @@ export function HomeHero() {
                       <dd className="mt-1 font-poster text-2xl leading-none text-[#e1bf47]">{room.kingScore}</dd>
                     </div>
                     <div>
-                      <dt>{room.status === 'live' ? 'Time left' : 'Entry'}</dt>
+                      <dt>{room.status === 'live' ? 'Time left' : 'Entry fee'}</dt>
                       <dd className="mt-1 font-poster text-2xl leading-none text-white tabular-nums">
                         {room.status === 'live' && room.deadlineAt != null
                           ? clockFace(room.deadlineAt - now)
@@ -148,16 +127,16 @@ export function HomeHero() {
                     href={`/play/${room.id}`}
                     className="arena-cta mt-5 inline-flex h-11 w-full items-center justify-between px-5 font-poster text-base uppercase leading-none text-[#111]"
                   >
-                    {room.status === 'live' ? 'Run for this crown' : 'Take a seat'}
+                    {room.status === 'live' ? 'Play this game' : 'Take a seat'}
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src="/uismod/arrow-right.svg" alt="" className="size-5" />
                   </Link>
                 </div>
               ) : (
                 <div className="p-5">
-                  <p className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-[#99ee2d]">No crown running</p>
+                  <p className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-[#99ee2d]">No game running</p>
                   <p className="mt-2 font-poster text-3xl uppercase leading-none text-white">Open the first one</p>
-                  <p className="mt-3 text-sm text-white/60">Set the clock and the fee.</p>
+                  <p className="mt-3 text-sm text-white/60">Pick a clock and an entry fee.</p>
                   <Link
                     href="/create"
                     className="arena-cta mt-5 inline-flex h-11 w-full items-center justify-between px-5 font-poster text-base uppercase leading-none text-[#111]"

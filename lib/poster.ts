@@ -1,11 +1,11 @@
-/** Crown covers: our own drawings of the lane road at dusk, one per colour. */
+/** Crown covers: stills from the 3D night drive, one per colour (rendered from lib/game/night-drive.ts). */
 
 export const ARENA_COVERS: { id: string; label: string; src: string }[] = [
-  { id: 'lime', label: 'Lime', src: '/arena/road-lime.svg' },
-  { id: 'magenta', label: 'Magenta', src: '/arena/road-magenta.svg' },
-  { id: 'gold', label: 'Gold', src: '/arena/road-gold.svg' },
-  { id: 'blue', label: 'Blue', src: '/arena/road-blue.svg' },
-  { id: 'violet', label: 'Violet', src: '/arena/road-violet.svg' },
+  { id: 'lime', label: 'Lime', src: '/arena/road-lime.jpg' },
+  { id: 'magenta', label: 'Magenta', src: '/arena/road-magenta.jpg' },
+  { id: 'gold', label: 'Gold', src: '/arena/road-gold.jpg' },
+  { id: 'blue', label: 'Blue', src: '/arena/road-blue.jpg' },
+  { id: 'violet', label: 'Violet', src: '/arena/road-violet.jpg' },
 ];
 
 export function hashSeed(seed: string): number {

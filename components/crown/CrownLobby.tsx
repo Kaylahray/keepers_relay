@@ -78,7 +78,7 @@ export function CrownLobby({
         ) : iHost ? (
           <>
             <ArenaCta onClick={onStart} disabled={Boolean(busy)}>
-              {busy ?? 'Start the clock'}
+              {busy ?? 'Start the game'}
             </ArenaCta>
             {onDelete ? (
               <button
@@ -107,7 +107,7 @@ export function CrownLobby({
             return (
               <li key={`open-${index}`} className="border border-dashed border-white/20 px-4 py-4">
                 <p className="font-mono text-[10px] uppercase text-white/35">Slot {index + 1}</p>
-                <p className="mt-2 font-poster text-2xl uppercase text-white/25">Open</p>
+                <p className="mt-2 font-poster text-2xl uppercase text-white/25">Empty seat</p>
               </li>
             );
           }

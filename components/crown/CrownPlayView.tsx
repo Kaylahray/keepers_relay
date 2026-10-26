@@ -13,6 +13,7 @@ import { useCrown } from '@/components/crown/useCrown';
 import { LaneRunnerGame, type FinishedRun } from '@/components/game/LaneRunnerGame';
 import { arenaCoverForSeed } from '@/lib/poster';
 import { InviteButton } from '@/components/InviteButton';
+import { HowToPlayIntro } from '@/components/explain/HowToPlayIntro';
 import { ccc } from '@ckb-ccc/connector-react';
 import { ckbHash, runSeed } from '@/lib/sudden-death/codec';
 import {
@@ -81,7 +82,7 @@ function chainMessage(error: unknown, fallback: string): string {
   const message = error instanceof Error ? error.message : fallback;
   if (/still confirming/i.test(message)) return message;
   if (/RBF|unconfirmed inputs|PoolRejectedDuplicatedTransaction|conflict/i.test(message)) {
-    return 'Another run landed first. Check the new score to beat.';
+    return 'Someone else grabbed it first. Check the new score to beat.';
   }
   if (/Resolve failed|Unknown\(OutPoint|out ?point/i.test(message)) {
     return 'Still confirming. Try again in a few seconds.';
@@ -283,7 +284,7 @@ export function CrownPlayView({ id }: { id: string }) {
   if (!ready) {
     return (
       <ArenaStage>
-        <p className="text-sm text-white/50">Loading crown.</p>
+        <p className="text-sm text-white/50">Loading the game…</p>
       </ArenaStage>
     );
   }
@@ -308,9 +309,9 @@ export function CrownPlayView({ id }: { id: string }) {
   if (!room) {
     return (
       <ArenaStage backHref="/play" backLabel="Crowns">
-        <h1 className="font-poster text-5xl uppercase text-white">{unreachable ? 'Connection lost' : 'Missing crown'}</h1>
+        <h1 className="font-poster text-5xl uppercase text-white">{unreachable ? 'Connection lost' : 'Game not found'}</h1>
         <p className="mt-3 text-sm text-white/55">
-          {unreachable ? 'Could not reach this crown. Retrying…' : 'This crown does not exist or was deleted.'}
+          {unreachable ? 'Could not reach this game. Retrying…' : 'This game does not exist or was deleted.'}
         </p>
       </ArenaStage>
     );
@@ -319,7 +320,7 @@ export function CrownPlayView({ id }: { id: string }) {
   if (room.legacy) {
     return (
       <ArenaStage backHref="/play" backLabel="Crowns">
-        <h1 className="font-poster text-5xl uppercase text-white">Retired crown</h1>
+        <h1 className="font-poster text-5xl uppercase text-white">Old game</h1>
         <p className="mt-3 max-w-md text-sm text-white/55">
           A quiz crown from before the game update. It can no longer be played.
         </p>
@@ -370,7 +371,7 @@ export function CrownPlayView({ id }: { id: string }) {
     live && !entryWindow && !timeUp && beats && !iHold && isConnected && (!chain || !room.matchId || matchReady) && !busy;
 
   async function lockEntry(current: CrownRoom): Promise<CrownRoom> {
-    if (!signer) throw new Error('Connect JoyID to lock your entry.');
+    if (!signer) throw new Error('Connect your wallet to pay the entry.');
     const next = await lockBid(signer, current);
     saveCrown(next);
     if (address && next.bidOutPoint) {
@@ -414,14 +415,14 @@ export function CrownPlayView({ id }: { id: string }) {
       return;
     }
     if (!signer) {
-      setChainError('Connect JoyID. Submitting a run needs no signature, but locking the entry does.');
+      setChainError('Connect your wallet. You only sign once, to pay the entry.');
       return;
     }
     try {
       let current = loadCrown(id) ?? room;
       if (!current.bidOutPoint && entryBid) current = { ...current, bidOutPoint: entryBid };
       if (!current.bidOutPoint) {
-        setBusy('Locking your entry…');
+        setBusy('Paying your entry…');
         current = await lockEntry(current);
       }
       setBusy('Sending your run…');
@@ -452,7 +453,7 @@ export function CrownPlayView({ id }: { id: string }) {
         // The entry this phone remembered was used by an earlier steal (or never landed). Forget it
         // everywhere it was kept, lock a fresh one, and send the same run once more.
         forgetEntry();
-        setBusy('Locking a new entry…');
+        setBusy('Paying a new entry…');
         current = await lockEntry({ ...current, bidOutPoint: null });
         setBusy('Sending your run…');
         result = await send(current);
@@ -481,7 +482,7 @@ export function CrownPlayView({ id }: { id: string }) {
   async function closeMatch() {
     if (!room) return;
     if (!signer) {
-      setChainError('Connect a wallet to close. It only pays the closing fee.');
+      setChainError('Connect a wallet to end the game.');
       return;
     }
     setBusy('Closing…');
@@ -500,7 +501,7 @@ export function CrownPlayView({ id }: { id: string }) {
 
   async function returnEntry() {
     if (!entryBid) return;
-    setBusy('Returning your entry…');
+    setBusy('Getting your entry back…');
     setChainError(null);
     try {
       const txHash = await expireBid(getCkbClient(), entryBid);
@@ -537,10 +538,10 @@ export function CrownPlayView({ id }: { id: string }) {
       return;
     }
     if (!signer) {
-      setChainError('Connect your wallet to start the clock.');
+      setChainError('Connect your wallet to start the game.');
       return;
     }
-    setBusy('Minting the match and treasury…');
+    setBusy('Starting the game…');
     try {
       const opened = await openMatch(signer, room);
       const next = kickoff(
@@ -550,7 +551,7 @@ export function CrownPlayView({ id }: { id: string }) {
       saveCrown(next);
       await pushCrownState(next);
     } catch (error) {
-      setChainError(chainMessage(error, 'The match transaction failed.'));
+      setChainError(chainMessage(error, 'The game could not start.'));
     } finally {
       setBusy(null);
     }
@@ -580,13 +581,13 @@ export function CrownPlayView({ id }: { id: string }) {
           disabled={Boolean(busy) || clock.counting || (medianAt != null && !sinceReady)}
           className="bg-[#e1bf47] px-5 py-3 font-poster text-2xl uppercase leading-none text-[#111] disabled:opacity-40"
         >
-          {busy === 'Closing…' ? busy : 'Close the crown'}
+          {busy === 'Closing…' ? busy : 'End the game and pay the winner'}
         </button>
         <p className="mt-2 text-sm text-white/55">
           {clock.counting
-            ? 'Opens when the clock runs out.'
+            ? 'You can end it once the clock runs out.'
             : sinceReady || medianAt == null
-              ? 'Pays whoever holds the crown.'
+              ? 'The prize goes to whoever holds the crown.'
               : sinceWait != null && sinceWait > 0
                 ? `Opens in about ${formatWait(sinceWait)}.`
                 : 'Opening now…'}
@@ -596,6 +597,7 @@ export function CrownPlayView({ id }: { id: string }) {
 
   return (
     <ArenaStage backHref="/play" backLabel="Crowns">
+      {room.status !== 'settled' ? <HowToPlayIntro /> : null}
       <section className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(260px,320px)]">
         <div className="relative z-10 min-w-0 pb-6">
           <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">
@@ -604,7 +606,7 @@ export function CrownPlayView({ id }: { id: string }) {
           {/* Three fixed columns that never wrap: a ticking clock changing width must not reflow the page. */}
           <div className="mt-4 grid grid-cols-3 items-end gap-3 sm:gap-6">
             <div className="min-w-0">
-              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">Pot</p>
+              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">Prize</p>
               <p
                 className="whitespace-nowrap font-poster uppercase leading-none tabular-nums text-[#99ee2d]"
                 style={{ fontSize: fitFont(potText, 3.75) }}
@@ -614,7 +616,7 @@ export function CrownPlayView({ id }: { id: string }) {
               <p className="font-mono text-[11px] uppercase text-white/45">CKB</p>
             </div>
             <div className="min-w-0">
-              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">Crown</p>
+              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">Best score</p>
               <p
                 className="whitespace-nowrap font-poster uppercase leading-none tabular-nums text-[#e1bf47]"
                 style={{ fontSize: fitFont(String(room.kingScore), 2.25) }}
@@ -622,12 +624,12 @@ export function CrownPlayView({ id }: { id: string }) {
                 {room.kingScore}
               </p>
               <p className="truncate font-mono text-[11px] uppercase text-white/45">
-                {room.king ? `${iHold ? 'you' : room.king}` : 'open seat'}
+                {room.king ? `${iHold ? 'you' : room.king}` : 'nobody yet'}
               </p>
             </div>
             <div className="min-w-0 text-right">
               <p className="truncate font-mono text-[10px] font-bold uppercase text-white/40">
-                {entryWindow ? 'Round starts in' : clock.counting ? 'Time left' : live ? 'Time up' : 'Closed'}
+                {entryWindow ? 'Starts in' : clock.counting ? 'Time left' : live ? 'Time up' : 'Closed'}
               </p>
               <p
                 className={`whitespace-nowrap font-poster uppercase leading-none tabular-nums ${!entryWindow && panic ? 'text-[#af2a3a]' : 'text-white'}`}
@@ -649,7 +651,7 @@ export function CrownPlayView({ id }: { id: string }) {
 
           {confirmingOpen ? (
             <div className="mt-6">
-              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/45">Waiting on the match transaction</p>
+              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/45">Setting up the game on chain</p>
               <h1 className="mt-2 font-poster text-6xl uppercase leading-none text-[#99ee2d] sm:text-7xl">
                 {formatWait(now - (room.openedAt ?? now))}
               </h1>
@@ -665,7 +667,7 @@ export function CrownPlayView({ id }: { id: string }) {
               <p className="mt-4 max-w-md text-base font-light leading-relaxed text-white/60">
                 {room.king
                   ? `${ckbWhole(room.potShannons)} CKB went to ${iHold ? 'you' : room.king}, who held the crown at ${room.kingScore}.`
-                  : 'Nobody took the crown. The host got the treasury back.'}
+                  : 'Nobody grabbed the crown, so the host got everything back.'}
               </p>
               {room.matchOutPoint ? (
                 <>
@@ -690,7 +692,7 @@ export function CrownPlayView({ id }: { id: string }) {
                     disabled={Boolean(busy) || now < refund.at}
                     className="mt-3 border border-[#99ee2d] px-4 py-2 font-mono text-[11px] uppercase text-[#99ee2d] disabled:opacity-40"
                   >
-                    {busy === 'Returning your entry…' ? busy : 'Return my entry'}
+                    {busy === 'Getting your entry back…' ? busy : 'Get my entry back'}
                   </button>
                 </div>
               ) : null}
@@ -704,12 +706,12 @@ export function CrownPlayView({ id }: { id: string }) {
                 seed={seed}
                 toBeat={room.kingScore}
                 onFinish={onFinish}
-                startLabel={entryWindow ? 'Practise' : iHold ? 'Practise' : 'Run for the crown'}
+                startLabel={entryWindow ? 'Practise' : iHold ? 'Practise' : 'Race for the crown'}
               />
               <div className="mt-4 border border-white/10 bg-white/5 p-4">
                 {entryWindow ? (
                   <>
-                    <p className="font-poster text-2xl uppercase leading-none text-white">{entryBid ? 'You are in' : 'Lock your entry'}</p>
+                    <p className="font-poster text-2xl uppercase leading-none text-white">{entryBid ? 'You are in' : 'Pay to enter'}</p>
                     <p className="mt-2 max-w-xl text-sm leading-relaxed text-white/65">
                       The round starts for everyone together. Lock your entry now.
                     </p>
@@ -729,8 +731,8 @@ export function CrownPlayView({ id }: { id: string }) {
                     </p>
                     <p className="mt-2 max-w-xl text-sm text-white/65">
                       {beats
-                        ? `Send it to take the crown. +${ckbWhole(room.feeShannons)} CKB to the pot.`
-                        : 'Not enough yet. Same course every time.'}
+                        ? `That beats the crown! Grab it: ${ckbWhole(room.feeShannons)} CKB goes into the prize.`
+                        : 'Not enough yet. Your road is the same every time, so you can learn it.'}
                     </p>
                   </>
                 ) : (
@@ -740,11 +742,11 @@ export function CrownPlayView({ id }: { id: string }) {
                 )}
                 {!isConnected ? (
                   <div className="mt-4">
-                    <ArenaCta onClick={() => void ensureAuth().catch(() => undefined)}>Connect to play for the pot</ArenaCta>
+                    <ArenaCta onClick={() => void ensureAuth().catch(() => undefined)}>Connect to play for the prize</ArenaCta>
                   </div>
                 ) : null}
                 {cellMoving ? (
-                  <p className="mt-3 text-sm text-white/60">The crown just moved. Confirming…</p>
+                  <p className="mt-3 text-sm text-white/60">Someone just grabbed the crown. Updating…</p>
                 ) : null}
                 {timeUp ? (
                   <p className="mt-3 text-sm text-[#e1bf47]">
@@ -754,7 +756,7 @@ export function CrownPlayView({ id }: { id: string }) {
                 {beats && !entryWindow && !timeUp && !iHold && isConnected ? (
                   <div className="mt-4">
                     <ArenaCta onClick={() => void takeCrown()} disabled={!canTake}>
-                      {busy ?? (entryBid || !chain || !room.matchId ? `Take the crown with ${best?.score}` : `Lock entry and take the crown`)}
+                      {busy ?? (entryBid || !chain || !room.matchId ? `Grab the crown with ${best?.score}` : `Pay to enter and grab the crown`)}
                     </ArenaCta>
                   </div>
                 ) : null}
@@ -762,18 +764,18 @@ export function CrownPlayView({ id }: { id: string }) {
                   <div className="mt-4">
                     <ArenaCta
                       onClick={() => {
-                        setBusy('Locking your entry…');
+                        setBusy('Paying your entry…');
                         setChainError(null);
                         void lockEntry(loadCrown(id) ?? room)
                           .catch((error: unknown) => {
                             if (error instanceof MatchMovedError) saveCrown(error.room);
-                            setChainError(chainMessage(error, 'The entry failed.'));
+                            setChainError(chainMessage(error, 'The entry payment failed.'));
                           })
                           .finally(() => setBusy(null));
                       }}
                       disabled={Boolean(busy)}
                     >
-                      {busy ?? 'Lock your entry'}
+                      {busy ?? 'Pay to enter'}
                     </ArenaCta>
                   </div>
                 ) : null}
@@ -790,7 +792,7 @@ export function CrownPlayView({ id }: { id: string }) {
             </Link>
             {iHost && live ? (
               <Link href={`/host/${room.id}`} className="border-b border-[#e1bf47] pb-1 text-sm font-bold uppercase text-[#e1bf47]">
-                Host desk →
+                Your game →
               </Link>
             ) : null}
           </div>
@@ -812,7 +814,7 @@ export function CrownPlayView({ id }: { id: string }) {
         <aside className="relative z-10 border-t border-white/10 pt-6 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
           {matchOver ? (
             <div className="mb-6 border-b border-white/10 pb-6">
-              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-[#99ee2d]">Play another crown</p>
+              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-[#99ee2d]">Play another game</p>
               {nextCrowns.length > 0 ? (
                 <ul className="mt-4 space-y-2.5">
                   {nextCrowns.map((item) => (
@@ -821,7 +823,7 @@ export function CrownPlayView({ id }: { id: string }) {
                         href={`/play/${item.id}`}
                         eyebrow="Live"
                         title={item.title}
-                        meta={`${ckbWhole(item.potShannons)} CKB pot · ${item.king ? `${item.king} · ${item.kingScore}` : 'Open seat'}`}
+                        meta={`${ckbWhole(item.potShannons)} CKB prize · ${item.king ? `${item.king} · ${item.kingScore}` : 'no crown holder yet'}`}
                         cover={arenaCoverForSeed(item.id)}
                         cta="Enter"
                       />
@@ -829,7 +831,7 @@ export function CrownPlayView({ id }: { id: string }) {
                   ))}
                 </ul>
               ) : (
-                <p className="mt-3 text-sm text-white/55">No other crown is live right now.</p>
+                <p className="mt-3 text-sm text-white/55">No other game is running right now.</p>
               )}
               <Link
                 href="/create"
