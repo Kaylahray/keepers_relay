@@ -1,5 +1,5 @@
 /**
- * Deploys the v2 Crowns scripts to a local OffCKB devnet and writes `.env.devnet`.
+ * Deploys the Crowns scripts (v5 crowns, duels) to a local OffCKB devnet and writes `.env.devnet`.
  *
  *   offckb node                                   # in another terminal
  *   pnpm exec tsx scripts/crowns-devnet/deploy.ts
@@ -20,6 +20,8 @@ const CELLS = [
   { key: 'BID', file: join(BUILD, 'bid-type') },
   { key: 'TREASURY', file: join(BUILD, 'treasury-lock') },
   { key: 'GAME', file: join(BUILD, 'lane-runner') },
+  { key: 'DUEL', file: join(BUILD, 'duel-type') },
+  { key: 'ARTILLERY', file: join(BUILD, 'artillery') },
   { key: 'PROXY', file: join(HERE, '../sudden-death/tests/bin/input-type-proxy-lock') },
 ] as const;
 
@@ -44,13 +46,13 @@ async function main() {
     await tx.completeFeeBy(signer, 1000);
     const txHash = await signer.sendTransaction(tx);
     await waitCommitted(client, txHash, `${cell.key} deploy`);
-    console.log(`${cell.key.padEnd(8)} ${binary.length.toString().padStart(6)} B  data hash ${dataHash}  ${txHash}:0`);
+    console.log(`${cell.key.padEnd(10)} ${binary.length.toString().padStart(6)} B  data hash ${dataHash}  ${txHash}:0`);
 
     const prefix = `NEXT_PUBLIC_SD_${cell.key}`;
     env.push(`${prefix}_TX_HASH=${txHash}`, `${prefix}_INDEX=0x0`);
     if (cell.key !== 'PROXY') {
       env.push(`${prefix}_CODE_HASH=${dataHash}`);
-      if (cell.key !== 'GAME') env.push(`${prefix}_HASH_TYPE=data2`, `${prefix}_DEP_TYPE=code`, `${prefix}_ARGS=0x`);
+      if (cell.key !== 'GAME' && cell.key !== 'ARTILLERY') env.push(`${prefix}_HASH_TYPE=data2`, `${prefix}_DEP_TYPE=code`, `${prefix}_ARGS=0x`);
     }
   }
 

@@ -236,7 +236,12 @@ export function sealCrown(setup: CrownSetup): CrownRoom {
   return room;
 }
 
-export function kickoff(room: CrownRoom, deadlineAt = Date.now() + (room.durationMs || DEFAULT_DURATION_MS)): CrownRoom {
+/** `note` is the feed line; an on-chain open passes null, since its clock starts after the entry countdown. */
+export function kickoff(
+  room: CrownRoom,
+  deadlineAt = Date.now() + (room.durationMs || DEFAULT_DURATION_MS),
+  note: string | null = 'Clock started.',
+): CrownRoom {
   const now = Date.now();
   return {
     ...room,
@@ -248,14 +253,7 @@ export function kickoff(room: CrownRoom, deadlineAt = Date.now() + (room.duratio
     openedAt: now,
     deadlineAt,
     stealPendingAt: null,
-    feed: [
-      {
-        id: `${now}`,
-        text: 'Clock started.',
-        good: true,
-      },
-      ...room.feed,
-    ].slice(0, 8),
+    feed: note ? [{ id: `${now}`, text: note, good: true }, ...room.feed].slice(0, 8) : room.feed,
   };
 }
 

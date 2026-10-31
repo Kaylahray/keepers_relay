@@ -92,27 +92,22 @@ fn claim(match_type_hash: &[u8; 32], me: &[u8; 32], match_index: usize, data: &[
     let remainder = treasury_cap.checked_sub(pot).ok_or(ERR_POT)?;
     let match_cap = load_cell_capacity(match_index, Source::Input).map_err(|_| ERR_TREASURY)?;
     let full = match_cap.checked_add(treasury_cap).ok_or(ERR_POT)?;
-    let king = bytes::<32>(data, OFF_KING)?;
-    if king == [0u8; 32] {
-        if pot != 0 {
-            return Err(ERR_POT);
-        }
-        if outputs_to_lock(&host)? < full {
-            return Err(ERR_POT);
-        }
-        return Ok(());
-    }
-    if king == host {
-        if outputs_to_lock(&king)? < full {
-            return Err(ERR_POT);
-        }
-        return Ok(());
-    }
-    if outputs_to_lock(&king)? < pot {
+    if bytes::<32>(data, OFF_KING)? == [0u8; 32] && pot != 0 {
         return Err(ERR_POT);
     }
-    let host_due = match_cap.checked_add(remainder).ok_or(ERR_POT)?;
-    if outputs_to_lock(&host)? < host_due {
+    // The winner is paid the whole pot. The host gets the rest back, less at most the fee and the
+    // closer's reward, so anyone can send the close without signing anything.
+    let host_due = match winner(data, match_index)? {
+        Some(king) if king != host => {
+            if outputs_to_lock(&king)? < pot {
+                return Err(ERR_POT);
+            }
+            match_cap.checked_add(remainder).ok_or(ERR_POT)?
+        }
+        // Nobody won on time, or the host won: the host gets everything.
+        _ => full,
+    };
+    if outputs_to_lock(&host)? < host_due.saturating_sub(HOST_ALLOWANCE) {
         return Err(ERR_POT);
     }
     Ok(())

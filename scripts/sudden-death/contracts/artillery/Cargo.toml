@@ -1,0 +1,14 @@
+[package]
+name = "crowns-artillery"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+description = "Crowns game script: judges an artillery duel for duel-type (duel game ABI v1)"
+
+[dependencies]
+ckb-std = { workspace = true }
+crowns-artillery-core = { path = "../artillery-core" }
+
+[[bin]]
+name = "artillery"
+path = "src/main.rs"

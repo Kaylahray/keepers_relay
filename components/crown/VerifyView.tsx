@@ -1,16 +1,29 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Check, Loader2, X } from 'lucide-react';
+import { Check, ExternalLink, Play, X } from 'lucide-react';
 import { ArenaStage } from '@/components/arena/ArenaStage';
+import { ChainLoader } from '@/components/arena/ChainLoader';
+import { Button } from '@/components/ui/Button';
+import { ART } from '@/lib/art';
+import { DuelVerify } from '@/components/duel/DuelVerify';
+import { RunPlayback } from '@/components/game/RunPlayback';
+import { duelIdOf, replayDuel, type DuelReplay } from '@/lib/duel/verify';
 import { getCkbClient } from '@/lib/ckb/client';
 import { ckbWhole } from '@/lib/crown/rooms';
 import { loadLaneRunner } from '@/lib/game/lane-runner';
+import { chainNames } from '@/lib/registry/chain-names';
 import { replayMatch, VerifyError, type MatchReplay, type StealCheck } from '@/lib/sudden-death/verify';
 
 function short(hex: string, head = 10, tail = 6): string {
   if (hex.length <= head + tail + 1) return hex;
   return `${hex.slice(0, head)}…${hex.slice(-tail)}`;
+}
+
+/** A king as a reader knows them: their on-chain username, or else the start of their lock hash. */
+function who(names: Map<string, string>, lockHash: string): string {
+  const name = names.get(lockHash.toLowerCase());
+  return name ? `@${name}` : short(lockHash, 8, 4);
 }
 
 function minutes(ms: number): string {
@@ -26,8 +39,8 @@ function stamp(ms: number): string {
 function Rule({ ok, label }: { ok: boolean; label: string }) {
   return (
     <span
-      className={`inline-flex items-center gap-1 border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider ${
-        ok ? 'border-[#99ee2d]/40 text-[#99ee2d]' : 'border-[#af2a3a]/60 bg-[#af2a3a]/15 text-[#ff8b98]'
+      className={`inline-flex items-center gap-1 rounded-md px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-wider ${
+        ok ? 'bg-lime/15 text-lime' : 'bg-danger/15 text-danger'
       }`}
     >
       {ok ? <Check className="h-2.5 w-2.5" /> : <X className="h-2.5 w-2.5" />}
@@ -36,47 +49,64 @@ function Rule({ ok, label }: { ok: boolean; label: string }) {
   );
 }
 
-function StealRow({ steal, fee }: { steal: StealCheck; fee: bigint }) {
+function StealRow({ steal, fee, names }: { steal: StealCheck; fee: bigint; names: Map<string, string> }) {
+  const [watching, setWatching] = useState(false);
   return (
-    <li className={`border-l-2 pl-4 ${steal.ok ? 'border-[#99ee2d]/50' : 'border-[#af2a3a]'}`}>
+    <li className={`rounded-2xl p-4 md:p-5 ${steal.ok ? 'bg-ink-2' : 'bg-danger/10'}`}>
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="font-poster text-3xl uppercase leading-none text-white">
-          Round {steal.round}
+        <span className="font-poster text-lg font-black uppercase">
+          Round {steal.round} · {who(names, steal.kingAfter)}
         </span>
-        <span className="font-mono text-[11px] text-white/55">
+        <span className="font-mono text-[11px] text-mute">
           score <span className="text-white">{steal.score}</span> · replayed here{' '}
-          <span className={steal.replayed === steal.score ? 'text-[#99ee2d]' : 'text-[#ff8b98]'}>
+          <span className={steal.replayed === steal.score ? 'text-lime' : 'text-danger'}>
             {steal.replayed ?? '—'}
           </span>{' '}
           · {steal.moves} moves
         </span>
       </div>
 
-      <p className="mt-1.5 font-mono text-[11px] text-white/70">
-        pot <span className="text-[#e1bf47]">+{ckbWhole(fee)} CKB</span> → {ckbWhole(steal.potAfter)} CKB
+      <p className="mt-1.5 font-mono text-[11px] text-white/80">
+        pot <span className="text-gold">+{ckbWhole(fee)} CKB</span> → {ckbWhole(steal.potAfter)} CKB
         <span className="mx-2 text-white/25">|</span>
-        clock <span className="text-[#af2a3a]">−{minutes(steal.cutMs)}</span>
+        clock <span className="text-danger">−{minutes(steal.cutMs)}</span>
         <span className="mx-2 text-white/25">|</span>
-        crown → {short(steal.kingAfter, 8, 4)}
+        crown → {who(names, steal.kingAfter)}
       </p>
 
-      <p className="mt-1 font-mono text-[10px] text-white/35">{stamp(steal.deadlineAfter)} deadline</p>
+      <p className="mt-1 font-mono text-[10px] text-mute">{stamp(steal.deadlineAfter)} deadline</p>
 
-      <div className="mt-2 flex flex-wrap gap-1.5">
+      <div className="mt-3 flex flex-wrap gap-1.5">
         <Rule ok={steal.runOk} label="run replayed, beats the crown" />
         <Rule ok={steal.roundOk} label="round +1" />
         <Rule ok={steal.potOk} label="pot +fee" />
         <Rule ok={steal.clockOk} label="clock cut" />
         <Rule ok={steal.immutableOk} label="game and fee unchanged" />
+        {steal.onTime != null ? (
+          <Rule ok={steal.onTime} label={steal.onTime ? 'landed in time' : 'landed late or too slow, cannot win'} />
+        ) : null}
+        {steal.onTime != null ? <Rule ok={steal.certifyOk} label="postmark recorded" /> : null}
       </div>
+
+      {steal.run ? (
+        watching ? (
+          <div className="mt-3">
+            <RunPlayback run={steal.run} title={`${who(names, steal.kingAfter)}'s winning run`} />
+          </div>
+        ) : (
+          <Button variant="ghost" size="sm" className="mt-3" onClick={() => setWatching(true)}>
+            <Play className="h-3.5 w-3.5 fill-current" aria-hidden="true" /> Watch this run
+          </Button>
+        )
+      ) : null}
 
       <a
         href={`https://pudge.explorer.nervos.org/transaction/${steal.txHash}`}
         target="_blank"
         rel="noreferrer"
-        className="mt-1.5 inline-block font-mono text-[10px] text-white/35 underline decoration-white/20 hover:text-white/70"
+        className="mt-3 inline-flex items-center gap-1 font-mono text-[11px] text-pink hover:text-white"
       >
-        {short(steal.txHash, 14, 8)}
+        {short(steal.txHash, 14, 8)} <ExternalLink className="h-3 w-3" aria-hidden="true" />
       </a>
     </li>
   );
@@ -87,6 +117,8 @@ export function VerifyView({ initialTx }: { initialTx?: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [replay, setReplay] = useState<MatchReplay | null>(null);
+  const [duel, setDuel] = useState<DuelReplay | null>(null);
+  const [names, setNames] = useState<Map<string, string>>(new Map());
 
   const run = useCallback(async (hash: string) => {
     const target = hash.trim();
@@ -94,8 +126,19 @@ export function VerifyView({ initialTx }: { initialTx?: string }) {
     setBusy(true);
     setError(null);
     setReplay(null);
+    setDuel(null);
     try {
-      setReplay(await replayMatch(getCkbClient(), target, await loadLaneRunner()));
+      // A duel or a crown: whichever this transaction belongs to.
+      if (await duelIdOf(getCkbClient(), target)) {
+        setDuel(await replayDuel(getCkbClient(), target, await loadLaneRunner()));
+        return;
+      }
+      const result = await replayMatch(getCkbClient(), target, await loadLaneRunner());
+      setReplay(result);
+      const kings = [...result.steals.map((steal) => steal.kingAfter), ...(result.winner ? [result.winner] : [])];
+      void chainNames(getCkbClient(), kings)
+        .then(setNames)
+        .catch(() => undefined);
     } catch (caught) {
       setError(
         caught instanceof VerifyError
@@ -123,19 +166,16 @@ export function VerifyView({ initialTx }: { initialTx?: string }) {
   }, [initialTx, run]);
 
   return (
-    <ArenaStage backHref="/play" backLabel="Crowns">
-      <h1 className="font-poster text-5xl uppercase leading-none text-white sm:text-7xl">
-        Check the crown
-      </h1>
-      <p className="mt-4 max-w-2xl text-sm leading-relaxed text-white/65">
-        Paste any transaction from a crown to replay it from the chain.
-      </p>
-      <p className="mt-2 max-w-2xl font-mono text-[11px] uppercase tracking-wider text-[#99ee2d]/80">
-        Nothing here touches our server. It reads the chain directly, in your browser.
+    <ArenaStage>
+      <p className="font-mono text-[11px] uppercase tracking-wider text-pink">Fair play</p>
+      <h1 className="mt-1 font-poster text-3xl font-black uppercase md:text-5xl">Check a game</h1>
+      <p className="mt-2 max-w-xl text-mute">
+        Paste any game&apos;s transaction. We replay it from the chain and show you exactly what happened. Nothing here touches our server: it reads the chain
+        directly, in your browser.
       </p>
 
       <form
-        className="mt-8 flex max-w-3xl flex-col gap-3 sm:flex-row"
+        className="mt-8 flex flex-col gap-3 sm:flex-row"
         onSubmit={(event) => {
           event.preventDefault();
           void run(input);
@@ -145,75 +185,98 @@ export function VerifyView({ initialTx }: { initialTx?: string }) {
           value={input}
           onChange={(event) => setInput(event.target.value)}
           spellCheck={false}
-          placeholder="0x… transaction hash"
-          className="min-w-0 flex-1 border border-white/15 bg-black/40 px-4 py-3 font-mono text-sm text-white placeholder:text-white/25 focus:border-[#99ee2d]/60 focus:outline-none"
+          placeholder="Paste a game transaction (0x…)"
+          aria-label="Game transaction"
+          className="h-14 min-w-0 flex-1 rounded-xl bg-ink-2 px-4 font-mono text-sm text-white placeholder:text-white/35 focus:outline-none focus:ring-2 focus:ring-pink"
         />
-        <button
-          type="submit"
-          disabled={busy || !input.trim()}
-          className="bg-[#99ee2d] px-6 py-3 font-poster text-2xl uppercase leading-none text-[#111] disabled:opacity-40"
-        >
-          {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Replay'}
-        </button>
+        <Button type="submit" variant="pink" size="lg" disabled={busy || !input.trim()}>
+          Check it
+        </Button>
       </form>
 
-      {error ? (
-        <p className="mt-6 max-w-3xl border border-[#af2a3a]/60 bg-[#af2a3a]/10 px-4 py-3 text-sm text-[#ff8b98]">
-          {error}
-        </p>
+      {error ? <p className="mt-6 rounded-xl bg-danger/10 px-4 py-3 text-sm text-danger">{error}</p> : null}
+
+      {!busy && !error && !duel && !replay ? (
+        <div className="mt-12 grid items-center gap-8 rounded-3xl bg-pink/10 p-6 md:grid-cols-2 md:p-10">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={ART.fairPlay} alt="A robot referee reviewing a replay" className="rounded-2xl" />
+          <div>
+            <h2 className="font-poster text-xl font-black uppercase">Like a receipt for every game</h2>
+            <p className="mt-3 text-mute">
+              You&apos;ll see the game play back, a clear verdict, and every move with the block it landed in. Nothing to trust, everything to check.
+            </p>
+          </div>
+        </div>
       ) : null}
 
+      {busy ? (
+        <div className="mt-12 rounded-3xl bg-ink-2">
+          <ChainLoader compact title="Replaying the game from the chain…" note="Reading every move and running it again." />
+        </div>
+      ) : null}
+
+      {duel ? <DuelVerify replay={duel} /> : null}
+
       {replay ? (
-        <div className="mt-10 max-w-3xl">
-          <div
-            className={`border px-5 py-4 ${
-              replay.ok
-                ? 'border-[#99ee2d]/40 bg-[#99ee2d]/5'
-                : 'border-[#af2a3a] bg-[#af2a3a]/10'
-            }`}
-          >
-            <p className="font-poster text-4xl uppercase leading-none text-white">
-              {replay.ok ? 'Every round checks out' : 'A round does not check out'}
-            </p>
-            <p className="mt-2 text-sm text-white/65">
+        <div className="mt-10 space-y-8">
+          <section aria-live="polite" className={`clip-panel flex items-center gap-4 p-6 text-ink md:p-8 ${replay.ok ? 'bg-lime' : 'bg-danger'}`}>
+            <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-ink">
+              {replay.ok ? <Check className="h-8 w-8 text-lime" aria-hidden="true" /> : <X className="h-8 w-8 text-danger" aria-hidden="true" />}
+            </span>
+            <div>
+            <h2 className="font-poster text-xl font-black uppercase md:text-3xl">
+              {replay.ok ? 'Everything checks out' : 'Something does not check out'}
+            </h2>
+            <p className="mt-1 font-medium">
               {replay.steals.length === 0
-                ? 'This match opened and nobody has taken the crown yet.'
+                ? replay.live
+                  ? 'This match opened and nobody has taken the crown yet.'
+                  : 'Nobody took the crown, so the host got everything back.'
                 : `${replay.steals.length} ${replay.steals.length === 1 ? 'crown' : 'crowns'} taken. ` +
                   (replay.ok
                     ? 'Every run replays to its score and every cut matches.'
                     : 'At least one steal broke a rule. That should be impossible on chain — please report it.')}
             </p>
-          </div>
+            </div>
+          </section>
 
-          <dl className="mt-6 grid grid-cols-2 gap-x-6 gap-y-3 font-mono text-[11px] sm:grid-cols-3">
+          <h2 className="font-poster text-lg font-bold uppercase">What the chain shows</h2>
+
+          <dl className="-mt-4 grid grid-cols-2 gap-x-6 gap-y-4 rounded-2xl bg-ink-2 p-5 font-mono text-[11px] sm:grid-cols-3">
             <div>
-              <dt className="text-white/40 uppercase tracking-wider">Status</dt>
+              <dt className="uppercase tracking-wider text-mute">Status</dt>
               <dd className="text-white">{replay.live ? 'Live' : 'Closed or settled'}</dd>
             </div>
             <div>
-              <dt className="text-white/40 uppercase tracking-wider">Entry fee</dt>
+              <dt className="uppercase tracking-wider text-mute">Entry fee</dt>
               <dd className="text-white">{ckbWhole(replay.fee)} CKB</dd>
             </div>
             <div>
-              <dt className="text-white/40 uppercase tracking-wider">Prize</dt>
-              <dd className="text-[#e1bf47]">{ckbWhole(replay.finalPot)} CKB</dd>
+              <dt className="uppercase tracking-wider text-mute">Prize</dt>
+              <dd className="text-gold">{ckbWhole(replay.finalPot)} CKB</dd>
             </div>
+            {replay.postmarked ? (
+              <div>
+                <dt className="uppercase tracking-wider text-mute">{replay.live ? 'Wins if closed now' : 'Prize went to'}</dt>
+                <dd className="text-white">{replay.winner ? who(names, replay.winner) : 'Nobody, so the host'}</dd>
+              </div>
+            ) : null}
             <div>
-              <dt className="text-white/40 uppercase tracking-wider">Opened until</dt>
+              <dt className="uppercase tracking-wider text-mute">Opened until</dt>
               <dd className="text-white/80">{stamp(replay.openedDeadline)}</dd>
             </div>
             <div>
-              <dt className="text-white/40 uppercase tracking-wider">Deadline now</dt>
+              <dt className="uppercase tracking-wider text-mute">Deadline now</dt>
               <dd className="text-white/80">{stamp(replay.finalDeadline)}</dd>
             </div>
             <div>
-              <dt className="text-white/40 uppercase tracking-wider">Clock lost</dt>
-              <dd className="text-[#af2a3a]">
+              <dt className="uppercase tracking-wider text-mute">Clock lost</dt>
+              <dd className="text-danger">
                 −{minutes(Math.max(0, replay.openedDeadline - replay.finalDeadline))}
               </dd>
             </div>
             <div className="col-span-2 sm:col-span-3">
-              <dt className="text-white/40 uppercase tracking-wider">Game script (data hash, fixed at open)</dt>
+              <dt className="uppercase tracking-wider text-mute">Game script (data hash, fixed at open)</dt>
               <dd className="break-all text-white/70">
                 {replay.game}
                 {replay.gameKnown ? '' : ' · not a game this page can replay'}
@@ -221,15 +284,16 @@ export function VerifyView({ initialTx }: { initialTx?: string }) {
             </div>
           </dl>
 
+          {replay.steals.length ? <h2 className="font-poster text-lg font-bold uppercase">Winning runs</h2> : null}
           {replay.steals.length ? (
-            <ol className="mt-8 space-y-6">
+            <ol className="-mt-4 space-y-3">
               {replay.steals.map((steal) => (
-                <StealRow key={steal.txHash} steal={steal} fee={replay.fee} />
+                <StealRow key={steal.txHash} steal={steal} fee={replay.fee} names={names} />
               ))}
             </ol>
           ) : null}
 
-          <p className="mt-8 border-t border-white/10 pt-4 font-mono text-[10px] leading-relaxed text-white/35">
+          <p className="border-t border-white/10 pt-4 font-mono text-[10px] leading-relaxed text-mute">
             Runs are replayed with the same rules the chain uses.
           </p>
         </div>

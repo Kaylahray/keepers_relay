@@ -9,6 +9,17 @@ const fixtures = JSON.parse(readFileSync(new URL('./fixtures.json', import.meta.
 
 let failed = 0;
 for (const f of fixtures) {
+  if (f.laps) {
+    // A lapped run in game ABI v2: replayed through the wasm build exactly as the chain replays it.
+    const bytes = Buffer.from(f.laps, 'hex');
+    const ptr = api.tape_ptr();
+    new Uint8Array(api.memory.buffer, ptr, bytes.length).set(bytes);
+    const replayed = api.replay_laps(bytes.length);
+    const ok = String(replayed) === f.score;
+    if (!ok) failed += 1;
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${bytes[0]} laps                chain ${f.score.padStart(6)}  wasm laps ${String(replayed).padStart(6)}`);
+    continue;
+  }
   const seed = BigInt(f.seed);
   const hi = Number(seed >> 32n);
   const lo = Number(seed & 0xffffffffn);

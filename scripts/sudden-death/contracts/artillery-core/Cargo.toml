@@ -1,0 +1,8 @@
+[package]
+name = "crowns-artillery-core"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+description = "Crowns artillery duel: deterministic rules shared by the browser and CKB-VM (riscv)"
+
+[dependencies]

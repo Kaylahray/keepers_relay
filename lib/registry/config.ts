@@ -135,6 +135,41 @@ export const suddenDeathGame: ScriptConfig = {
   depType: "code",
 };
 
+/** The duel script: two stakes in escrow, an artillery duel or a lane race, judged by replay. */
+export const duelType: ScriptConfig = {
+  codeHash: pick(process.env.NEXT_PUBLIC_SD_DUEL_CODE_HASH),
+  hashType: asHashType(process.env.NEXT_PUBLIC_SD_DUEL_HASH_TYPE),
+  args: pick(process.env.NEXT_PUBLIC_SD_DUEL_ARGS, "0x"),
+  outPoint: {
+    txHash: pick(process.env.NEXT_PUBLIC_SD_DUEL_TX_HASH),
+    index: pick(process.env.NEXT_PUBLIC_SD_DUEL_INDEX, "0x0"),
+  },
+  depType: asDepType(process.env.NEXT_PUBLIC_SD_DUEL_DEP_TYPE),
+};
+
+/** The artillery game script duel-type spawns to judge a duel. A code cell found by its data hash. */
+export const artilleryGame: ScriptConfig = {
+  codeHash: pick(process.env.NEXT_PUBLIC_SD_ARTILLERY_CODE_HASH),
+  hashType: "data2",
+  args: "0x",
+  outPoint: {
+    txHash: pick(process.env.NEXT_PUBLIC_SD_ARTILLERY_TX_HASH),
+    index: pick(process.env.NEXT_PUBLIC_SD_ARTILLERY_INDEX, "0x0"),
+  },
+  depType: "code",
+};
+
+export function duelsConfigured(): boolean {
+  return (
+    duelType.codeHash.length > 2 &&
+    duelType.outPoint.txHash.length > 2 &&
+    artilleryGame.codeHash.length > 2 &&
+    artilleryGame.outPoint.txHash.length > 2 &&
+    suddenDeathGame.outPoint.txHash.length > 2 &&
+    suddenDeathProxyLock.outPoint.txHash.length > 2
+  );
+}
+
 export function registryConfigured(): boolean {
   return (
     usernameType.codeHash.length > 2 &&

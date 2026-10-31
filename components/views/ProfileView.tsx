@@ -2,9 +2,14 @@
 
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { Coins, Crown, Loader2, Pencil, Swords, Trophy, UsersRound, WalletMinimal } from 'lucide-react';
+import { useState } from 'react';
+import { Check, Copy, Pencil, WalletMinimal } from 'lucide-react';
 import { ArenaCta } from '@/components/arena/ArenaPrimitives';
 import { ArenaStage } from '@/components/arena/ArenaStage';
+import { ChainLoader } from '@/components/arena/ChainLoader';
+import { Avatar } from '@/components/duel/Avatar';
+import { Button } from '@/components/ui/Button';
+import { Ckb, EmptyState, StatusChip } from '@/components/ui/kit';
 import { CharacterAvatar } from '@/components/CharacterPicker';
 import { builderKeys } from '@/hooks/useBuilder';
 import { useUsername } from '@/hooks/useUsername';
@@ -20,6 +25,7 @@ export function ProfileView({ address }: { address: string }) {
   const { isConnected, address: walletAddress, isReady } = useWallet();
   const { ensureAuth } = useAuth();
   const { username: onChainUsername } = useUsername();
+  const [copied, setCopied] = useState(false);
 
   const wallet = walletAddress?.toLowerCase() ?? '';
   const target = address === 'me' ? wallet : decodeURIComponent(address).toLowerCase();
@@ -46,26 +52,25 @@ export function ProfileView({ address }: { address: string }) {
 
   if (!isReady) {
     return (
-      <ArenaStage backHref="/" backLabel="Home">
-        <Loader2 className="h-6 w-6 animate-spin text-[#99ee2d]" />
+      <ArenaStage>
+        <ChainLoader title="Loading the profile…" />
       </ArenaStage>
     );
   }
 
   if (address === 'me' && !isConnected) {
     return (
-      <ArenaStage backHref="/" backLabel="Home">
-        <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">
-          Profile
-        </p>
-        <h1 className="mt-3 font-poster text-4xl uppercase text-white">Connect to view</h1>
-        <p className="mt-3 max-w-md text-sm text-white/55">
-          Your profile and avatar are tied to your wallet.
-        </p>
-        <ArenaCta onClick={() => void ensureAuth().catch(() => undefined)} className="mt-6">
-          <WalletMinimal className="h-4 w-4" />
-          Connect wallet
-        </ArenaCta>
+      <ArenaStage>
+        <EmptyState
+          title="Connect to view"
+          body="Your profile and picture are tied to your wallet."
+          action={
+            <ArenaCta onClick={() => void ensureAuth().catch(() => undefined)}>
+              <WalletMinimal className="h-4 w-4" />
+              Connect wallet
+            </ArenaCta>
+          }
+        />
       </ArenaStage>
     );
   }
@@ -73,106 +78,109 @@ export function ProfileView({ address }: { address: string }) {
   const handle = profile?.username || (isSelf ? onChainUsername?.username : null) || null;
   const displayName = profile?.displayName || handle || (isSelf ? 'You' : `${target.slice(0, 10)}…`);
   const s = stats.data;
-  const tile = (value: number | string | null | undefined) =>
-    stats.isLoading ? '…' : value == null ? '—' : String(value);
+  const tile = (value: number | string | null | undefined) => (stats.isLoading ? '…' : value == null ? '—' : String(value));
 
   return (
-    <ArenaStage backHref="/" backLabel="Home">
-      <section className="grid items-start gap-8 lg:grid-cols-[minmax(220px,280px)_1fr] lg:gap-10">
-        <div className="relative z-10">
-          <div className="aspect-square w-full max-w-[280px] overflow-hidden border border-white/10 bg-black/50">
-            {avatar.data?.imageUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={avatar.data.imageUrl} alt="" className="h-full w-full object-cover" />
-            ) : profile?.characterId ? (
-              <div className="flex h-full items-center justify-center bg-gradient-to-b from-[#a855f7]/30 to-transparent p-6">
-                <CharacterAvatar characterId={profile.characterId} size="xl" />
-              </div>
-            ) : (
-              <div className="flex h-full flex-col items-center justify-center gap-2 text-white/40">
-                <UsersRound className="h-10 w-10" />
-                <span className="font-mono text-[10px] uppercase">No avatar yet</span>
-              </div>
-            )}
-          </div>
-          {isSelf ? (
-            <ArenaCta href="/profile/edit" className="mt-4 w-full justify-center text-center">
-              <Pencil className="h-4 w-4" />
-              Edit profile
-            </ArenaCta>
-          ) : null}
+    <ArenaStage>
+      <section className="flex flex-col gap-6 md:flex-row md:items-center">
+        <div className="h-28 w-28 shrink-0 overflow-hidden rounded-[30px] bg-ink-3 ring-2 ring-lime ring-offset-2 ring-offset-ink md:h-32 md:w-32">
+          {avatar.data?.imageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={avatar.data.imageUrl} alt="" className="h-full w-full object-cover" />
+          ) : profile?.characterId ? (
+            <div className="flex h-full items-center justify-center">
+              <CharacterAvatar characterId={profile.characterId} size="lg" />
+            </div>
+          ) : (
+            <Avatar name={handle ? `@${handle}` : displayName} tone="#99ee2d" size={128} />
+          )}
         </div>
-
-        <div className="relative z-10 min-w-0">
-          <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">
-            Profile
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate font-poster text-3xl font-black uppercase md:text-4xl">{displayName}</h1>
+          <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-mute">
+            {handle ? <span className="font-semibold text-white">@{handle}</span> : isSelf ? <span>No @handle yet.</span> : null}
+            <button
+              type="button"
+              onClick={() => {
+                void navigator.clipboard?.writeText(target);
+                setCopied(true);
+                window.setTimeout(() => setCopied(false), 1500);
+              }}
+              className="inline-flex items-center gap-1.5 rounded-md font-mono text-xs hover:text-white"
+            >
+              {target.slice(0, 7)}…{target.slice(-4)} {copied ? <Check className="h-3.5 w-3.5 text-lime" aria-label="Copied" /> : <Copy className="h-3.5 w-3.5" aria-label="Copy address" />}
+            </button>
           </p>
-          <h1 className="mt-3 font-poster text-[clamp(2.5rem,5vw,3.75rem)] uppercase leading-[0.92] text-white">
-            {displayName}
-          </h1>
-          {handle ? (
-            <p className="mt-2 font-mono text-sm font-bold text-[#99ee2d]">@{handle}</p>
-          ) : isSelf ? (
-            <p className="mt-2 text-sm text-white/50">No @handle yet.</p>
-          ) : null}
-          {profile?.headline ? (
-            <p className="mt-4 max-w-lg text-base font-light leading-relaxed text-white/60">
-              {profile.headline}
-            </p>
-          ) : isSelf ? (
-            <p className="mt-4 max-w-lg text-sm font-light text-white/45">Add a bio in Edit profile.</p>
-          ) : null}
-
-          <p className="mt-4 flex flex-wrap items-center gap-2 break-all font-mono text-[10px] text-white/40">
-            <WalletMinimal className="h-3.5 w-3.5 shrink-0" />
-            {target.slice(0, 12)}…{target.slice(-8)}
-          </p>
-
-          <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <StatTile icon={<Trophy className="h-4 w-4" />} value={tile(s?.wins)} label="Wins" />
-            <StatTile
-              icon={<Coins className="h-4 w-4" />}
-              value={tile(s ? ckbWhole(BigInt(s.wonShannons)) : null)}
-              label="CKB won"
-            />
-            <StatTile icon={<Swords className="h-4 w-4" />} value={tile(s?.crownsTaken)} label="Crowns taken" />
-            <StatTile icon={<Crown className="h-4 w-4" />} value={tile(s?.bestScore)} label="Best score" />
-          </div>
-          {s && (s.holding > 0 || s.hosted > 0) ? (
-            <p className="mt-3 font-mono text-[10px] uppercase text-white/45">
-              {s.holding > 0 ? `Holding ${s.holding} now` : null}
-              {s.holding > 0 && s.hosted > 0 ? ' · ' : null}
-              {s.hosted > 0 ? `Hosted ${s.hosted}` : null}
-            </p>
-          ) : null}
-          {stats.isError ? (
-            <p className="mt-3 text-sm text-[#ff8b98]">Stats could not load. Refresh to try again.</p>
-          ) : null}
+          {profile?.headline ? <p className="mt-3 max-w-lg font-semibold">{profile.headline}</p> : isSelf ? <p className="mt-3 text-sm text-mute">Add a bio in Edit profile.</p> : null}
+        </div>
+        <div className="flex flex-wrap gap-3">
+          {isSelf ? (
+            <>
+              {!handle ? (
+                <Button href="/join?next=/profile" variant="pink" size="lg">
+                  Claim a username
+                </Button>
+              ) : null}
+              <Button href="/profile/edit" variant="ghost" size="lg">
+                <Pencil className="h-4 w-4" /> Edit profile
+              </Button>
+            </>
+          ) : (
+            <Button href={`/duels/new?vs=${encodeURIComponent(target)}`} variant="pink" size="lg">
+              Challenge
+            </Button>
+          )}
         </div>
       </section>
 
-      <section className="relative z-10 mt-12">
-        <h2 className="font-poster text-2xl uppercase text-white sm:text-3xl">
-          {isSelf ? 'Your crowns' : 'Crowns'}
+      <section aria-label="Stats" className="mt-10 grid gap-4 md:grid-cols-[1.3fr_1fr_1fr_1fr]">
+        <div className="clip-panel bg-gold p-5 text-ink">
+          <p className="font-mono text-[11px] font-bold uppercase tracking-wider">CKB won</p>
+          <p className="mt-1 font-poster text-4xl font-black tabular-nums">{tile(s ? ckbWhole(BigInt(s.wonShannons)) : null)}</p>
+        </div>
+        {(
+          [
+            ['Wins', tile(s?.wins)],
+            ['Crowns taken', tile(s?.crownsTaken)],
+            ['Best score', tile(s?.bestScore)],
+          ] as const
+        ).map(([k, v]) => (
+          <div key={k} className="rounded-2xl bg-ink-2 p-5">
+            <p className="font-mono text-[11px] uppercase tracking-wider text-mute">{k}</p>
+            <p className="mt-1 font-poster text-2xl font-black tabular-nums">{v}</p>
+          </div>
+        ))}
+      </section>
+      {s && (s.holding > 0 || s.hosted > 0) ? (
+        <p className="mt-3 font-mono text-[10px] uppercase text-mute">
+          {s.holding > 0 ? `Holding ${s.holding} now` : null}
+          {s.holding > 0 && s.hosted > 0 ? ' · ' : null}
+          {s.hosted > 0 ? `Hosted ${s.hosted}` : null}
+        </p>
+      ) : null}
+      {stats.isError ? <p className="mt-3 text-sm text-danger">Stats could not load. Refresh to try again.</p> : null}
+
+      <section className="mt-12" aria-labelledby="history">
+        <h2 id="history" className="font-poster text-lg font-bold uppercase">
+          {isSelf ? 'Your crowns' : 'Crowns'} <span className="ml-1 font-mono text-xs text-mute">{s?.crowns.length ?? ''}</span>
         </h2>
-        {stats.isLoading ? (
-          <p className="mt-4 font-mono text-xs uppercase text-white/40">Loading crowns…</p>
-        ) : (s?.crowns ?? []).length === 0 ? (
-          <p className="mt-3 max-w-lg text-sm text-white/55">
-            {isSelf ? 'None yet.' : 'No crowns played yet.'}
-          </p>
-        ) : (
-          <ul className="mt-5 grid gap-3 sm:grid-cols-2">
-            {s!.crowns.map((crown) => (
-              <CrownRow key={crown.id} crown={crown} />
-            ))}
-          </ul>
-        )}
-        {isSelf ? (
-          <ArenaCta href="/create" className="mt-5">
-            Open a crown
-          </ArenaCta>
-        ) : null}
+        <div className="mt-6">
+          {stats.isLoading ? (
+            <ChainLoader compact title="Loading crowns…" />
+          ) : (s?.crowns ?? []).length === 0 ? (
+            <EmptyState
+              title="No crowns yet"
+              body={isSelf ? 'Take your first crown and it shows up here.' : 'No crowns played yet.'}
+              action={isSelf ? <Button href="/play">Find a crown</Button> : <Button href={`/duels/new?vs=${encodeURIComponent(target)}`} variant="pink">Challenge</Button>}
+            />
+          ) : (
+            <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {s!.crowns.map((crown) => (
+                <CrownRow key={crown.id} crown={crown} />
+              ))}
+            </ul>
+          )}
+        </div>
       </section>
     </ArenaStage>
   );
@@ -180,54 +188,32 @@ export function ProfileView({ address }: { address: string }) {
 
 function CrownRow({ crown }: { crown: PlayerCrown }) {
   const won = crown.holds && crown.status === 'settled';
-  const badge = won
-    ? { text: 'Won', className: 'bg-[#e1bf47] text-[#111]' }
-    : crown.holds
-      ? { text: 'Holding', className: 'bg-[#99ee2d] text-[#111]' }
-      : crown.status === 'live'
-        ? { text: 'Live', className: 'border border-[#99ee2d] text-[#99ee2d]' }
-        : crown.status === 'lobby'
-          ? { text: 'Lobby', className: 'border border-white/30 text-white/70' }
-          : { text: 'Closed', className: 'border border-white/20 text-white/50' };
+  const badge = won ? (
+    <StatusChip tone="closed">Won</StatusChip>
+  ) : crown.holds ? (
+    <StatusChip tone="live">Holding</StatusChip>
+  ) : crown.status === 'live' ? (
+    <StatusChip tone="live">Live</StatusChip>
+  ) : crown.status === 'lobby' ? (
+    <StatusChip tone="lobby">Lobby</StatusChip>
+  ) : (
+    <StatusChip tone="lobby">Closed</StatusChip>
+  );
   return (
     <li>
-      <Link
-        href={`/play/${crown.id}`}
-        className="block border border-white/10 bg-black/40 p-4 transition-colors hover:border-[#99ee2d]/60"
-      >
+      <Link href={`/play/${crown.id}`} className="clip-panel block bg-ink-2 p-5 transition-colors hover:bg-ink-3">
         <div className="flex items-start justify-between gap-3">
-          <p className="min-w-0 truncate font-poster text-xl uppercase leading-none text-white">{crown.title}</p>
-          <span className={`shrink-0 px-2 py-0.5 font-mono text-[10px] font-bold uppercase ${badge.className}`}>
-            {badge.text}
-          </span>
+          <p className="min-w-0 truncate font-poster text-base font-bold uppercase">{crown.title}</p>
+          {badge}
         </div>
-        <p className="mt-2 font-mono text-[10px] uppercase text-white/50">
-          {GAMES[crown.game]?.title ?? crown.game} · pot {ckbWhole(BigInt(crown.potShannons))} CKB
+        <p className="mt-3 font-mono text-[10px] uppercase tracking-wider text-mute">Prize pot</p>
+        <Ckb value={ckbWhole(BigInt(crown.potShannons))} size="md" />
+        <p className="mt-2 text-xs text-mute">
+          {GAMES[crown.game]?.title ?? crown.game} · to beat {crown.kingScore}
+          {crown.bestScore != null ? ` · best ${crown.bestScore}` : ''}
           {crown.hosted ? ' · host' : ''}
-        </p>
-        <p className="mt-1 font-mono text-[10px] uppercase text-white/40">
-          Score to beat {crown.kingScore}
-          {crown.bestScore != null ? ` · your best ${crown.bestScore}` : ''}
         </p>
       </Link>
     </li>
-  );
-}
-
-function StatTile({
-  icon,
-  value,
-  label,
-}: {
-  icon: React.ReactNode;
-  value: string;
-  label: string;
-}) {
-  return (
-    <div className="border border-white/10 bg-black/40 p-3">
-      <div className="text-[#99ee2d]">{icon}</div>
-      <p className="mt-1 font-poster text-2xl text-white">{value}</p>
-      <p className="font-mono text-[10px] font-bold uppercase text-white/40">{label}</p>
-    </div>
   );
 }

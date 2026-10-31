@@ -1,191 +1,174 @@
 'use client';
 
-import Link from 'next/link';
-import { ArenaCta } from '@/components/arena/ArenaPrimitives';
-import { HomeHero } from '@/components/arena/HomeHero';
-import { LaneArt } from '@/components/game/LaneArt';
-import { STORY, StoryPicture } from '@/components/explain/StoryPicture';
+import { HomeHero, LiveNow } from '@/components/arena/HomeHero';
+import { Onboarding } from '@/components/explain/Onboarding';
+import { Button } from '@/components/ui/Button';
+import { StepList, CROWN_STEPS, DUEL_STEPS, FAIR_PLAY_FACTS } from '@/components/explain/StepList';
+import { ART } from '@/lib/art';
 
-const SOON = ['Bullet Dodge', 'Rhythm Tap', 'Gap Flyer', 'Stacker', 'One-Shot Golf'];
+const MODES = [
+  {
+    title: 'Crowns',
+    tag: 'Many players · king of the hill',
+    body: 'Beat the best score to take the crown. Hold it when the clock hits zero and the whole pot is yours.',
+    img: ART.crowns,
+    alt: 'A champion wearing the crown on top of a podium of coins',
+    href: '/play',
+    cta: 'Find a crown',
+    tone: 'lime' as const,
+  },
+  {
+    title: 'Duels',
+    tag: '1 v 1 · winner takes both',
+    body: 'Challenge one player to Artillery or a Lane race. Same stake each. Best player takes it all.',
+    img: ART.duels,
+    alt: 'Two friends challenging each other on their phones',
+    href: '/duels',
+    cta: 'Go to duels',
+    tone: 'pink' as const,
+  },
+];
 
 export function HomeView() {
   return (
-    <div className="min-h-full w-full bg-[#111] text-white">
+    <div className="w-full">
+      <Onboarding />
       <HomeHero />
 
-      <section className="border-y border-white/10 bg-[#111]">
-        <div className="mx-auto max-w-[1440px] px-5 py-14 sm:px-10">
-          <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">How to play</p>
-          <h2 className="mt-3 max-w-2xl font-poster text-3xl uppercase leading-none text-white sm:text-5xl">
-            Beat the score. Hold the crown. Win the prize.
-          </h2>
-          <ol className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {STORY.map((step, index) => (
-              <li key={step.kind} className="border border-white/10 bg-white/[0.03]">
-                <StoryPicture kind={step.kind} className="aspect-[16/10] border-0 border-b" />
-                <div className="p-5">
-                  <p className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-[#99ee2d]">Step {index + 1}</p>
-                  <h3 className="mt-2 font-poster text-xl uppercase leading-none text-white">{step.title}</h3>
-                  <p className="mt-3 text-sm font-light leading-relaxed text-white/65">{step.body}</p>
+      <div className="mx-auto mt-10 max-w-7xl px-4 md:mt-14 md:px-8">
+        <LiveNow />
+      </div>
+
+      <section className="mx-auto mt-20 max-w-7xl px-4 md:px-8" aria-labelledby="ways">
+        <h2 id="ways" className="font-poster text-2xl font-extrabold uppercase md:text-4xl">
+          Two ways to play
+        </h2>
+        <div className="mt-8 grid gap-5 md:grid-cols-2">
+          {MODES.map((m) => (
+            <article key={m.title} className="clip-panel flex flex-col overflow-hidden bg-ink-2">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={m.img} alt={m.alt} className="aspect-[16/10] w-full object-cover" />
+              <div className="flex flex-1 flex-col p-6 md:p-8">
+                <p className={`font-mono text-[11px] uppercase tracking-wider ${m.tone === 'lime' ? 'text-lime' : 'text-pink'}`}>{m.tag}</p>
+                <h3 className={`mt-2 font-poster text-3xl font-black uppercase md:text-4xl ${m.tone === 'lime' ? 'text-lime' : 'text-pink'}`}>{m.title}</h3>
+                <p className="mt-3 max-w-md text-mute">{m.body}</p>
+                <div className="mt-auto pt-6">
+                  <Button href={m.href} variant={m.tone} size="lg">
+                    {m.cta}
+                  </Button>
                 </div>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="mx-auto mt-24 grid max-w-7xl gap-10 px-4 md:px-8 lg:grid-cols-2 lg:items-center" aria-labelledby="how-crowns">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={ART.crowns} alt="" className="clip-panel aspect-[4/3] w-full object-cover" />
+        <div>
+          <h2 id="how-crowns" className="font-poster text-2xl font-extrabold uppercase md:text-4xl">
+            How <span className="text-lime">Crowns</span> works
+          </h2>
+          <div className="mt-8">
+            <StepList steps={CROWN_STEPS} tone="lime" />
+          </div>
+        </div>
+      </section>
+
+      <section className="mx-auto mt-24 grid max-w-7xl gap-10 px-4 md:px-8 lg:grid-cols-2 lg:items-center" aria-labelledby="how-duels">
+        <div className="order-2 lg:order-1">
+          <h2 id="how-duels" className="font-poster text-2xl font-extrabold uppercase md:text-4xl">
+            How a <span className="text-pink">Duel</span> works
+          </h2>
+          <div className="mt-8">
+            <StepList steps={DUEL_STEPS} tone="pink" />
+          </div>
+        </div>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={ART.artillery} alt="" className="clip-panel order-1 aspect-[4/3] w-full object-cover lg:order-2" />
+      </section>
+
+      <section className="mx-auto mt-24 grid max-w-7xl items-center gap-10 px-4 md:px-8 lg:grid-cols-[1fr_1fr] lg:gap-16" aria-labelledby="fair">
+        <div>
+          <p className="font-mono text-[11px] uppercase tracking-wider text-pink">Fair play</p>
+          <h2 id="fair" className="mt-2 font-poster text-2xl font-extrabold uppercase md:text-4xl">
+            Nobody picks the winner
+          </h2>
+          <p className="mt-4 max-w-md text-mute">
+            Your phone sends your moves, not your score. The CKB chain plays them again and works out the result itself, so nobody (not the host, not us)
+            can change who wins.
+          </p>
+          <ol className="mt-8 divide-y divide-white/5 border-y border-white/5">
+            {FAIR_PLAY_FACTS.map((f, i) => (
+              <li key={f} className="flex items-baseline gap-4 py-4">
+                <span className="font-poster text-sm font-black text-pink">0{i + 1}</span>
+                <span className="font-semibold">{f}</span>
               </li>
             ))}
           </ol>
-          <p className="mt-6 max-w-2xl text-sm text-white/55">
-            Each grab takes time off the clock: 10 minutes the first time, then 5, then less, never under 72 seconds. So the
-            more people play, the faster it ends.
-          </p>
-        </div>
-      </section>
-
-      <section className="relative overflow-hidden">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="/uismod/bg-shapes.svg"
-          alt=""
-          className="pointer-events-none absolute left-0 top-1/2 hidden h-48 w-auto -translate-y-1/2 opacity-80 lg:block"
-        />
-        <div className="relative mx-auto grid max-w-[1440px] items-center gap-10 px-5 py-16 sm:px-10 lg:grid-cols-2">
-          <ReplayArt />
-          <div>
-            <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">Fair play</p>
-            <h2 className="mt-3 font-poster text-3xl uppercase leading-none text-white sm:text-4xl">Nobody picks the winner</h2>
-            <p className="mt-4 max-w-md text-base font-light leading-relaxed text-white/60">
-              Your phone sends your moves, not your score. The CKB chain plays your moves again and works out the score
-              itself, so nobody (not the host, not us) can change who wins.
-            </p>
-            <div className="mt-6">
-              <ArenaCta href="/verify">Check any game</ArenaCta>
-            </div>
+          <div className="mt-8 flex flex-wrap gap-3">
+            <Button href="/verify" variant="pink" size="lg">
+              Check any game
+            </Button>
+            <Button href="/how-it-works" variant="outline" size="lg">
+              How it works
+            </Button>
           </div>
         </div>
-      </section>
 
-      <section className="border-t border-white/10 bg-[#111]">
-        <div className="mx-auto grid max-w-[1440px] gap-10 px-5 py-16 sm:px-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
-          <div>
-            <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">Games</p>
-            <h2 className="mt-3 font-poster text-3xl uppercase leading-none text-white sm:text-4xl">One referee, many games</h2>
-            <p className="mt-4 max-w-md text-base font-light leading-relaxed text-white/60">
-              More games are coming. They all use the same clock, prize and crown.
-            </p>
-            <ul className="mt-6 flex flex-wrap gap-2">
-              {SOON.map((game) => (
-                <li key={game} className="border border-white/15 px-3 py-1.5 font-mono text-[11px] uppercase text-white/50">
-                  {game} · soon
+        {/* What a check looks like: the receipt every game gets, drawn as a card */}
+        <div className="relative mx-auto w-full max-w-md" aria-hidden="true">
+          <div className="absolute -inset-6 rounded-[40px] bg-gradient-to-br from-lime/15 via-transparent to-pink/20 blur-2xl" />
+          <div className="clip-panel relative bg-ink-2 p-6 md:p-8">
+            <div className="flex items-center justify-between">
+              <p className="font-mono text-[10px] uppercase tracking-wider text-mute">Duel · Artillery</p>
+              <p className="font-mono text-[10px] uppercase tracking-wider text-mute">Replayed on chain</p>
+            </div>
+            <div className="mt-5 flex items-center justify-between gap-3">
+              <span className="font-poster text-lg font-black text-lime">@hii</span>
+              <span className="font-poster text-sm font-black italic text-mute">VS</span>
+              <span className="font-poster text-lg font-black text-pink">@samm</span>
+            </div>
+            <ul className="mt-6 space-y-3 font-mono text-[12px]">
+              {[
+                ['Stakes locked', '100 + 100 CKB'],
+                ['Shots replayed', '23 of 23'],
+                ['Winds matched', 'block by block'],
+                ['Winner paid', '200 CKB'],
+              ].map(([k, v]) => (
+                <li key={k} className="flex items-center justify-between gap-4 border-b border-dashed border-white/10 pb-3">
+                  <span className="text-mute">{k}</span>
+                  <span className="font-bold text-white">{v}</span>
                 </li>
               ))}
             </ul>
-          </div>
-          <Link href="/play" className="group block border border-[#99ee2d]/40 bg-black/40 transition hover:border-[#99ee2d]">
-            <LaneArt className="h-56 w-full sm:h-64" />
-            <div className="flex items-end justify-between gap-4 p-5">
-              <div>
-                <p className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-[#99ee2d]">Live</p>
-                <p className="mt-1 font-poster text-3xl uppercase leading-none text-white">Lane Runner</p>
-                <p className="mt-2 max-w-sm text-sm text-white/60">Drive through the neon city. Dodge barriers, grab coins. Two minutes a run.</p>
-              </div>
-              <span className="arena-cta shrink-0 px-4 py-2 font-poster text-sm uppercase text-[#111]">Play</span>
+            <div className="mt-6 flex items-center justify-between gap-4">
+              <span className="font-mono text-[10px] text-mute">0x7f3a…dc21e</span>
+              <span className="-rotate-6 rounded-lg border-2 border-lime px-3 py-1.5 font-poster text-sm font-black uppercase text-lime">Checks out</span>
             </div>
-          </Link>
+          </div>
         </div>
       </section>
 
-      <section className="border-t border-white/10 bg-[#111]">
-        <div className="mx-auto grid max-w-[1440px] items-center gap-10 px-5 py-14 sm:px-10 lg:grid-cols-[1fr_auto]">
-          <div className="max-w-xl">
-            <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">Multiplayer</p>
-            <h2 className="mt-3 font-poster text-3xl uppercase leading-none text-white sm:text-4xl">Play with your friends</h2>
-            <p className="mt-4 text-base font-light leading-relaxed text-white/55">
-              Open a game and drop the link in your group chat. Everyone races the same clock, and whoever holds the crown at
-              zero wins the prize.
-            </p>
-            <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3">
-              <ArenaCta href="/players">Challenge a friend</ArenaCta>
-              <Link href="/create" className="font-poster text-sm uppercase tracking-wide text-[#99ee2d]">
-                Host one yourself
-              </Link>
+      <section className="mx-auto mt-24 max-w-7xl px-4 md:px-8" aria-labelledby="friends">
+        <div className="relative overflow-hidden rounded-3xl">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={ART.friends} alt="Friends on a couch cheering at a crown on the big screen" className="aspect-[4/5] w-full object-cover sm:aspect-[21/9]" />
+          <div className="absolute inset-x-0 bottom-0 bg-ink/85 p-6 backdrop-blur-sm md:inset-y-0 md:left-0 md:right-auto md:flex md:w-[440px] md:flex-col md:justify-center md:p-10">
+            <h2 id="friends" className="font-poster text-2xl font-extrabold uppercase md:text-3xl">
+              Play with your friends
+            </h2>
+            <p className="mt-3 text-mute">Put a crown on the big screen and let the room scan in. Or send one friend a duel link.</p>
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row md:flex-col lg:flex-row">
+              <Button href="/create">Host a crown</Button>
+              <Button href="/duels/new" variant="pink">
+                Challenge a friend
+              </Button>
             </div>
           </div>
-          <LobbyArt />
         </div>
       </section>
-    </div>
-  );
-}
-
-/** How the chain judges a run: the recording goes in, CKB-VM plays it again, the score comes out. */
-function ReplayArt() {
-  const moves = ['0012·1', '0047·2', '0081·0', '0133·1', '0190·2', '0244·0'];
-  return (
-    <div className="relative z-10 mx-auto w-full max-w-md border border-white/10 bg-[#0b0b12] p-5 lg:ml-16" aria-hidden>
-      <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/40">Your run</p>
-      <ul className="mt-2 grid grid-cols-3 gap-1.5 font-mono text-[11px] text-[#ff8bf9]">
-        {moves.map((move) => (
-          <li key={move} className="border border-[#ff56f6]/30 px-2 py-1">
-            {move}
-          </li>
-        ))}
-      </ul>
-      <p className="mt-1.5 font-mono text-[10px] text-white/35">tick · lane, every move you made</p>
-      <div className="my-4 flex items-center gap-3">
-        <span className="h-px flex-1 bg-white/15" />
-        <span className="border border-[#406aff]/60 bg-[#406aff]/10 px-3 py-1.5 font-mono text-[11px] uppercase text-[#9db3ff]">
-          CKB-VM replays it
-        </span>
-        <span className="h-px flex-1 bg-white/15" />
-      </div>
-      <div className="flex items-end justify-between">
-        <div>
-          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/40">Chain&apos;s score</p>
-          <p className="font-poster text-5xl leading-none text-[#99ee2d]">412</p>
-        </div>
-        <div className="text-right">
-          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/40">To beat</p>
-          <p className="font-poster text-3xl leading-none text-white/60">388</p>
-        </div>
-      </div>
-      <p className="mt-3 border-t border-white/10 pt-3 font-mono text-[11px] uppercase text-[#e1bf47]">Crown moves · prize +50 CKB</p>
-    </div>
-  );
-}
-
-/** A lobby in miniature: seats filling up around one shared clock. */
-function LobbyArt() {
-  const seats = [
-    { name: 'ada', note: 'King · 412', king: true },
-    { name: 'tunde', note: 'Best 388' },
-    { name: 'you', note: 'Practising' },
-    { name: 'mira', note: 'Joined' },
-  ];
-  return (
-    <div className="w-full max-w-md border border-white/10 bg-black/50 p-5 shadow-[-8px_8px_0_#99ee2d] lg:w-[420px]" aria-hidden>
-      <div className="flex items-end justify-between">
-        <div>
-          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/40">Prize</p>
-          <p className="font-poster text-4xl leading-none text-[#99ee2d]">150</p>
-        </div>
-        <div className="text-right">
-          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/40">Clock</p>
-          <p className="font-poster text-4xl leading-none text-white">4:12</p>
-        </div>
-      </div>
-      <div className="mt-3 h-1.5 w-full bg-white/10">
-        <div className="h-full w-[38%] bg-gradient-to-r from-[#ff56f6] to-[#406aff]" />
-      </div>
-      <ul className="mt-4 grid grid-cols-2 gap-2">
-        {seats.map((seat) => (
-          <li
-            key={seat.name}
-            className={`border px-3 py-2.5 ${seat.king ? 'border-[#e1bf47]/60 bg-[#e1bf47]/10' : 'border-white/10'}`}
-          >
-            <p className="font-poster text-lg uppercase leading-none text-white">@{seat.name}</p>
-            <p className={`mt-1 font-mono text-[10px] uppercase ${seat.king ? 'text-[#e1bf47]' : 'text-white/45'}`}>
-              {seat.note}
-            </p>
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }

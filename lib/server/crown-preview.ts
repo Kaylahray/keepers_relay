@@ -69,7 +69,7 @@ export async function crownPreview(id: string): Promise<CrownPreview | null> {
         ? 'Join the lobby before the clock starts'
         : clock === 'Time up'
         ? king
-          ? `${king} holds the crown at zero`
+          ? `Time’s up: ${king} holds the crown at ${room.kingScore}`
           : 'Time ran out with the crown open'
         : room.kingScore > 0
           ? `Beat ${room.kingScore} to take the crown`

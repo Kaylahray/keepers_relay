@@ -5,10 +5,17 @@ import {
   decodeMatchCell,
   hexToBytes,
   bytesToHex,
+  certifiedAfter,
+  landBy,
+  landByV4,
   runSeed,
+  runSeedV1,
   shrinkMs,
   shrunkDeadline,
+  decodeEntryRun,
+  lapsFromWitness,
   tapeFromWitness,
+  winnerOf,
   type MatchCell,
 } from '@/lib/sudden-death/codec';
 
@@ -46,6 +53,8 @@ export type StealCheck = {
   replayed: number | null;
   /** Lane changes in the run. */
   moves: number;
+  /** The run as recorded: each lap's road seed and lane changes, to play it back. Null if unreadable. */
+  run: { laps: { seed: bigint; tape: Uint8Array }[]; whole?: boolean } | null;
   /** Replayed score equals the recorded one, beats the crown before it, and crowned someone new. */
   runOk: boolean;
   /** Round advanced by exactly one. */
@@ -56,6 +65,12 @@ export type StealCheck = {
   clockOk: boolean;
   /** Game, fee, treasury and bid code never changed. */
   immutableOk: boolean;
+  /** When this steal landed: its block's timestamp. Null if the block could not be read. */
+  landedAt: number | null;
+  /** v3: whether it landed by the deadline running when it was sent. Only on-time steals can win. */
+  onTime: boolean | null;
+  /** v3: the certified king it records is the one the postmark rule gives. */
+  certifyOk: boolean;
   ok: boolean;
 };
 
@@ -76,13 +91,29 @@ export type MatchReplay = {
   finalKing: string;
   finalScore: number;
   finalDeadline: number;
+  /** v3 crowns: who the pot goes to at the close (or would, if closed now). Null: the host gets it all back. */
+  winner: string | null;
+  /** Whether the match runs on the v3 rules, where late steals land but never win. */
+  postmarked: boolean;
   /** Every rule held on every steal. */
   ok: boolean;
 };
 
-function matchTypeOf(matchId: string, hostLockHash: string): ccc.Script {
+/**
+ * Every match-type script Crowns has deployed on testnet, newest first. Each upgrade was a fresh
+ * deployment with its own type id, so a crown played on an older version carries that version's
+ * code hash. The verifier reads them all: an old crown's record is still on chain.
+ */
+const MATCH_CODE_HASHES = [
+  suddenDeathMatchType.codeHash,
+  '0xfc9bfc29b98557d1edc2612a16631c16cc79b6d60c84ce78f48d9c41a7f9b834', // v4
+  '0xbb388fcce8ceef841e98a614f49281032fd66ae57f20aecbc6167ad766b0813f', // v2
+  '0x1b24a657634dd36d359105c4ce15c13b545f48996864d06108dfb48d68979339', // v1
+].map((hash) => hash.toLowerCase());
+
+function matchTypeOf(codeHash: string, matchId: string, hostLockHash: string): ccc.Script {
   return ccc.Script.from({
-    codeHash: suddenDeathMatchType.codeHash,
+    codeHash,
     hashType: suddenDeathMatchType.hashType,
     args: `0x${matchId.replace(/^0x/, '')}${hostLockHash.replace(/^0x/, '')}`,
   });
@@ -91,7 +122,7 @@ function matchTypeOf(matchId: string, hostLockHash: string): ccc.Script {
 function isMatchType(script: ccc.Script | undefined): boolean {
   if (!script) return false;
   return (
-    script.codeHash.toLowerCase() === suddenDeathMatchType.codeHash.toLowerCase() &&
+    MATCH_CODE_HASHES.includes(script.codeHash.toLowerCase()) &&
     script.hashType === suddenDeathMatchType.hashType &&
     ccc.bytesFrom(script.args).length === 64
   );
@@ -108,6 +139,31 @@ export class VerifyError extends Error {}
 async function loadTx(client: ccc.Client, hash: string): Promise<ccc.Transaction | null> {
   const response = await client.getTransaction(hash);
   return response?.transaction ?? null;
+}
+
+/** When a transaction landed: the timestamp of its block, in ms. */
+async function landedAt(client: ccc.Client, hash: string): Promise<bigint | null> {
+  return (await blockOf(client, hash))?.ms ?? null;
+}
+
+/** The block a transaction landed in: its hash and timestamp. */
+async function blockOf(client: ccc.Client, hash: string): Promise<{ hash: string; ms: bigint } | null> {
+  const blockHash = (await client.getTransaction(hash))?.blockHash;
+  const header = blockHash ? await client.getHeaderByHash(blockHash) : undefined;
+  return blockHash && header ? { hash: blockHash, ms: BigInt(header.timestamp) } : null;
+}
+
+/** The run sealed into the entry a steal spent, and when that entry landed (its last seal). */
+async function entryRunOf(client: ccc.Client, tx: ccc.Transaction, bidCode: Uint8Array) {
+  const bidCodeHex = bytesToHex(bidCode).toLowerCase();
+  for (const input of tx.inputs.slice(1)) {
+    const cell = await client.getCell(input.previousOutput);
+    if (cell?.cellOutput.type?.codeHash.toLowerCase() === bidCodeHex) {
+      const landedMs = await landedAt(client, input.previousOutput.txHash);
+      return { ...decodeEntryRun(new Uint8Array(ccc.bytesFrom(cell.outputData))), landedMs };
+    }
+  }
+  return null;
 }
 
 /**
@@ -152,7 +208,7 @@ export async function replayMatch(client: ccc.Client, startTxHash: string, game:
   const args = ccc.bytesFrom(anchorTx.outputs[anchorIndex]!.type!.args);
   const matchId = bytesToHex(args.slice(0, 32));
   const hostLockHash = bytesToHex(args.slice(32, 64));
-  const typeScript = matchTypeOf(matchId, hostLockHash);
+  const typeScript = matchTypeOf(anchorTx.outputs[anchorIndex]!.type!.codeHash, matchId, hostLockHash);
   const typeHash = typeScript.hash().toLowerCase();
 
   // If the match is still live, its newest cell is the true tip. Start the walk there so the
@@ -209,16 +265,33 @@ export async function replayMatch(client: ccc.Client, startTxHash: string, game:
 
   const steals: StealCheck[] = [];
   let previousState: MatchCell = opened;
+  // Every match cell's postmark: the time its transaction landed.
+  const landed = await Promise.all(hops.map((hop) => landedAt(client, hop.tx.hash()).catch(() => null)));
+  const postmarked = opened.version >= 4;
 
-  for (const hop of hops.slice(1)) {
+  for (const [step, hop] of hops.slice(1).entries()) {
     const state = decodeMatchCell(hexToBytes(hop.tx.outputsData[hop.index]!));
     const before = previousState;
 
     // The run is scored on the course of the player it crowned, exactly as the script does.
     const witness = hop.tx.getWitnessArgsAt(0)?.inputType;
-    const tape = witness ? tapeFromWitness(new Uint8Array(ccc.bytesFrom(witness))) : null;
+    const rawWitness = witness ? new Uint8Array(ccc.bytesFrom(witness)) : null;
     const score = Number(state.kingScore);
-    const replayed = tape && gameKnown ? game.replay(runSeed(matchId, state.king), tape) : null;
+    // Since v4 a run is played in laps, each on the road seeded by the block it was sealed against.
+    const laps = postmarked && rawWitness ? lapsFromWitness(rawWitness) : null;
+    const tape = !postmarked && rawWitness ? tapeFromWitness(rawWitness) : null;
+    const entry = postmarked ? await entryRunOf(client, hop.tx, before.bidCode).catch(() => null) : null;
+    const run = laps
+      ? { laps: laps.map((lap) => ({ seed: runSeed(matchId, state.king, lap.block), tape: lap.tape })) }
+      : tape
+        ? { laps: [{ seed: runSeedV1(matchId, state.king), tape }], whole: true }
+        : null;
+    let replayed: number | null = null;
+    if (gameKnown && laps && run) {
+      replayed = game.replayLaps(run.laps);
+    } else if (gameKnown && tape) {
+      replayed = game.replay(runSeedV1(matchId, state.king), tape);
+    }
     const runOk =
       replayed === score && score > Number(before.kingScore) && !sameBytes(state.king, before.king);
 
@@ -232,6 +305,25 @@ export async function replayMatch(client: ccc.Client, startTxHash: string, game:
       sameBytes(state.treasury, before.treasury) &&
       sameBytes(state.bidCode, before.bidCode);
 
+    // The postmark rule. This steal spent a cell that landed at `landed[step]`, which decides whether
+    // the king before it is certified; its own cell landed at `landed[step + 1]`.
+    const landedHere = landed[step + 1] ?? null;
+    const landedBefore = landed[step] ?? null;
+    const onTime = postmarked && landedHere != null ? landedHere <= state.landByMs : null;
+    let certifyOk = true;
+    if (postmarked) {
+      const expected = landedBefore == null ? null : certifiedAfter(before, landedBefore);
+      certifyOk =
+        expected != null &&
+        entry != null &&
+        // v5 counts from the entry's last seal; v4 counted from the entry itself.
+        (opened.version >= 5
+          ? entry.landedMs != null && state.landByMs === landBy(before.deadlineMs, entry.landedMs)
+          : state.landByMs === landByV4(before.deadlineMs, entry.lapStartMs)) &&
+        sameBytes(state.certified, expected.king) &&
+        state.certifiedScore === expected.score;
+    }
+
     steals.push({
       txHash: hop.tx.hash(),
       round: state.round,
@@ -242,13 +334,17 @@ export async function replayMatch(client: ccc.Client, startTxHash: string, game:
       kingAfter: bytesToHex(state.king),
       score,
       replayed,
-      moves: tape ? Math.floor(tape.length / 3) : 0,
+      moves: laps ? laps.reduce((sum, lap) => sum + Math.floor(lap.tape.length / 3), 0) : tape ? Math.floor(tape.length / 3) : 0,
+      run: gameKnown ? run : null,
       runOk,
       roundOk,
       potOk,
       clockOk,
       immutableOk,
-      ok: runOk && roundOk && potOk && clockOk && immutableOk,
+      landedAt: landedHere == null ? null : Number(landedHere),
+      onTime,
+      certifyOk,
+      ok: runOk && roundOk && potOk && clockOk && immutableOk && certifyOk,
     });
     previousState = state;
   }
@@ -268,6 +364,13 @@ export async function replayMatch(client: ccc.Client, startTxHash: string, game:
     finalKing: bytesToHex(previousState.king),
     finalScore: Number(previousState.kingScore),
     finalDeadline: Number(previousState.deadlineMs),
+    winner: (() => {
+      const tipLanded = landed[landed.length - 1];
+      if (!postmarked || tipLanded == null) return null;
+      const won = winnerOf(previousState, tipLanded);
+      return won ? bytesToHex(won) : null;
+    })(),
+    postmarked,
     ok: steals.every((steal) => steal.ok),
   };
 }

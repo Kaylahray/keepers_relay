@@ -1,0 +1,45 @@
+{
+  "cell_recipes": [
+    {
+      "name": "match-type",
+      "tx_hash": "0x17af6fa0860bebd4d3f1ad2b12c120ac59c17bc66c86b3f8f94ac62ec8ffefa9",
+      "index": 0,
+      "occupied_capacity": 7019000000000,
+      "data_hash": "0x15f7f1790345a1f182ee145b901a81a9815be4fbae90227caf65d37d6fc9fc89",
+      "type_id": "0x3e1240fd9efbb38e72466449301ef2a96f5554ca4cd9a0a0ff16623290a01d34"
+    },
+    {
+      "name": "bid-type",
+      "tx_hash": "0x17af6fa0860bebd4d3f1ad2b12c120ac59c17bc66c86b3f8f94ac62ec8ffefa9",
+      "index": 1,
+      "occupied_capacity": 6192600000000,
+      "data_hash": "0x9ed54f375d6c1e2c4c27fe4a078ecb7e877635d4e6d7693c4725089ab9719b7f",
+      "type_id": "0x5c41a20b5b4361448b8fd3fde00dfbd4464d0f1d7abb66e7b8729cbce61671ac"
+    },
+    {
+      "name": "treasury-lock",
+      "tx_hash": "0x17af6fa0860bebd4d3f1ad2b12c120ac59c17bc66c86b3f8f94ac62ec8ffefa9",
+      "index": 2,
+      "occupied_capacity": 5352600000000,
+      "data_hash": "0xd8e99f4566c1d64da01487f63b1e02feab243078657124cd9e04b29ab1cade4b",
+      "type_id": "0x7dab4b0d44d7ab6b2df6befa902ac4268f5c8c4e29a8bc90eb52a90711b99241"
+    },
+    {
+      "name": "duel-type",
+      "tx_hash": "0xbdd9ca1cbff34f234659c5dbeb5f4d9254e92c30b68258ac68d593ca47bb4fb0",
+      "index": 0,
+      "occupied_capacity": 7663000000000,
+      "data_hash": "0x424dbfb6badac7facdb36f2607a049405c3b9ca3f5c9c67cf15b59cd757338c7",
+      "type_id": "0x726d6e4b30737e5caade98ee78f25fcfd7d495ea76971861768c4e267e20b0d1"
+    },
+    {
+      "name": "artillery",
+      "tx_hash": "0xbdd9ca1cbff34f234659c5dbeb5f4d9254e92c30b68258ac68d593ca47bb4fb0",
+      "index": 1,
+      "occupied_capacity": 4106100000000,
+      "data_hash": "0x1979b2698583fdcb24d5862eef66cd81cf74c3a3ef11a556626f013f059aed3c",
+      "type_id": null
+    }
+  ],
+  "dep_group_recipes": []
+}

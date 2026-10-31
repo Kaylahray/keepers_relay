@@ -78,8 +78,15 @@ fn create(host: &[u8; 32]) -> Result<(), i8> {
     if bytes::<32>(&out, OFF_GAME)? == [0u8; 32] {
         return Err(ERR_GAME);
     }
-    if read_u64(&out, OFF_KING_SCORE)? != 0 {
+    if read_u64(&out, OFF_KING_SCORE)? != 0
+        || read_u64(&out, OFF_LAND_BY)? != 0
+        || bytes::<32>(&out, OFF_CERTIFIED)? != [0u8; 32]
+        || read_u64(&out, OFF_CERTIFIED_SCORE)? != 0
+    {
         return Err(ERR_SCORE);
+    }
+    if out[OFF_POW_BITS] > MAX_POW_BITS {
+        return Err(ERR_WORK);
     }
     let treasury = bytes::<32>(&out, OFF_TREASURY)?;
     if treasury_capacity(&treasury, Source::Output)? == 0 {
@@ -108,6 +115,7 @@ fn steal(match_id: &[u8; 32], match_type_hash: &[u8; 32]) -> Result<(), i8> {
         || bytes::<8>(&input, OFF_FEE)? != bytes::<8>(&output, OFF_FEE)?
         || bytes::<32>(&input, OFF_TREASURY)? != bytes::<32>(&output, OFF_TREASURY)?
         || bytes::<32>(&input, OFF_BID_CODE)? != bytes::<32>(&output, OFF_BID_CODE)?
+        || input[OFF_POW_BITS] != output[OFF_POW_BITS]
     {
         return Err(ERR_IMMUTABLE);
     }
@@ -141,7 +149,7 @@ fn steal(match_id: &[u8; 32], match_type_hash: &[u8; 32]) -> Result<(), i8> {
     if count_bids(match_type_hash, &bid_code, Source::Output)? != 0 {
         return Err(ERR_BID);
     }
-    let king = winning_bid_owner(match_type_hash, &bid_code)?;
+    let (bid_index, king) = winning_bid(match_type_hash, &bid_code)?;
     if bytes::<32>(&output, OFF_KING)? != king {
         return Err(ERR_KING);
     }
@@ -150,15 +158,38 @@ fn steal(match_id: &[u8; 32], match_type_hash: &[u8; 32]) -> Result<(), i8> {
         return Err(ERR_KING);
     }
 
-    // The run is scored for the bid's owner, on a course only they get, by the game the match
-    // was opened with. It must beat the standing score, and the new score is what is recorded.
-    let tape = load_run_tape()?;
-    let score = score_run(&bytes::<32>(&input, OFF_GAME)?, run_seed(match_id, &king), &tape)?;
+    // The run is scored for the bid's owner, lap by lap, each lap on the road the chain handed out
+    // once the lap before it was sealed into the entry, by the game the match was opened with. It
+    // must beat the standing score, and the new score is what is recorded.
+    let entry = load_cell_data(bid_index, Source::Input).map_err(|_| ERR_BID)?;
+    let laps = *entry.get(OFF_BID_LAPS).ok_or(ERR_BID)?;
+    // The entry landed when its last lap was sealed. That lap must have been sealed in its window.
+    let (_, sealed_ms) = postmark(bid_index, Source::Input)?;
+    if !lap_on_time(read_u64(&entry, OFF_BID_LAP_START)?, sealed_ms) {
+        return Err(ERR_CLOCK);
+    }
+    let chain = bytes::<32>(&entry, OFF_BID_CHAIN)?;
+    let run = sealed_run(&load_run_witness()?, laps, &chain, match_id, &king)?;
+    let score = score_run(&bytes::<32>(&input, OFF_GAME)?, &run)?;
     if score <= read_u64(&input, OFF_KING_SCORE)? {
         return Err(ERR_SCORE);
     }
     if read_u64(&output, OFF_KING_SCORE)? != score {
         return Err(ERR_SCORE);
+    }
+
+    // The postmark: the match cell being spent landed when the previous steal did. If that was on
+    // time, the previous king is certified. The new king's steal is judged the same way later,
+    // against the deadline running now.
+    let (certified, certified_score) = certified_after(&input, postmark_ms(0, Source::GroupInput)?)?;
+    if bytes::<32>(&output, OFF_CERTIFIED)? != certified
+        || read_u64(&output, OFF_CERTIFIED_SCORE)? != certified_score
+    {
+        return Err(ERR_KING);
+    }
+    // This steal counts later only if it lands by now's deadline and within a lap window of the last seal.
+    if read_u64(&output, OFF_LAND_BY)? != land_by(in_deadline, sealed_ms) {
+        return Err(ERR_CLOCK);
     }
 
     let treasury = bytes::<32>(&input, OFF_TREASURY)?;
@@ -172,13 +203,15 @@ fn steal(match_id: &[u8; 32], match_type_hash: &[u8; 32]) -> Result<(), i8> {
 
 fn settle() -> Result<(), i8> {
     let input = load_cell_data(0, Source::GroupInput).map_err(|_| ERR_LEN)?;
-    if input.len() != MATCH_DATA_LEN || input[OFF_STATUS] != STATUS_LIVE {
+    if input.len() != MATCH_DATA_LEN || input[OFF_VERSION] != MATCH_VERSION || input[OFF_STATUS] != STATUS_LIVE {
         return Err(ERR_MODE);
     }
     let since = load_input_since(0, Source::GroupInput).map_err(|_| ERR_SINCE)?;
     if !since_reaches_deadline(since, read_u64(&input, OFF_DEADLINE)?) {
         return Err(ERR_SINCE);
     }
+    // The pot script pays the winner; this only makes sure the postmark it needs is present.
+    postmark_ms(0, Source::GroupInput)?;
     let treasury = bytes::<32>(&input, OFF_TREASURY)?;
     if cells_with_lock(&treasury, Source::Input)? != 1 {
         return Err(ERR_TREASURY);

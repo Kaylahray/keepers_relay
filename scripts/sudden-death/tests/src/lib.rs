@@ -14,6 +14,10 @@ use std::path::PathBuf;
 mod tests;
 #[cfg(test)]
 mod replay;
+#[cfg(test)]
+mod artillery;
+#[cfg(test)]
+mod duel;
 
 pub struct Loader(PathBuf);
 

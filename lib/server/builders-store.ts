@@ -180,3 +180,14 @@ export async function setBuilderAvatar(address: string, avatarSporeId: string | 
   if (!saved) throw new ApiError('The picture could not be saved.', 500);
   return saved;
 }
+
+/** The player gave their username back on chain: clear it here, so it no longer takes seats or shows. */
+export async function releaseBuilderName(address: string): Promise<BuilderProfile | null> {
+  if (!databaseConfigured()) return null;
+  await ensureBuilders();
+  await getDb()
+    .update(builders)
+    .set({ username: '', onboarded: false, lastSeenAt: new Date() })
+    .where(eq(builders.address, normalizeAddress(address)));
+  return getBuilder(address);
+}

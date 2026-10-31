@@ -1,13 +1,27 @@
 'use client';
 
-import Link from 'next/link';
+import { Timer } from 'lucide-react';
+import { Avatar } from '@/components/duel/Avatar';
+import { useChainPictures } from '@/components/duel/useChainPictures';
+import { Button } from '@/components/ui/Button';
+import { Ckb, HpBlocks } from '@/components/ui/kit';
 import { useEffect, useState } from 'react';
 import { fetchCrownList } from '@/lib/crown/remote';
 import { ckbWhole, GAMES, type CrownRoom } from '@/lib/crown/rooms';
-import { HeroCharacter } from '@/components/arena/HeroCharacter';
+import { ART } from '@/lib/art';
+import { getCkbClient } from '@/lib/ckb/client';
+import { replay } from '@/lib/duel/artillery';
+import { listDuels, type DuelSnapshot } from '@/lib/duel/chain';
+import { duelSeed, KIND_ARTILLERY, STATUS_LIVE, timerShrinkMs } from '@/lib/duel/codec';
+import { chainNames, nameOf } from '@/lib/registry/chain-names';
+import { duelsConfigured } from '@/lib/registry/config';
+import { bytesToHex, hexToBytes } from '@/lib/sudden-death/codec';
 
 const HERO_BLURB =
-  'Beat the best score to grab the crown. Each grab grows the prize and shortens the clock. Hold it at zero to win.';
+  'Quick arcade games against real people. Stakes sit in a smart contract, and the CKB chain replays every game before anyone is paid.';
+/** How long each live game stays on the card before the next one. */
+const ROTATE_MS = 6_000;
+const ZERO = `0x${'0'.repeat(64)}`;
 
 function clockFace(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
@@ -18,34 +32,83 @@ function clockFace(ms: number): string {
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
 }
 
-/** Live crowns first, soonest deadline first, then lobbies waiting to start. */
-function featured(rooms: CrownRoom[]): CrownRoom[] {
+/** One thing happening now: a crown (from the lobby list) or a duel (read from the chain). */
+type Happening = { kind: 'crown'; room: CrownRoom } | { kind: 'duel'; duel: DuelSnapshot };
+
+/** Live crowns first (soonest deadline), then duels being played, then open challenges and lobbies. */
+function featured(rooms: CrownRoom[], duels: DuelSnapshot[]): Happening[] {
   const live = rooms
     .filter((room) => room.status === 'live' && room.deadlineAt != null && room.deadlineAt > Date.now())
-    .sort((a, b) => (a.deadlineAt ?? 0) - (b.deadlineAt ?? 0));
-  const lobbies = rooms.filter((room) => room.status === 'lobby');
-  return [...live, ...lobbies].slice(0, 4);
+    .sort((a, b) => (a.deadlineAt ?? 0) - (b.deadlineAt ?? 0))
+    .map((room) => ({ kind: 'crown' as const, room }));
+  const fighting = duels.filter((d) => d.duel.status === STATUS_LIVE).map((duel) => ({ kind: 'duel' as const, duel }));
+  const open = duels.filter((d) => d.duel.status !== STATUS_LIVE).map((duel) => ({ kind: 'duel' as const, duel }));
+  const lobbies = rooms.filter((room) => room.status === 'lobby').map((room) => ({ kind: 'crown' as const, room }));
+  return [...live.slice(0, 3), ...fighting.slice(0, 3), ...open.slice(0, 2), ...lobbies.slice(0, 2)];
 }
 
+/** The top of the home page: the headline and the two ways in, with the players facing off beside it. */
 export function HomeHero() {
-  const [rooms, setRooms] = useState<CrownRoom[] | null>(null);
+  return (
+    <section className="mx-auto grid max-w-7xl gap-8 px-4 pt-4 md:px-8 md:pt-10 lg:grid-cols-[1fr_1.1fr] lg:items-center lg:gap-12">
+      <div className="order-2 lg:order-1">
+        <h1 className="font-poster text-[34px] font-black uppercase leading-[1.02] tracking-tight md:text-6xl">
+          Play for real CKB.
+          <br />
+          <span className="text-lime">The chain judges.</span>
+        </h1>
+        <p className="mt-5 max-w-md text-base text-mute md:text-lg">{HERO_BLURB}</p>
+        <div className="mt-8 flex flex-col gap-4 sm:flex-row">
+          <Button href="/play" size="lg">
+            Find a crown
+          </Button>
+          <Button href="/duels/new" variant="pink" size="lg">
+            Challenge someone to a duel
+          </Button>
+        </div>
+      </div>
+      <div className="order-1 -mx-4 lg:order-2 lg:mx-0">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={ART.hero}
+          alt="Two players face off with a glowing crown between them, a race car and a tank behind"
+          className="aspect-[16/10] w-full object-cover lg:clip-panel"
+        />
+      </div>
+    </section>
+  );
+}
+
+/** What is happening now, read live: crowns from the lobby, duels from the chain. Rotates every few seconds. */
+export function LiveNow() {
+  const [items, setItems] = useState<Happening[] | null>(null);
+  const [names, setNames] = useState<Map<string, string>>(new Map());
   const [active, setActive] = useState(0);
+  const [paused, setPaused] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     let stop = false;
-    const load = () => {
-      if (document.hidden) return;
-      fetchCrownList()
-        .then((list) => {
-          if (!stop) setRooms(featured(list));
-        })
-        .catch(() => {
-          if (!stop) setRooms((current) => current ?? []);
-        });
+    // The first read always runs; later polls skip while the tab is in the background.
+    const load = async (first = false) => {
+      if (!first && document.hidden) return;
+      const [rooms, duels] = await Promise.all([
+        fetchCrownList().catch(() => [] as CrownRoom[]),
+        duelsConfigured() ? listDuels(getCkbClient(), 30).catch(() => [] as DuelSnapshot[]) : Promise.resolve([] as DuelSnapshot[]),
+      ]);
+      if (stop) return;
+      setItems(featured(rooms, duels));
+      const players = duels.flatMap((d) => [bytesToHex(d.duel.challenger), bytesToHex(d.duel.opponent)]).filter((hash) => hash !== ZERO);
+      if (players.length > 0) {
+        void chainNames(getCkbClient(), players)
+          .then((found) => {
+            if (!stop) setNames(found);
+          })
+          .catch(() => undefined);
+      }
     };
-    load();
-    const poll = window.setInterval(load, 15_000);
+    void load(true);
+    const poll = window.setInterval(() => void load(), 15_000);
     const tick = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => {
       stop = true;
@@ -54,118 +117,175 @@ export function HomeHero() {
     };
   }, []);
 
-  const list = rooms ?? [];
-  const room = list[Math.min(active, Math.max(0, list.length - 1))] ?? null;
+  const list = items ?? [];
+  // Cycle through what is happening, unless the reader is looking at the card.
+  useEffect(() => {
+    if (paused || list.length < 2) return;
+    const id = window.setInterval(() => setActive((index) => (index + 1) % list.length), ROTATE_MS);
+    return () => window.clearInterval(id);
+  }, [paused, list.length]);
+  const item = list[Math.min(active, Math.max(0, list.length - 1))] ?? null;
 
   return (
-    <section className="relative isolate overflow-hidden bg-[#111]">
-      {/* The whole hero is one 3D scene: the city, the crowned character, the light. Gradients keep the words readable. */}
-      <HeroCharacter className="absolute inset-0 h-full w-full" />
-      <div className="pointer-events-none absolute inset-0 bg-[#111]/55 xl:bg-transparent xl:bg-gradient-to-r xl:from-[#111]/90 xl:via-[#111]/35 xl:to-transparent" />
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/4 bg-gradient-to-b from-transparent to-[#111]" />
-
-      <div className="relative mx-auto flex min-h-[560px] w-full max-w-[1440px] flex-col px-5 pb-16 pt-10 sm:px-10 sm:pt-12 xl:min-h-[620px] xl:pt-14">
-        <div className="grid flex-1 grid-cols-1 items-center gap-8 xl:grid-cols-[minmax(0,1fr)_minmax(300px,360px)] xl:gap-6">
-          <div className="relative z-10 max-w-xl xl:pb-8">
-            <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">
-              Live on CKB testnet
-            </p>
-            <h1 className="mt-3 font-poster text-[clamp(2.25rem,8vw,4.5rem)] uppercase leading-[0.92] text-white">
-              <span className="block sm:whitespace-nowrap">Beat the score.</span>
-              <span className="block sm:whitespace-nowrap">Take the crown.</span>
-            </h1>
-            <p className="mt-4 max-w-md text-sm font-light leading-relaxed text-white/80 sm:mt-5 sm:text-[15px] md:text-base">
-              {HERO_BLURB}
-            </p>
-            <div className="mt-7 flex flex-wrap items-center gap-x-6 gap-y-3">
-              <Link
-                href="/play"
-                className="arena-cta inline-flex h-12 items-center gap-2 pl-6 pr-10 font-poster text-base uppercase leading-none text-[#111]"
+    <section
+      aria-label="Happening now"
+      aria-roledescription="carousel"
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      onFocus={() => setPaused(true)}
+      onBlur={() => setPaused(false)}
+      className={`clip-panel relative bg-ink-2 p-5 md:p-7 ${item?.kind === 'duel' ? 'shadow-[inset_4px_0_0_#ff56f6]' : 'shadow-[inset_4px_0_0_#99ee2d]'}`}
+    >
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="inline-flex items-center gap-2 font-mono text-[11px] font-bold uppercase tracking-wider">
+          <span className="h-2 w-2 animate-pulse rounded-full bg-danger" aria-hidden="true" /> Happening now
+        </h2>
+        {list.length > 1 ? (
+          <div className="flex gap-1.5" role="tablist" aria-label="Choose a live game">
+            {list.map((entry, index) => (
+              <button
+                key={entry.kind === 'crown' ? entry.room.id : entry.duel.duelId}
+                type="button"
+                role="tab"
+                aria-selected={index === active}
+                aria-label={entry.kind === 'crown' ? `Show ${entry.room.title}` : 'Show this duel'}
+                onClick={() => setActive(index)}
+                className="grid h-6 w-8 place-items-center"
               >
-                Find a crown
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/uismod/arrow-right.svg" alt="" className="size-5" />
-              </Link>
-              <Link href="/create" className="font-poster text-sm uppercase tracking-wide text-[#99ee2d]">
-                Host one yourself
-              </Link>
-            </div>
+                <span className={`h-1.5 rounded-full transition-[width,background-color] duration-200 ${index === active ? 'w-6 bg-white' : 'w-1.5 bg-white/30'}`} />
+              </button>
+            ))}
           </div>
-
-
-          <div className="relative z-20 w-full xl:self-center">
-            <div className="border border-white/10 bg-[#111]/85 backdrop-blur-md [clip-path:polygon(0_0,100%_0,100%_92%,94%_100%,0_100%)]">
-              {rooms == null ? (
-                <div className="p-5">
-                  <p className="font-mono text-[11px] uppercase text-white/45">Loading games…</p>
-                </div>
-              ) : room ? (
-                <div className="p-5">
-                  <p className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-[#99ee2d]">
-                    {room.status === 'live' ? 'Live now' : 'Lobby open'} · {GAMES[room.game].title}
-                  </p>
-                  <p className="mt-2 truncate font-poster text-3xl uppercase leading-none text-white">{room.title}</p>
-                  <dl className="mt-4 grid grid-cols-3 gap-3 font-mono text-[10px] uppercase text-white/45">
-                    <div>
-                      <dt>Prize</dt>
-                      <dd className="mt-1 font-poster text-2xl leading-none text-[#99ee2d]">{ckbWhole(room.potShannons)}</dd>
-                    </div>
-                    <div>
-                      <dt>To beat</dt>
-                      <dd className="mt-1 font-poster text-2xl leading-none text-[#e1bf47]">{room.kingScore}</dd>
-                    </div>
-                    <div>
-                      <dt>{room.status === 'live' ? 'Time left' : 'Entry fee'}</dt>
-                      <dd className="mt-1 font-poster text-2xl leading-none text-white tabular-nums">
-                        {room.status === 'live' && room.deadlineAt != null
-                          ? clockFace(room.deadlineAt - now)
-                          : `${ckbWhole(room.feeShannons)}`}
-                      </dd>
-                    </div>
-                  </dl>
-                  <Link
-                    href={`/play/${room.id}`}
-                    className="arena-cta mt-5 inline-flex h-11 w-full items-center justify-between px-5 font-poster text-base uppercase leading-none text-[#111]"
-                  >
-                    {room.status === 'live' ? 'Play this game' : 'Take a seat'}
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src="/uismod/arrow-right.svg" alt="" className="size-5" />
-                  </Link>
-                </div>
-              ) : (
-                <div className="p-5">
-                  <p className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-[#99ee2d]">No game running</p>
-                  <p className="mt-2 font-poster text-3xl uppercase leading-none text-white">Open the first one</p>
-                  <p className="mt-3 text-sm text-white/60">Pick a clock and an entry fee.</p>
-                  <Link
-                    href="/create"
-                    className="arena-cta mt-5 inline-flex h-11 w-full items-center justify-between px-5 font-poster text-base uppercase leading-none text-[#111]"
-                  >
-                    Open a crown
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src="/uismod/arrow-right.svg" alt="" className="size-5" />
-                  </Link>
-                </div>
-              )}
-            </div>
-            {list.length > 1 ? (
-              <div className="mt-3 flex items-center gap-2" role="tablist" aria-label="Crowns">
-                {list.map((item, index) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={index === active}
-                    aria-label={`Show ${item.title}`}
-                    onClick={() => setActive(index)}
-                    className={index === active ? 'h-2 w-8 bg-[#99ee2d] transition-all' : 'size-2 bg-white/25 transition-all hover:bg-white/45'}
-                  />
-                ))}
-              </div>
-            ) : null}
+        ) : null}
+      </div>
+      {items == null ? (
+        <p className="py-4 font-mono text-[11px] uppercase text-mute">Looking for games…</p>
+      ) : item?.kind === 'crown' ? (
+        <CrownSlide room={item.room} now={now} />
+      ) : item?.kind === 'duel' ? (
+        <DuelSlide duel={item.duel} names={names} />
+      ) : (
+        <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="font-poster text-2xl font-black uppercase">Nothing running right now</p>
+            <p className="mt-1 text-sm text-mute">Open a crown for everyone, or challenge one player.</p>
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <Button href="/create" size="lg">
+              Open a crown
+            </Button>
+            <Button href="/duels/new" variant="pink" size="lg">
+              Challenge someone
+            </Button>
           </div>
         </div>
-      </div>
+      )}
     </section>
+  );
+}
+
+function CrownSlide({ room, now }: { room: CrownRoom; now: number }) {
+  const [kingPicture] = useChainPictures([room.kingHash]);
+  const live = room.status === 'live' && room.deadlineAt != null;
+  const left = live ? (room.deadlineAt ?? now) - now : 0;
+  return (
+    <div className="flex flex-col gap-5 md:flex-row md:items-center md:gap-10">
+      <div className="flex min-w-0 items-center gap-4">
+        <Avatar name={room.king ?? room.title} tone="#e1bf47" size={56} src={kingPicture} />
+        <div className="min-w-0">
+          <p className="font-mono text-[10px] uppercase tracking-wider text-lime">
+            {live ? 'Live crown' : 'Lobby open'} · {GAMES[room.game].title}
+          </p>
+          <p className="mt-1 truncate font-poster text-lg font-bold uppercase">{room.title}</p>
+          <p className="truncate text-sm text-mute">
+            {room.king ? (
+              <>
+                <span className="font-semibold text-white">{room.king}</span> holds it with <span className="font-mono font-bold text-white">{room.kingScore}</span>
+              </>
+            ) : (
+              'No crown yet. First run takes it.'
+            )}
+          </p>
+        </div>
+      </div>
+      <div className="flex flex-1 items-end gap-8">
+        <div>
+          <p className="font-mono text-[10px] uppercase tracking-wider text-mute">Prize</p>
+          <Ckb value={ckbWhole(room.potShannons)} size="lg" />
+        </div>
+        <div>
+          <p className="font-mono text-[10px] uppercase tracking-wider text-mute">{live ? 'Time left' : 'Entry'}</p>
+          {live ? (
+            <p className={`inline-flex items-center gap-1.5 font-poster text-2xl font-bold tabular-nums md:text-3xl ${left < 120_000 ? 'text-danger' : 'text-white'}`}>
+              <Timer className="h-5 w-5" aria-hidden="true" />
+              {clockFace(left)}
+            </p>
+          ) : (
+            <Ckb value={ckbWhole(room.feeShannons)} size="lg" />
+          )}
+        </div>
+      </div>
+      <Button href={`/play/${room.id}`} size="lg" className="w-full md:w-auto">
+        {live ? 'Play this crown' : 'Take a seat'}
+      </Button>
+    </div>
+  );
+}
+
+/** A duel as the chain has it now: who, what for, and how far it has got. */
+function DuelSlide({ duel: snap, names }: { duel: DuelSnapshot; names: Map<string, string> }) {
+  const { duel } = snap;
+  const live = duel.status === STATUS_LIVE;
+  const challenger = nameOf(names, bytesToHex(duel.challenger));
+  const opponentHash = bytesToHex(duel.opponent);
+  const [challengerPicture, opponentPicture] = useChainPictures([bytesToHex(duel.challenger), opponentHash === ZERO ? null : opponentHash]);
+  const opponent = opponentHash === ZERO ? 'anyone' : nameOf(names, opponentHash);
+  const artillery = duel.kind === KIND_ARTILLERY;
+  const game = artillery ? (timerShrinkMs(duel.timerMs) > 0n ? 'Artillery · Pressure' : 'Artillery') : 'Lane race';
+  const stake = Number(duel.stake / 100_000_000n);
+  // Artillery health, replayed from the shots on chain.
+  const board = artillery && live && duel.shots.length > 0 ? replay(duelSeed(hexToBytes(snap.duelId), duel.seedBlock), duel.shots) : null;
+  return (
+    <div className="flex flex-col gap-5 md:flex-row md:items-center md:gap-10">
+      <div className="flex min-w-0 items-center gap-4">
+        <div className="flex shrink-0 -space-x-3">
+          <Avatar name={challenger} tone="#99ee2d" size={56} src={challengerPicture} />
+          <Avatar name={opponent} tone="#ff56f6" size={56} src={opponentPicture} />
+        </div>
+        <div className="min-w-0">
+          <p className="font-mono text-[10px] uppercase tracking-wider text-pink">
+            {live ? 'Live duel' : 'Open challenge'} · {game}
+          </p>
+          <p className="mt-1 truncate text-sm font-semibold">
+            {challenger} <span className="text-mute">vs</span> {opponent}
+          </p>
+        </div>
+      </div>
+      <div className="flex flex-1 flex-wrap items-end gap-x-8 gap-y-4">
+        <div>
+          <p className="font-mono text-[10px] uppercase tracking-wider text-mute">Winner takes</p>
+          <Ckb value={stake * 2} size="lg" />
+        </div>
+        {board ? (
+          <div className="space-y-1.5">
+            <p className="font-mono text-[10px] uppercase tracking-wider text-mute">Shot {duel.shots.length + 1}/30</p>
+            {([0, 1] as const).map((side) => (
+              <div key={side} className="flex items-center gap-2">
+                <span className="w-14 truncate text-[11px] text-mute">{side === 0 ? challenger : opponent}</span>
+                <HpBlocks hp={board.tanks[side].hp} tone={side === 0 ? 'lime' : 'pink'} size="sm" />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div>
+            <p className="font-mono text-[10px] uppercase tracking-wider text-mute">{artillery ? 'Shots' : 'Laps'}</p>
+            <p className="font-poster text-2xl font-bold">{artillery ? `${duel.shots.length}/30` : '5'}</p>
+          </div>
+        )}
+      </div>
+      <Button href={`/duels/${snap.duelId}`} variant="pink" size="lg" className="w-full md:w-auto">
+        {live ? 'Watch this duel' : opponentHash === ZERO ? 'Take it' : 'See the challenge'}
+      </Button>
+    </div>
   );
 }

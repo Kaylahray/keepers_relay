@@ -6,8 +6,17 @@
 //! target lane and slides to it. A row that reaches the player while they overlap a blocked lane
 //! ends the run. Coins sit in open lanes. Score is distance plus coins.
 //!
+//! The road reacts to the player. Every row that appears on the horizon is drawn from random
+//! numbers stirred with the lane the player is heading for at that moment. Rows already in view
+//! never change, but two runs that choose differently soon face different roads, so a run cannot
+//! be planned from the seed alone: a bot has to search, not calculate.
+//!
 //! Tape: events of 3 bytes, `tick u16 LE ‖ lane u8`, ticks strictly increasing. An event sets the
 //! target lane at the start of that tick.
+//!
+//! A run is played in laps. Each lap after the first starts from a fresh seed that the chain hands
+//! out only once the lap before it is sealed, so nobody can see a lap before the previous one is
+//! locked in. Lane, speed, rows and score carry over from lap to lap.
 
 #![no_std]
 
@@ -21,6 +30,9 @@ pub const VIEW_DEPTH: i32 = 6_000;
 pub const EVENT_LEN: usize = 3;
 pub const MAX_EVENTS: usize = 4_096;
 pub const COIN_POINTS: u64 = 50;
+/// Laps in a full run, and the ticks in each (24 seconds).
+pub const LAPS: usize = 5;
+pub const LAP_TICKS: u32 = MAX_TICKS / LAPS as u32;
 
 const PLAYER_HALF: i32 = 280;
 const BLOCK_HALF: i32 = 440;
@@ -41,6 +53,8 @@ pub enum TapeError {
     Order,
     Lane,
     Late,
+    /// No laps, more than `LAPS`, or lap data that does not parse.
+    Laps,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -195,6 +209,7 @@ impl Run {
         if self.len == ROWS {
             return;
         }
+        self.stir();
         let double_odds = (20 + self.tick / 90).min(70);
         let blocked = if self.next() % 100 < double_odds {
             0b111 & !(1u8 << (self.next() % 3))
@@ -223,6 +238,23 @@ impl Run {
         self.len += 1;
     }
 
+    /// Starts a new lap's random numbers from its seed. Everything else carries over.
+    pub fn reseed(&mut self, seed: u64) {
+        self.rng = seed ^ 0xD1B5_4A32_D192_ED03;
+        if self.rng == 0 {
+            self.rng = 0x9E37_79B9_7F4A_7C15;
+        }
+    }
+
+    /// Mixes the lane the player is heading for into the random state, so what comes next depends
+    /// on what they chose. xorshift must never hold zero, so a zero state is replaced.
+    fn stir(&mut self) {
+        self.rng ^= (self.target as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        if self.rng == 0 {
+            self.rng = 0x9E37_79B9_7F4A_7C15;
+        }
+    }
+
     /// xorshift64*.
     fn next(&mut self) -> u32 {
         let mut x = self.rng;
@@ -234,8 +266,8 @@ impl Run {
     }
 }
 
-/// Replays a tape from a seed and returns the outcome. Events after the run ends are ignored.
-pub fn replay(seed: u64, tape: &[u8]) -> Result<Outcome, TapeError> {
+/// Checks a tape's shape: whole events, legal lanes, ticks strictly increasing and in `from..to`.
+fn validate(tape: &[u8], from: u32, to: u32) -> Result<usize, TapeError> {
     if tape.len() % EVENT_LEN != 0 {
         return Err(TapeError::Length);
     }
@@ -249,14 +281,89 @@ pub fn replay(seed: u64, tape: &[u8]) -> Result<Outcome, TapeError> {
         if lane >= LANES {
             return Err(TapeError::Lane);
         }
-        if tick >= MAX_TICKS {
+        if tick >= to {
             return Err(TapeError::Late);
         }
-        if last.is_some_and(|prev| tick <= prev) {
+        if tick < from || last.is_some_and(|prev| tick <= prev) {
             return Err(TapeError::Order);
         }
         last = Some(tick);
     }
+    Ok(count)
+}
+
+/// One lap of a run: the seed it was played on and its moves (ticks counted from the run's start).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Lap<'a> {
+    pub seed: u64,
+    pub tape: &'a [u8],
+}
+
+/// Replays the laps of a run, 1 to `LAPS` of them, and returns the outcome when the last one ends
+/// (or the run crashes). Lap `k`'s moves must fall inside lap `k`'s ticks.
+pub fn replay_laps(laps: &[Lap]) -> Result<Outcome, TapeError> {
+    if laps.is_empty() || laps.len() > LAPS {
+        return Err(TapeError::Laps);
+    }
+    let mut total = 0;
+    for (k, lap) in laps.iter().enumerate() {
+        total += validate(lap.tape, k as u32 * LAP_TICKS, (k as u32 + 1) * LAP_TICKS)?;
+    }
+    if total > MAX_EVENTS {
+        return Err(TapeError::TooMany);
+    }
+    let end = laps.len() as u32 * LAP_TICKS;
+    let mut run = Run::new(laps[0].seed);
+    let mut lap = 0;
+    let mut cursor = 0;
+    while !run.over() && run.tick() < end {
+        let k = (run.tick() / LAP_TICKS) as usize;
+        if k != lap {
+            lap = k;
+            cursor = 0;
+            run.reseed(laps[k].seed);
+        }
+        let tape = laps[k].tape;
+        let mut input = None;
+        if cursor * EVENT_LEN < tape.len() {
+            let (tick, lane) = event(tape, cursor);
+            if tick == run.tick() {
+                input = Some(lane);
+                cursor += 1;
+            }
+        }
+        run.step(input);
+    }
+    Ok(run.outcome())
+}
+
+/// Game ABI v2 input: `lap count u8`, then per lap `seed u64 LE ‖ tape length u16 LE ‖ tape`.
+pub fn replay_encoded(raw: &[u8]) -> Result<Outcome, TapeError> {
+    let count = *raw.first().ok_or(TapeError::Laps)? as usize;
+    if count == 0 || count > LAPS {
+        return Err(TapeError::Laps);
+    }
+    let mut laps = [Lap::default(); LAPS];
+    let mut at = 1;
+    for lap in laps.iter_mut().take(count) {
+        let head = raw.get(at..at + 10).ok_or(TapeError::Laps)?;
+        let mut seed = [0u8; 8];
+        seed.copy_from_slice(&head[..8]);
+        let len = u16::from_le_bytes([head[8], head[9]]) as usize;
+        at += 10;
+        let tape = raw.get(at..at + len).ok_or(TapeError::Laps)?;
+        at += len;
+        *lap = Lap { seed: u64::from_le_bytes(seed), tape };
+    }
+    if at != raw.len() {
+        return Err(TapeError::Laps);
+    }
+    replay_laps(&laps[..count])
+}
+
+/// Replays a single unlapped tape from a seed. Events after the run ends are ignored.
+pub fn replay(seed: u64, tape: &[u8]) -> Result<Outcome, TapeError> {
+    let count = validate(tape, 0, MAX_TICKS)?;
 
     let mut run = Run::new(seed);
     let mut cursor = 0;

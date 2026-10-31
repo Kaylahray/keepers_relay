@@ -1,12 +1,12 @@
 'use client';
 
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { ccc } from '@ckb-ccc/connector-react';
 import { ArenaStage } from '@/components/arena/ArenaStage';
 import { playClock, useNow } from '@/components/crown/BleedingClock';
-import { NeonPlate } from '@/components/crown/CrownCard';
+import { ChainLoader } from '@/components/arena/ChainLoader';
+import { Button } from '@/components/ui/Button';
+import { Ckb, EmptyState, StatusChip } from '@/components/ui/kit';
 import { PlayCode } from '@/components/crown/PlayCode';
 import { VerifiedSeal } from '@/components/crown/VerifiedSeal';
 import { useCrown } from '@/components/crown/useCrown';
@@ -14,6 +14,7 @@ import { useWallet } from '@/hooks/useWallet';
 import { useMyLockHash } from '@/hooks/useMyLockHash';
 import { useAuth } from '@/context/auth-provider';
 import { closeCrown } from '@/lib/crown/chain';
+import { getCkbClient } from '@/lib/ckb/client';
 import { suddenDeathConfigured } from '@/lib/registry/config';
 import { isHostWallet } from '@/lib/crown/standing';
 import { deleteCrownRemote } from '@/lib/crown/remote';
@@ -26,7 +27,6 @@ export function CrownDeskView({ id }: { id: string }) {
   const { ensureAuth } = useAuth();
   const myLockHash = useMyLockHash();
   const now = useNow(room?.status === 'live');
-  const signer = ccc.useSigner();
   const chain = suddenDeathConfigured();
   const [busy, setBusy] = useState<string | null>(null);
   const [chainError, setChainError] = useState<string | null>(null);
@@ -47,14 +47,11 @@ export function CrownDeskView({ id }: { id: string }) {
 
   async function close() {
     const current = loadCrown(id);
-    if (!current || !signer) {
-      setChainError('Connect a wallet. It only pays the closing fee.');
-      return;
-    }
+    if (!current) return;
     setBusy('Closing…');
     setChainError(null);
     try {
-      const result = await closeCrown(signer, current);
+      const result = await closeCrown(getCkbClient(), current, myLockHash);
       saveCrown(result.room);
     } catch (error) {
       setChainError(error instanceof Error ? error.message : 'Cleanup was rejected.');
@@ -66,7 +63,7 @@ export function CrownDeskView({ id }: { id: string }) {
   if (!ready) {
     return (
       <ArenaStage>
-        <p className="text-sm text-white/50">Loading the game…</p>
+        <ChainLoader title="Loading the game…" />
       </ArenaStage>
     );
   }
@@ -74,10 +71,11 @@ export function CrownDeskView({ id }: { id: string }) {
   if (!room) {
     return (
       <ArenaStage backHref="/play" backLabel="Crowns">
-        <h1 className="font-poster text-5xl uppercase text-white">{unreachable ? 'Connection lost' : 'Game not found'}</h1>
-        <p className="mt-3 text-sm text-white/55">
-          {unreachable ? 'Could not reach this game. Retrying…' : 'This game does not exist or was deleted.'}
-        </p>
+        <EmptyState
+          title={unreachable ? 'Connection lost' : 'Game not found'}
+          body={unreachable ? 'Could not reach this game. Retrying…' : 'This game does not exist or was deleted.'}
+          action={<Button href="/play">Find a crown</Button>}
+        />
       </ArenaStage>
     );
   }
@@ -86,93 +84,91 @@ export function CrownDeskView({ id }: { id: string }) {
   const counting = playClock(room.deadlineAt, now).counting;
 
   return (
-    <ArenaStage backHref="/play" backLabel="Crowns">
-      <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">Your game</p>
-      <h1 className="mt-2 font-poster text-5xl uppercase leading-none text-white sm:text-6xl">{room.title}</h1>
-      <p className="mt-3 font-mono text-[10px] uppercase text-white/45">
-        {GAMES[room.game].title} · {room.status} · {ckbWhole(room.feeShannons)} CKB entry · pot{' '}
-        {ckbWhole(room.potShannons)} CKB · {room.king ? `${room.king} holds it with ${room.kingScore}` : 'nobody yet'}
-      </p>
-      {room.status === 'lobby' ? (
-        <p className="mt-4 max-w-xl text-sm text-white/70">
-          Players join from the lobby link.{' '}
-          <Link href={`/play/${room.id}`} className="border-b border-[#99ee2d] text-[#99ee2d]">
-            Open the lobby
-          </Link>
-        </p>
-      ) : null}
-      {iHost ? (
-        <p className="mt-4 max-w-xl text-sm text-white/70">
-          You are the host.
-        </p>
-      ) : isConnected ? (
-        <p className="mt-4 max-w-xl text-sm text-white/70">You are playing in this game.</p>
-      ) : (
-        <div className="mt-4">
-          <p className="max-w-xl text-sm text-white/70">Connect a wallet to end the game.</p>
-          <button type="button" onClick={() => void ensureAuth().catch(() => undefined)} className="arena-cta mt-3 px-4 py-2 font-mono text-[11px] font-bold uppercase">
-            Connect
-          </button>
-        </div>
-      )}
-      {chain && room.matchId && room.status === 'live' && isConnected ? (
-        <div className="mt-6">
-          <button
-            type="button"
-            onClick={() => void close()}
-            disabled={Boolean(busy) || counting}
-            className="bg-[#e1bf47] px-5 py-3 font-poster text-3xl uppercase leading-none text-[#111] disabled:opacity-40"
-          >
-            {busy === 'Closing…' ? busy : 'End the game and pay the winner'}
-          </button>
-          <p className="mt-3 max-w-xl text-sm text-white/60">
-            {counting
-              ? 'You can end it once the clock runs out.'
-              : 'The prize goes to whoever holds the crown.'}
-          </p>
-        </div>
-      ) : iHost && room.status !== 'live' ? (
-        <div className="mt-6">
-          <button
-            type="button"
-            onClick={() => void removeCrown()}
-            disabled={Boolean(busy)}
-            className="border border-white/20 px-4 py-2 font-mono text-[11px] uppercase text-white/70 disabled:opacity-40"
-          >
-            {busy === 'Deleting…' ? busy : 'Delete this game'}
-          </button>
-          <p className="mt-3 max-w-xl text-sm text-white/60">
-            Removes it from the list. A live crown must be closed first.
-          </p>
-        </div>
-      ) : null}
-      {chainError ? <p className="mt-3 text-sm text-[#af2a3a]">{chainError}</p> : null}
-      <div className="mt-8">
-        <PlayCode id={room.id} size={120} />
+    <ArenaStage backHref={`/play/${room.id}`} backLabel="Back to the crown">
+      <div className="flex flex-wrap items-center gap-3">
+        <StatusChip tone={room.status === 'live' ? 'live' : room.status === 'lobby' ? 'lobby' : 'closed'}>{room.status === 'settled' ? 'Closed' : room.status}</StatusChip>
+        <span className="font-mono text-[11px] text-mute">{GAMES[room.game].title} · your game</span>
       </div>
-      <div className="mt-6 flex flex-wrap gap-2">
-        <Link href={`/play/${room.id}`} className="arena-cta px-4 py-2 font-mono text-[11px] font-bold uppercase">
-          Play
-        </Link>
-        <Link href={`/watch/${room.id}`} className="border border-[#e1bf47] px-4 py-2 font-mono text-[11px] uppercase text-[#e1bf47]">
-          Watch
-        </Link>
-      </div>
+      <h1 className="mt-3 font-poster text-3xl font-black uppercase md:text-5xl">{room.title}</h1>
 
-      <NeonPlate className="mt-6 p-4">
-        <p className="font-mono text-[10px] uppercase text-white/40">History</p>
-        <ul className="mt-3 space-y-2">
-          {room.seals.length === 0 ? (
-            <li className="text-sm text-white/40">Nobody has grabbed the crown yet.</li>
-          ) : (
-            room.seals.map((seal) => (
-              <li key={seal.id}>
-                <VerifiedSeal seal={seal} />
-              </li>
-            ))
-          )}
-        </ul>
-      </NeonPlate>
+      <div className="mt-8 grid gap-6 lg:grid-cols-[1.4fr_1fr]">
+        <div className="space-y-6">
+          <section className="clip-panel bg-ink-2 p-6 md:p-8">
+            <div className="grid gap-6 sm:grid-cols-3">
+              <div>
+                <p className="font-mono text-[11px] uppercase tracking-wider text-mute">Prize pot</p>
+                <Ckb value={ckbWhole(room.potShannons)} size="lg" className="mt-1" />
+              </div>
+              <div>
+                <p className="font-mono text-[11px] uppercase tracking-wider text-mute">Entry</p>
+                <Ckb value={ckbWhole(room.feeShannons)} size="lg" className="mt-1" />
+              </div>
+              <div>
+                <p className="font-mono text-[11px] uppercase tracking-wider text-mute">Crown holder</p>
+                <p className="mt-1 truncate font-poster text-lg font-bold">{room.king ? `${room.king} · ${room.kingScore}` : 'Nobody yet'}</p>
+              </div>
+            </div>
+            <p className="mt-6 text-sm text-mute">
+              {iHost ? 'You are the host.' : isConnected ? 'You are playing in this game.' : 'Connect a wallet to see your part in this game.'}
+              {room.status === 'lobby' ? ' Players join from the lobby link.' : ''}
+            </p>
+            {!iHost && !isConnected ? (
+              <Button className="mt-4" onClick={() => void ensureAuth().catch(() => undefined)}>
+                Connect
+              </Button>
+            ) : null}
+          </section>
+
+          {chain && room.matchId && room.status === 'live' ? (
+            <section className="clip-panel bg-gold/10 p-6">
+              <Button variant="gold" size="lg" onClick={() => void close()} disabled={Boolean(busy) || counting}>
+                {busy === 'Closing…' ? busy : 'End the game and pay the winner'}
+              </Button>
+              <p className="mt-3 max-w-xl text-sm text-mute">
+                {counting ? 'You can end it once the clock runs out.' : 'No wallet needed. The prize goes to the last player who grabbed the crown in time.'}
+              </p>
+            </section>
+          ) : iHost && room.status !== 'live' ? (
+            <section className="rounded-2xl bg-ink-2 p-6">
+              <Button variant="outline" onClick={() => void removeCrown()} disabled={Boolean(busy)}>
+                {busy === 'Deleting…' ? busy : 'Delete this game'}
+              </Button>
+              <p className="mt-3 max-w-xl text-sm text-mute">Removes it from the list. A live crown must be closed first.</p>
+            </section>
+          ) : null}
+          {chainError ? <p className="rounded-xl bg-danger/10 p-3 text-sm text-danger">{chainError}</p> : null}
+
+          <section className="rounded-2xl bg-ink-2 p-5">
+            <h2 className="font-poster text-sm font-bold uppercase">History</h2>
+            <ul className="mt-3 space-y-2">
+              {room.seals.length === 0 ? (
+                <li className="text-sm text-mute">Nobody has grabbed the crown yet.</li>
+              ) : (
+                room.seals.map((seal) => (
+                  <li key={seal.id}>
+                    <VerifiedSeal seal={seal} />
+                  </li>
+                ))
+              )}
+            </ul>
+          </section>
+        </div>
+
+        <aside className="space-y-4">
+          <div className="flex flex-col items-center rounded-2xl bg-lime p-6 text-center text-ink">
+            <p className="font-poster text-xl font-black uppercase">Scan to play</p>
+            <div className="mt-4">
+              <PlayCode id={room.id} size={160} caption={false} />
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <Button href={`/play/${room.id}`}>Play</Button>
+            <Button href={`/watch/${room.id}`} variant="ghost">
+              Big screen
+            </Button>
+          </div>
+        </aside>
+      </div>
     </ArenaStage>
   );
 }

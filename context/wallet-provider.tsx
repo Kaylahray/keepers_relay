@@ -45,7 +45,10 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     try {
       const addr = await signer.getRecommendedAddress();
       setAddress(addr);
-      const capacity = await signer.getBalance();
+      // A public node drops the odd request; one quiet retry covers it.
+      const capacity = await signer
+        .getBalance()
+        .catch(() => new Promise<void>((resolve) => setTimeout(resolve, 1500)).then(() => signer.getBalance()));
       setBalance(ccc.fixedPointToString(capacity));
     } catch (error) {
       const message =

@@ -636,6 +636,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "crowns-artillery"
+version = "0.1.0"
+dependencies = [
+ "ckb-std",
+ "crowns-artillery-core",
+]
+
+[[package]]
+name = "crowns-artillery-core"
+version = "0.1.0"
+
+[[package]]
+name = "crowns-duel-type"
+version = "0.1.0"
+dependencies = [
+ "ckb-std",
+ "sudden-death-common",
+]
+
+[[package]]
 name = "crowns-game-core"
 version = "0.1.0"
 
@@ -1793,6 +1813,7 @@ version = "0.1.0"
 dependencies = [
  "blake2b-ref",
  "ckb-testtool",
+ "crowns-artillery-core",
  "crowns-game-core",
  "serde_json",
 ]

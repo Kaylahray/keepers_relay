@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import { Button } from '@/components/ui/Button';
 import { ckbWhole, type CrownRoom } from '@/lib/crown/rooms';
 
 /**
@@ -46,7 +47,7 @@ export function CrownReceipt({ room, youWon }: { room: CrownRoom; youWon: boolea
       const dataUrl = await toPng(cardRef.current, {
         cacheBust: true,
         pixelRatio: 2,
-        backgroundColor: '#0c0c12',
+        backgroundColor: '#111111',
       });
       const link = document.createElement('a');
       link.download = fileName;
@@ -70,14 +71,14 @@ export function CrownReceipt({ room, youWon }: { room: CrownRoom; youWon: boolea
   }
 
   return (
-    <div className="mt-8 max-w-md">
-      <div ref={cardRef} className="border border-white/15 bg-[#0c0c12] p-6">
+    <div className="mt-6 max-w-md">
+      <div ref={cardRef} className="rounded-2xl bg-ink p-6">
         <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-[#99ee2d]">
           Crowns · settled
         </p>
 
-        <p className="mt-3 font-poster text-4xl uppercase leading-[0.92] text-white">
-          {youWon ? 'I held the crown' : 'The crown was taken'}
+        <p className="mt-3 font-poster text-2xl font-black uppercase leading-tight text-white">
+          {youWon ? 'I held the crown' : rounds > 0 ? 'The crown was taken' : 'Nobody took the crown'}
         </p>
 
         <p className="mt-4 text-sm leading-relaxed text-white/70">
@@ -112,21 +113,12 @@ export function CrownReceipt({ room, youWon }: { room: CrownRoom; youWon: boolea
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => void savePng()}
-          disabled={busy}
-          className="border border-white/25 px-4 py-2 font-mono text-[11px] uppercase text-white disabled:opacity-40"
-        >
+        <Button variant="ghost" size="sm" onClick={() => void savePng()} disabled={busy}>
           {busy ? 'Rendering…' : 'Save card'}
-        </button>
-        <button
-          type="button"
-          onClick={() => void copyLink()}
-          className="border border-[#99ee2d] px-4 py-2 font-mono text-[11px] uppercase text-[#99ee2d]"
-        >
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => void copyLink()}>
           {copied ? 'Copied' : 'Copy proof link'}
-        </button>
+        </Button>
       </div>
     </div>
   );

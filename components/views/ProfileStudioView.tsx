@@ -1,10 +1,12 @@
 ﻿'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { releaseBuilderName } from '@/lib/api/keeperApi';
 import {
   AlertCircle,
   CheckCircle2,
-  Loader2,
+  ArrowLeft,
   Sparkles,
   Trash2,
   UploadCloud,
@@ -16,7 +18,11 @@ import { useUsername } from '@/hooks/useUsername';
 import { useWallet } from '@/hooks/useWallet';
 import { useAuth } from '@/context/auth-provider';
 import { compressForProfile } from '@/lib/image/compress';
-import { PageShell } from '@/components/PageShell';
+import Link from 'next/link';
+import { ChainLoader } from '@/components/arena/ChainLoader';
+import { Avatar } from '@/components/duel/Avatar';
+import { Button } from '@/components/ui/Button';
+import { EmptyState } from '@/components/ui/kit';
 import { ProfileShareLink } from '@/components/ProfileShareLink';
 import { useUpsertBuilder } from '@/hooks/useBuilder';
 
@@ -64,6 +70,31 @@ export function ProfileStudioView() {
   // The studio has no bio field, so a save keeps the saved bio.
   const headline = builder?.headline ?? '';
   const [profileError, setProfileError] = useState<string | null>(null);
+  const router = useRouter();
+  // Releasing asks twice: the first tap arms it, the second signs.
+  const [releaseArmed, setReleaseArmed] = useState(false);
+  const [releasing, setReleasing] = useState(false);
+
+  async function onRelease() {
+    if (!address || releasing) return;
+    if (!releaseArmed) {
+      setReleaseArmed(true);
+      return;
+    }
+    setProfileError(null);
+    setReleasing(true);
+    try {
+      // On chain first: that is the name itself, and its CKB comes back to this wallet.
+      await onChainUsername.release();
+      await releaseBuilderName(address);
+      router.push('/join');
+    } catch (e) {
+      setProfileError(e instanceof Error ? e.message : 'Could not release the username.');
+      setReleaseArmed(false);
+    } finally {
+      setReleasing(false);
+    }
+  }
   const [settingSporeId, setSettingSporeId] = useState<string | null>(null);
 
   const profileAttempt = useRef<string | null>(null);
@@ -164,19 +195,13 @@ export function ProfileStudioView() {
 
   if (!isConnected) {
     return (
-      <PageShell
-        eyebrow="Profile studio"
-        title="Mint who you are"
-        intro="Connect your wallet to mint an avatar."
-      >
-        <button
-          type="button"
-          onClick={() => void ensureAuth().catch(() => undefined)}
-          className="neo-button bg-[#d6ff00] px-5 py-3 text-sm font-black uppercase"
-        >
-          Connect wallet
-        </button>
-      </PageShell>
+      <div className="mx-auto w-full max-w-3xl px-4 pt-6 md:px-8 md:pt-12">
+        <EmptyState
+          title="Connect first"
+          body="Connect your wallet to mint a picture and set it as your profile picture."
+          action={<Button onClick={() => void ensureAuth().catch(() => undefined)}>Connect wallet</Button>}
+        />
+      </div>
     );
   }
 
@@ -194,174 +219,146 @@ export function ProfileStudioView() {
     claimedMilestones: [],
     claimedBadgeIds: [],
   };
-
-  const studioTitle = profile.username ? `@${profile.username}` : 'Your picture';
+  const current = spore.mintedSpores.find((item) => item.id === profile.avatarSporeId)?.imageUrl ?? null;
 
   return (
-    <PageShell
-      eyebrow="Profile studio"
-      title={studioTitle}
-      intro="Mint puts the picture in your wallet. Set as profile picture is the next step, and that is what shows on your profile."
-      backHref="/profile"
-      backLabel="Profile"
-    >
+    <div className="mx-auto w-full max-w-3xl px-4 pt-6 md:px-8 md:pt-12">
+      <Link href="/profile" className="mb-6 inline-flex h-10 items-center gap-2 text-sm font-semibold text-mute hover:text-white">
+        <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Profile
+      </Link>
+      <h1 className="font-poster text-3xl font-black uppercase md:text-4xl">Edit profile</h1>
       {profile.username ? (
-        <div className="mb-6">
+        <div className="mt-4">
           <ProfileShareLink username={profile.username} />
         </div>
-      ) : null}
-      <div className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
-        <section className="neo-card bg-[#fff8e7] p-5">
-          <div className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 stroke-[3]" />
-            <h2 className="font-poster text-2xl uppercase leading-none">Mint Spore avatar</h2>
-          </div>
-          <p className="mt-2 text-xs font-semibold text-black/70">
-            Upload or pick a picture, mint it, then set it as your avatar.
-          </p>
-          <div className="mt-4 grid grid-cols-4 gap-2">
-            {LOOKS.map((look) => (
-              <button
-                key={look.id}
-                type="button"
-                onClick={() => {
-                  void portraitFile(look)
-                    .then((file) => {
-                      if (previewUrl) URL.revokeObjectURL(previewUrl);
-                      setSelectedFile(file);
-                      setPreviewUrl(URL.createObjectURL(file));
-                      setCompressionNote(null);
-                    })
-                    .catch((error) => {
-                      setProfileError(error instanceof Error ? error.message : 'Could not use that picture.');
-                    });
-                }}
-                className="aspect-square border-[3px] border-black text-xs font-black uppercase"
-                style={{ background: look.color, color: look.ink }}
-              >
-                {look.label}
-              </button>
-            ))}
-          </div>
+      ) : (
+        <p className="mt-3 text-sm text-mute">
+          No @handle yet.{' '}
+          <Link href="/join?next=/profile/edit" className="font-semibold text-lime hover:underline">
+            Claim one
+          </Link>
+          .
+        </p>
+      )}
 
+      <section className="mt-8 rounded-3xl bg-ink-2 p-5 md:p-7" aria-labelledby="pic">
+        <div className="flex items-center gap-5">
+          <Avatar name={profile.username ? `@${profile.username}` : profile.displayName} tone="#99ee2d" size={80} src={previewUrl ?? current} />
+          <div>
+            <h2 id="pic" className="font-poster text-base font-bold uppercase">
+              Profile picture
+            </h2>
+            <p className="mt-1 text-sm text-mute">Pick a look or upload your own, then mint it as a Spore NFT you own. One approval, and it stays yours.</p>
+          </div>
+        </div>
+
+        <div role="radiogroup" aria-label="Ready-made looks" className="mt-6 grid grid-cols-4 gap-3 sm:grid-cols-8">
+          {LOOKS.map((look) => (
+            <button
+              key={look.id}
+              type="button"
+              onClick={() => {
+                void portraitFile(look)
+                  .then((file) => {
+                    if (previewUrl) URL.revokeObjectURL(previewUrl);
+                    setSelectedFile(file);
+                    setPreviewUrl(URL.createObjectURL(file));
+                    setCompressionNote(null);
+                  })
+                  .catch((error) => {
+                    setProfileError(error instanceof Error ? error.message : 'Could not use that picture.');
+                  });
+              }}
+              className="grid aspect-square place-items-center rounded-2xl text-[10px] font-bold uppercase ring-offset-2 ring-offset-ink-2 transition-shadow duration-150 hover:ring-2 hover:ring-white/30"
+              style={{ background: look.color, color: look.ink }}
+            >
+              {look.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-center">
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="relative mt-4 aspect-square w-full max-w-xs border-[4px] border-black bg-[#ffe454]"
+            className="flex h-32 w-32 shrink-0 cursor-pointer flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl border-2 border-dashed border-white/20 text-sm text-mute hover:border-white/40"
           >
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={onPickFile}
-            />
+            <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={onPickFile} />
             {previewUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={previewUrl} alt="Preview" className="h-full w-full object-cover" />
+              <img src={previewUrl} alt="Your upload" className="h-full w-full object-cover" />
             ) : (
-              <div className="flex h-full flex-col items-center justify-center gap-2">
-                <UploadCloud className="h-8 w-8 stroke-[3]" />
-                <span className="text-[10px] font-black uppercase">Choose image</span>
-              </div>
+              <>
+                <UploadCloud className="h-6 w-6" aria-hidden="true" /> Upload
+              </>
             )}
           </button>
-          {compressionNote && (
-            <p className="mt-2 font-mono text-[10px] font-bold">{compressionNote}</p>
-          )}
+          <div className="flex-1">
+            {compressionNote ? <p className="font-mono text-[11px] text-mute">{compressionNote}</p> : null}
+            <Button variant="pink" className="mt-3" disabled={!selectedFile || spore.isMinting} onClick={() => void onMint()}>
+              <Sparkles className="h-4 w-4" aria-hidden="true" /> {spore.isMinting ? 'Minting…' : 'Mint as avatar'}
+            </Button>
+            {spore.status.message ? (
+              <p className={`mt-3 flex items-start gap-2 text-sm ${spore.status.type === 'error' ? 'text-danger' : 'text-lime'}`}>
+                {spore.status.type === 'error' ? <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
+                {spore.status.message}
+              </p>
+            ) : null}
+          </div>
+        </div>
+      </section>
 
-          <button
-            type="button"
-            onClick={() => void onMint()}
-            disabled={!selectedFile || spore.isMinting}
-            className="neo-button mt-4 flex w-full max-w-xs items-center justify-center gap-2 bg-[#224cff] px-4 py-3 text-sm font-black uppercase text-[#fff8e7] disabled:opacity-40"
-          >
-            {spore.isMinting ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Sparkles className="h-4 w-4 stroke-[3]" />
-            )}
-            {spore.isMinting ? 'Minting...' : 'Mint picture'}
-          </button>
-
-          {spore.status.message && (
-            <p
-              className={`mt-3 flex items-start gap-2 text-xs font-bold ${
-                spore.status.type === 'error' ? 'text-red-800' : 'text-black'
-              }`}
-            >
-              {spore.status.type === 'error' ? (
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              ) : (
-                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-              )}
-              {spore.status.message}
-            </p>
-          )}
-        </section>
-
-        <section className="neo-card bg-[#224cff] p-5 text-[#fff8e7]">
-          <h2 className="font-poster text-2xl uppercase leading-none">Pictures in this wallet</h2>
-          <p className="mt-2 text-xs font-bold text-[#d6ff00]">
-            These are pictures this wallet already holds. Set as profile picture is its own step. Burn removes one.
+      <section className="mt-6 rounded-3xl bg-ink-2 p-5 md:p-7" aria-labelledby="owned">
+        <h2 id="owned" className="font-poster text-base font-bold uppercase">
+          Pictures in this wallet
+        </h2>
+        <p className="mt-1 text-sm text-mute">Set one as your profile picture. Burning one gives its CKB back.</p>
+        {spore.isLoadingSpores ? (
+          <div className="mt-4">
+            <ChainLoader compact title="Reading your pictures…" />
+          </div>
+        ) : spore.mintedSpores.length === 0 ? (
+          <p className="mt-4 text-sm text-mute">No pictures in this wallet yet. Mint one above.</p>
+        ) : (
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {spore.mintedSpores.map((item) => {
+              const active = profile.avatarSporeId === item.id;
+              const settingThis = settingSporeId === item.id;
+              return (
+                <article key={item.id} className={`rounded-2xl bg-ink p-2 ${active ? 'ring-2 ring-lime' : ''}`}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={item.imageUrl} alt="" className="aspect-square w-full rounded-xl object-cover" />
+                  <p className="mt-2 truncate font-mono text-[10px] text-mute">
+                    {item.ckbCapacity} CKB · {Math.round(item.sizeBytes / 1024)}KB
+                  </p>
+                  <div className="mt-2 flex flex-col gap-2">
+                    <Button size="sm" variant={active ? 'ghost' : 'lime'} disabled={active || settingThis} onClick={() => void onSetAvatar(item.id)}>
+                      {settingThis ? 'Setting…' : active ? 'Your picture' : 'Set as picture'}
+                    </Button>
+                    <Button size="sm" variant="outline" disabled={spore.deletingSporeId === item.id} onClick={() => void onDelete(item.id)}>
+                      <Trash2 className="h-3 w-3" aria-hidden="true" /> Burn
+                    </Button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
+      {profile.username ? (
+        <section className="mt-6 rounded-3xl bg-ink-2 p-5 md:p-7" aria-labelledby="release">
+          <h2 id="release" className="font-poster text-base font-bold uppercase">
+            Release @{profile.username}
+          </h2>
+          <p className="mt-1 text-sm text-mute">
+            Gives the name back so anyone can claim it, and returns the CKB it locked to your wallet. You will need a new name to play.
           </p>
-          <p className="mt-2 text-xs font-bold text-[#fff8e7]">
-            Profile picture:{' '}
-            {profile.avatarSporeId ? `${profile.avatarSporeId.slice(0, 14)}...` : 'not set'}
-          </p>
-
-          {spore.isLoadingSpores ? (
-            <div className="mt-4 h-40 animate-pulse border-[3px] border-[#fff8e7] bg-[#ff4cbd]" />
-          ) : spore.mintedSpores.length === 0 ? (
-            <p className="mt-4 text-sm font-semibold">No Spores in this wallet yet. Mint one.</p>
-          ) : (
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              {spore.mintedSpores.map((item) => {
-                const active = profile.avatarSporeId === item.id;
-                const settingThis = settingSporeId === item.id;
-                return (
-                  <article
-                    key={item.id}
-                    className={`border-[3px] border-black bg-[#fff8e7] p-2 text-black ${
-                      active ? 'shadow-[5px_5px_0_#d6ff00]' : ''
-                    }`}
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={item.imageUrl}
-                      alt=""
-                      className="aspect-square w-full border-2 border-black object-cover"
-                    />
-                    <p className="mt-1 truncate font-mono text-[9px] font-bold">
-                      {item.ckbCapacity} CKB · {Math.round(item.sizeBytes / 1024)}KB
-                    </p>
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      <button
-                        type="button"
-                        disabled={active || settingThis}
-                        onClick={() => void onSetAvatar(item.id)}
-                        className="cursor-pointer border-2 border-black bg-[#d6ff00] px-2 py-1 text-[9px] font-black uppercase disabled:cursor-default disabled:opacity-40"
-                      >
-                        {settingThis ? 'Setting...' : active ? 'Profile picture' : 'Set as profile picture'}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={spore.deletingSporeId === item.id}
-                        onClick={() => void onDelete(item.id)}
-                        className="flex cursor-pointer items-center gap-1 border-2 border-black bg-[#ff4cbd] px-2 py-1 text-[9px] font-black uppercase disabled:cursor-default disabled:opacity-40"
-                      >
-                        <Trash2 className="h-3 w-3" />
-                        Burn
-                      </button>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          )}
+          <Button variant={releaseArmed ? 'danger' : 'outline'} className="mt-4" disabled={releasing} onClick={() => void onRelease()}>
+            {releasing ? 'Releasing…' : releaseArmed ? 'Tap again to release' : 'Release username'}
+          </Button>
         </section>
-      </div>
-      {profileError ? <p className="mt-4 text-sm font-bold text-[#af2a3a]">{profileError}</p> : null}
-    </PageShell>
+      ) : null}
+      {profileError ? <p className="mt-4 rounded-xl bg-danger/10 p-3 text-sm text-danger">{profileError}</p> : null}
+    </div>
   );
 }

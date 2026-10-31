@@ -1,0 +1,37 @@
+{
+  "cell_recipes": [
+    {
+      "name": "match-type",
+      "tx_hash": "0xb068b72a89e8d758c69569a1eda11c997570039c6f23226011ab64e1df55c8db",
+      "index": 0,
+      "occupied_capacity": 7003800000000,
+      "data_hash": "0x6977ef19818cc1f1bd116beda8f8f742a27947007829428f8f6bafe1540c1719",
+      "type_id": "0xfc9bfc29b98557d1edc2612a16631c16cc79b6d60c84ce78f48d9c41a7f9b834"
+    },
+    {
+      "name": "bid-type",
+      "tx_hash": "0xb068b72a89e8d758c69569a1eda11c997570039c6f23226011ab64e1df55c8db",
+      "index": 1,
+      "occupied_capacity": 6188600000000,
+      "data_hash": "0x6b248ebe54f4b78122ea9481b40bfeb4ca796b9390b7ab6ee555431305603ef0",
+      "type_id": "0xe59aa72cc7734ea2f206078be7f5a1fda15a179509bcb7c7f1a3f82dbdac21d1"
+    },
+    {
+      "name": "treasury-lock",
+      "tx_hash": "0xb068b72a89e8d758c69569a1eda11c997570039c6f23226011ab64e1df55c8db",
+      "index": 2,
+      "occupied_capacity": 5352600000000,
+      "data_hash": "0xb2d6fbcea041ffb1f48fc054fd5f7d8306b25c5ef10ee9c48e440203eaea46ff",
+      "type_id": "0xbc21a0e8dcdd34ce476ea1e40746764bdbe02a5fdbbe797556f4d3522e1eb9ac"
+    },
+    {
+      "name": "lane-runner",
+      "tx_hash": "0xb068b72a89e8d758c69569a1eda11c997570039c6f23226011ab64e1df55c8db",
+      "index": 3,
+      "occupied_capacity": 3780500000000,
+      "data_hash": "0xfb9dda098483d7d67fdbf4f26a8a65ca2e8d548a527b097c00f931a3f9040fb8",
+      "type_id": null
+    }
+  ],
+  "dep_group_recipes": []
+}

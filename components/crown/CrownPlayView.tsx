@@ -1,32 +1,46 @@
 'use client';
 
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
+import { Crown, Monitor, ShieldCheck, Timer } from 'lucide-react';
 import { ArenaCta } from '@/components/arena/ArenaPrimitives';
+import { ChainLoader } from '@/components/arena/ChainLoader';
+import { Avatar } from '@/components/duel/Avatar';
+import { useChainPictures } from '@/components/duel/useChainPictures';
+import { Button } from '@/components/ui/Button';
+import { Ckb, EmptyState, StatusChip } from '@/components/ui/kit';
+import { ART } from '@/lib/art';
 import { ArenaRailCard, ArenaStage } from '@/components/arena/ArenaStage';
 import { leftMs, playClock, useNow } from '@/components/crown/BleedingClock';
 import { VerifiedSeal } from '@/components/crown/VerifiedSeal';
 import { CrownLobby } from '@/components/crown/CrownLobby';
 import { CrownReceipt } from '@/components/crown/CrownReceipt';
 import { useCrown } from '@/components/crown/useCrown';
-import { LaneRunnerGame, type FinishedRun } from '@/components/game/LaneRunnerGame';
+import { LaneRunnerGame, type FinishedRun, type LapPlan } from '@/components/game/LaneRunnerGame';
 import { arenaCoverForSeed } from '@/lib/poster';
 import { InviteButton } from '@/components/InviteButton';
 import { HowToPlayIntro } from '@/components/explain/HowToPlayIntro';
+import { LapPanel } from '@/components/crown/LapPanel';
 import { ccc } from '@ckb-ccc/connector-react';
-import { ckbHash, runSeed } from '@/lib/sudden-death/codec';
+import { bytesToHex, ckbHash, hexToBytes, LAPS, runSeed, runSeedV1 } from '@/lib/sudden-death/codec';
+import { loadLapRun, saveLapRun } from '@/lib/crown/my-laps';
 import {
   bidRefundAt,
   closeCrown,
+  entryLap,
   expireBid,
   lockBid,
   EntryGoneError,
   isLostRace,
   MatchMovedError,
+  newSessionKey,
+  returnKeyCell,
   openMatch,
+  RoadExpiredError,
   RunBeatenError,
+  sealLap,
   stealCrown,
+  type EntryLap,
 } from '@/lib/crown/chain';
 import { forgetBid, rememberBid, rememberedBid } from '@/lib/crown/my-bid';
 import { forgetBestRun, loadBestRun, saveBestRun } from '@/lib/crown/my-run';
@@ -70,6 +84,8 @@ function fitFont(text: string, maxRem: number): string {
 
 /** Automatic resends after losing a same-moment race for the crown, before handing back to the player. */
 const RESEND_LIMIT = 3;
+/** A run sent this close to the end of the road's window might land after it, so the page stops offering it. */
+const SEND_MARGIN_MS = 30_000;
 
 function formatWait(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
@@ -99,7 +115,7 @@ function chainMessage(error: unknown, fallback: string): string {
 /** A practice course for a crown with no match cell, or a visitor with no wallet. */
 function floorSeed(roomId: string, who: string): bigint {
   const encode = (text: string) => new TextEncoder().encode(text);
-  return runSeed(ckbHash([encode(roomId)]), ckbHash([encode(who || 'guest')]));
+  return runSeedV1(ckbHash([encode(roomId)]), ckbHash([encode(who || 'guest')]));
 }
 
 export function CrownPlayView({ id }: { id: string }) {
@@ -107,6 +123,7 @@ export function CrownPlayView({ id }: { id: string }) {
   const { room, seats, ready, unreachable } = useCrown(id);
   // A connected wallet with no username is sent to /join and comes back here after claiming one.
   const named = useRequireUsername();
+  const [kingPicture] = useChainPictures([room?.kingHash]);
   const { address, formattedAddress, isConnected } = useWallet();
   const { ensureAuth, authenticated } = useAuth();
   const signer = ccc.useSigner();
@@ -218,6 +235,26 @@ export function CrownPlayView({ id }: { id: string }) {
     };
   }, [chain, room?.status, pastDeadline]);
 
+  // Once the chain allows a close, every open page sends one, so a crown pays out without anyone
+  // pressing a button or signing anything. The king has the most to lose, so their page goes
+  // first; the others wait a little and only send if the crown is still open by then.
+  const autoClosed = useRef<number | null>(null);
+  const holdsCrown = Boolean(myLockHash && room?.kingHash && room.kingHash.toLowerCase() === myLockHash.toLowerCase());
+  const closeOpen = Boolean(
+    chain && room?.matchId && room.status === 'live' && median && room.deadlineAt != null && median.at >= room.deadlineAt,
+  );
+  const autoClose = useEffectEvent(() => void closeMatch(true));
+  useEffect(() => {
+    const deadline = room?.deadlineAt;
+    if (!closeOpen || deadline == null || autoClosed.current === deadline) return;
+    const wait = holdsCrown ? 0 : 15_000 + Math.floor(Math.random() * 15_000);
+    const timer = window.setTimeout(() => {
+      autoClosed.current = deadline;
+      autoClose();
+    }, wait);
+    return () => window.clearTimeout(timer);
+  }, [closeOpen, holdsCrown, room?.deadlineAt]);
+
   // A crown with no match cell has nothing on chain to close, so its screen closes it.
   useEffect(() => {
     if (!room || room.status !== 'live' || room.deadlineAt == null) return;
@@ -237,6 +274,94 @@ export function CrownPlayView({ id }: { id: string }) {
   const savedBid = room ? rememberedBid(room.id, address) : null;
   const entryBid = room?.bidOutPoint ?? seatBid ?? savedBid;
 
+  // The run, lap by lap. Each lap's road is hidden until the chain hands it out: lap 1 when the
+  // entry lands, each later lap once the lap before it is sealed. The entry moves with every seal,
+  // so this follows its current out point; until the next lap appears the player is at the pit stop.
+  const [lapFound, setLapFound] = useState<{ entry: string; next: EntryLap } | null>(null);
+  const entryKey = entryBid ? `${entryBid.txHash}:${entryBid.index}` : null;
+  const matchIdForRoad = room?.matchId ?? null;
+  useEffect(() => {
+    if (!chain || !matchIdForRoad || !myLockHash || !entryBid || !entryKey) return;
+    let stop = false;
+    let timer = 0;
+    const look = async () => {
+      const next = await entryLap(getCkbClient(), matchIdForRoad, myLockHash, entryBid).catch(() => null);
+      if (stop) return;
+      if (next) setLapFound({ entry: entryKey, next });
+      else timer = window.setTimeout(() => void look(), 2_000);
+    };
+    void look();
+    return () => {
+      stop = true;
+      window.clearTimeout(timer);
+    };
+    // entryKey stands for entryBid, so the effect does not restart on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chain, matchIdForRoad, myLockHash, entryKey]);
+  const nextLap = lapFound && lapFound.entry === entryKey ? lapFound.next : null;
+
+  // This browser's run: the session key that seals its laps and every lap sealed so far.
+  const [runVersion, setRunVersion] = useState(0);
+  const roomKey = room?.id ?? null;
+  const lapRun = useMemo(
+    () => (roomKey && address && typeof window !== 'undefined' ? loadLapRun(roomKey, address) : null),
+    // runVersion re-reads storage after a seal or a new entry.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [roomKey, address, runVersion],
+  );
+  const sealedLaps = useMemo(() => lapRun?.laps ?? [], [lapRun]);
+  const runOver = sealedLaps.length >= LAPS || Boolean(sealedLaps.at(-1)?.crashed);
+  // The chain and this browser agree on how many laps are sealed.
+  const inSync = !nextLap || nextLap.sealed === sealedLaps.length;
+  const lapPlan = useMemo<LapPlan | null>(() => {
+    if (!matchIdForRoad || !myLockHash || !nextLap || nextLap.late || !lapRun || !inSync || runOver) return null;
+    return {
+      seeds: [...sealedLaps.map((lap) => runSeed(matchIdForRoad, myLockHash, lap.block)), nextLap.seed],
+      sealed: sealedLaps.map((lap) => hexToBytes(lap.tape)),
+    };
+  }, [matchIdForRoad, myLockHash, nextLap, lapRun, inSync, runOver, sealedLaps]);
+  // A run that can no longer be sent (its window shut, or the game ended) gives its key cell back.
+  // The laps stay remembered so the panel can still show them.
+  const runDone =
+    lapRun != null &&
+    !lapRun.keyReturned &&
+    (lapRun.finished ||
+      room?.status !== 'live' ||
+      (room.deadlineAt != null && room.deadlineAt <= now) ||
+      (nextLap != null && nextLap.windowEndsMs <= now));
+  const returning = useRef<string | null>(null);
+  const returnTries = useRef(0);
+  useEffect(() => {
+    if (!runDone || !lapRun || !signer || !address || !roomKey || returning.current === lapRun.session) return;
+    const session = lapRun.session;
+    returning.current = session;
+    void (async () => {
+      const sent = await returnKeyCell(signer.client, session as `0x${string}`, (await signer.getRecommendedAddressObj()).script);
+      if (!sent) throw new Error('The key cell is not visible yet.');
+      saveLapRun(roomKey, address, { ...lapRun, keyReturned: true });
+      setRunVersion((version) => version + 1);
+    })().catch((error: unknown) => {
+      console.warn('Key cell return failed:', error);
+      // A seal still landing holds the key cell, or the network dropped: keep trying, slower each time.
+      returnTries.current += 1;
+      window.setTimeout(retryReturn, Math.min(15_000 * returnTries.current, 60_000));
+    });
+  }, [runDone, lapRun, signer, address, roomKey]);
+  function retryReturn() {
+    returning.current = null;
+    setRunVersion((version) => version + 1);
+  }
+  useEffect(() => {
+    if (!runDone) return;
+    window.addEventListener('online', retryReturn);
+    return () => window.removeEventListener('online', retryReturn);
+  }, [runDone]);
+
+  // The best try at the lap being played. Only the lap's own moves are sealed.
+  // A crashed try only matters while it beats the best clean one: sealing it ends the run.
+  const [lapTry, setLapTry] = useState<{ lap: number; clean: FinishedRun | null; crash: FinishedRun | null } | null>(null);
+  const [stamp, setStamp] = useState<{ lap: number; at: number } | null>(null);
+
   // An entry left over after the close can come back once its refund time passes.
   useEffect(() => {
     if (!chain || room?.status !== 'settled' || !entryBid) return;
@@ -253,9 +378,11 @@ export function CrownPlayView({ id }: { id: string }) {
 
   const seed = useMemo(() => {
     if (!room) return null;
-    if (chain && room.matchId && myLockHash) return runSeed(room.matchId, myLockHash);
+    if (chain && room.matchId && myLockHash) {
+      return lapPlan ? lapPlan.seeds.at(-1)! : floorSeed(`${room.id}:practice`, myLockHash);
+    }
     return floorSeed(room.id, address.trim().toLowerCase());
-  }, [room, chain, myLockHash, address]);
+  }, [room, chain, myLockHash, address, lapPlan]);
 
   // The best finished run counts only on the course it was played on. A new course (another
   // wallet, the match cell arriving) starts the player over.
@@ -267,8 +394,24 @@ export function CrownPlayView({ id }: { id: string }) {
   );
   const fresh = bestRun && seed != null && bestRun.seed === seed ? bestRun : null;
   const best = fresh && (!storedBest || fresh.score >= storedBest.score) ? fresh : storedBest;
+  const lapIndex = lapPlan ? lapPlan.sealed.length + 1 : null;
   const onFinish = useCallback(
     (run: FinishedRun) => {
+      if (lapIndex != null) {
+        // A lap try: keep the best one for this lap until the player seals it.
+        setLapTry((current) => {
+          const tries = current && current.lap === lapIndex ? current : { lap: lapIndex, clean: null, crash: null };
+          let { clean, crash } = tries;
+          if (run.crashed) {
+            if (!crash || run.score > crash.score) crash = run;
+          } else if (!clean || run.score > clean.score) {
+            clean = run;
+          }
+          if (crash && clean && crash.score <= clean.score) crash = null;
+          return clean === tries.clean && crash === tries.crash ? tries : { lap: lapIndex, clean, crash };
+        });
+        return;
+      }
       setBest((current) => {
         const keep = current && current.seed === run.seed && current.score >= run.score ? current : run;
         if (roomId && keep === run) {
@@ -278,13 +421,13 @@ export function CrownPlayView({ id }: { id: string }) {
         return keep;
       });
     },
-    [roomId],
+    [roomId, lapIndex],
   );
 
   if (!ready) {
     return (
       <ArenaStage>
-        <p className="text-sm text-white/50">Loading the game…</p>
+        <ChainLoader title="Loading the game…" />
       </ArenaStage>
     );
   }
@@ -294,13 +437,13 @@ export function CrownPlayView({ id }: { id: string }) {
       <ArenaStage>
         {named.username && !authenticated ? (
           <>
-            <p className="text-sm text-white/60">Sign in as @{named.username} to join this crown.</p>
+            <p className="text-mute">Sign in as @{named.username} to join this crown.</p>
             <ArenaCta onClick={() => void ensureAuth().catch(() => undefined)} className="mt-4">
               Sign in
             </ArenaCta>
           </>
         ) : (
-          <p className="text-sm text-white/50">Checking your username…</p>
+          <ChainLoader title="Checking your username…" />
         )}
       </ArenaStage>
     );
@@ -309,10 +452,11 @@ export function CrownPlayView({ id }: { id: string }) {
   if (!room) {
     return (
       <ArenaStage backHref="/play" backLabel="Crowns">
-        <h1 className="font-poster text-5xl uppercase text-white">{unreachable ? 'Connection lost' : 'Game not found'}</h1>
-        <p className="mt-3 text-sm text-white/55">
-          {unreachable ? 'Could not reach this game. Retrying…' : 'This game does not exist or was deleted.'}
-        </p>
+        <EmptyState
+          title={unreachable ? 'Connection lost' : 'Game not found'}
+          body={unreachable ? 'Could not reach this game. Retrying…' : 'This game does not exist or was deleted.'}
+          action={<Button href="/play">Find a crown</Button>}
+        />
       </ArenaStage>
     );
   }
@@ -320,10 +464,7 @@ export function CrownPlayView({ id }: { id: string }) {
   if (room.legacy) {
     return (
       <ArenaStage backHref="/play" backLabel="Crowns">
-        <h1 className="font-poster text-5xl uppercase text-white">Old game</h1>
-        <p className="mt-3 max-w-md text-sm text-white/55">
-          A quiz crown from before the game update. It can no longer be played.
-        </p>
+        <EmptyState title="Old game" body="A quiz crown from before the game update. It can no longer be played." action={<Button href="/play">Find a crown</Button>} />
       </ArenaStage>
     );
   }
@@ -363,16 +504,38 @@ export function CrownPlayView({ id }: { id: string }) {
   const sinceWait =
     median != null && room.deadlineAt != null ? Math.max(0, room.deadlineAt - (median.at + (now - median.readAt))) : null;
   const shownError = !matchReady && chainError && /not on chain yet|still confirming/i.test(chainError) ? null : chainError;
-  const beats = best != null && best.score > room.kingScore;
+  const onChain = chain && Boolean(room.matchId);
+  // On chain the run is played in laps on an entry; the score is the run's score after its last sealed lap.
+  const lapMode = onChain && Boolean(entryBid);
+  const runScore = sealedLaps.at(-1)?.score ?? 0;
+  const beats = lapMode ? sealedLaps.length > 0 && runScore > room.kingScore : best != null && best.score > room.kingScore;
   // Time up means time up. The chain can only enforce "not before", so a better run would still
   // be accepted until someone closes; the app stops offering it the moment the clock hits zero.
   const timeUp = live && room.deadlineAt != null && !clock.counting;
+  const roadLeft = nextLap ? nextLap.windowEndsMs - now : null;
+  const roadOpen = roadLeft != null && roadLeft > SEND_MARGIN_MS;
   const canTake =
-    live && !entryWindow && !timeUp && beats && !iHold && isConnected && (!chain || !room.matchId || matchReady) && !busy;
+    live && !entryWindow && !timeUp && beats && !iHold && isConnected && (!onChain || (matchReady && inSync && roadOpen)) && !busy;
+  const currentLap = sealedLaps.length + 1;
+  const stamping = stamp != null && now - stamp.at < 2_600;
 
   async function lockEntry(current: CrownRoom): Promise<CrownRoom> {
     if (!signer) throw new Error('Connect your wallet to pay the entry.');
-    const next = await lockBid(signer, current);
+    // A throwaway key for this run: it seals each lap without asking the wallet.
+    if (lapRun && !lapRun.keyReturned) {
+      setBusy('Returning your last run’s key cell…');
+      // Best effort: a key cell too small to stand alone under the owner’s lock can’t go back by itself.
+      await returnKeyCell(signer.client, lapRun.session as `0x${string}`, (await signer.getRecommendedAddressObj()).script).catch(
+        () => null,
+      );
+    }
+    const session = await newSessionKey(signer.client);
+    const next = await lockBid(signer, current, session, setBusy);
+    if (address) {
+      saveLapRun(current.id, address, { session: session.secret, laps: [] });
+      setRunVersion((version) => version + 1);
+      setLapTry(null);
+    }
     saveCrown(next);
     if (address && next.bidOutPoint) {
       rememberBid(current.id, address, next.bidOutPoint);
@@ -383,6 +546,43 @@ export function CrownPlayView({ id }: { id: string }) {
       }).catch(() => undefined);
     }
     return next;
+  }
+
+  /** The entry moved (a seal spends it and makes it again): remember where it is now, everywhere. */
+  function moveEntry(point: { txHash: string; index: string }) {
+    if (!room) return;
+    const local = loadCrown(id) ?? room;
+    saveCrown({ ...local, bidOutPoint: point });
+    if (address) {
+      rememberBid(room.id, address, point);
+      void joinCrownRemote(room.id, { address, displayName: formattedAddress || 'Player', bidOutPoint: point }).catch(
+        () => undefined,
+      );
+    }
+  }
+
+  async function sealCurrentLap(kind: 'clean' | 'crash') {
+    const chosen = lapTry?.lap === sealedLaps.length + 1 ? lapTry[kind] : null;
+    if (!room || !address || !nextLap || !chosen || !lapRun) return;
+    setChainError(null);
+    const lap = sealedLaps.length + 1;
+    setBusy(`Sealing lap ${lap}…`);
+    try {
+      const point = await sealLap(getCkbClient(), nextLap.point, lapRun.session as `0x${string}`, chosen.tape, setBusy);
+      saveLapRun(room.id, address, {
+        ...lapRun,
+        laps: [...lapRun.laps, { block: nextLap.block, tape: bytesToHex(chosen.tape), score: chosen.score, crashed: chosen.crashed }],
+        sealedAt: Date.now(),
+      });
+      moveEntry(point);
+      setRunVersion((version) => version + 1);
+      setLapTry(null);
+      setStamp({ lap, at: Date.now() });
+    } catch (error) {
+      setChainError(chainMessage(error, 'The lap could not be sealed.'));
+    } finally {
+      setBusy(null);
+    }
   }
 
   function forgetEntry() {
@@ -398,7 +598,7 @@ export function CrownPlayView({ id }: { id: string }) {
   }
 
   async function takeCrown() {
-    if (!room || !best) return;
+    if (!room || (!lapMode && !best)) return;
     setChainError(null);
     try {
       await ensureAuth();
@@ -408,6 +608,7 @@ export function CrownPlayView({ id }: { id: string }) {
     }
     const name = formattedAddress || 'Player';
     if (!chain || !room.matchId) {
+      if (!best) return;
       const next = applySteal(room, best.score, name, `Run of ${best.tape.length / 3} moves (practice floor)`);
       saveCrown(next);
       void pushCrownState(next).catch(() => undefined);
@@ -420,13 +621,17 @@ export function CrownPlayView({ id }: { id: string }) {
     }
     try {
       let current = loadCrown(id) ?? room;
-      if (!current.bidOutPoint && entryBid) current = { ...current, bidOutPoint: entryBid };
-      if (!current.bidOutPoint) {
-        setBusy('Paying your entry…');
-        current = await lockEntry(current);
+      if (nextLap) current = { ...current, bidOutPoint: nextLap.point };
+      else if (!current.bidOutPoint && entryBid) current = { ...current, bidOutPoint: entryBid };
+      if (!current.bidOutPoint || sealedLaps.length === 0) {
+        setChainError('Pay to enter and seal at least one lap first.');
+        return;
       }
       setBusy('Sending your run…');
-      const run = { tape: best.tape, score: best.score };
+      const run = {
+        laps: sealedLaps.map((lap) => ({ block: hexToBytes(lap.block), tape: hexToBytes(lap.tape) })),
+        score: runScore,
+      };
       const client = signer.client;
       // Sends the run, and if another player's steal got there in the same few seconds, sends it
       // again on top of their round. The chain re-checks every try, so a resend can only win what
@@ -450,17 +655,17 @@ export function CrownPlayView({ id }: { id: string }) {
         result = await send(current);
       } catch (error) {
         if (!(error instanceof EntryGoneError)) throw error;
-        // The entry this phone remembered was used by an earlier steal (or never landed). Forget it
-        // everywhere it was kept, lock a fresh one, and send the same run once more.
+        // The entry this phone remembered was used by an earlier steal (or never landed). A run only
+        // counts on the road its own entry revealed, so a new entry means playing a new road.
         forgetEntry();
-        setBusy('Paying a new entry…');
-        current = await lockEntry({ ...current, bidOutPoint: null });
-        setBusy('Sending your run…');
-        result = await send(current);
+        throw new Error('That entry was already used. Pay a new entry for a new road.');
       }
       const named = { ...result.room, king: name };
       if (address) forgetBid(room.id, address);
-      forgetBestRun(room.id, best.seed);
+      if (best) forgetBestRun(room.id, best.seed);
+      // The run is over. Its session key is kept until the key cell is back with the player.
+      if (address && lapRun) saveLapRun(room.id, address, { ...lapRun, finished: true });
+      setRunVersion((version) => version + 1);
       saveCrown(named);
       void pushCrownState(named).catch(() => undefined);
       if (address) {
@@ -469,7 +674,7 @@ export function CrownPlayView({ id }: { id: string }) {
       setBest(null);
     } catch (error) {
       if (error instanceof MatchMovedError) saveCrown(error.room);
-      if (error instanceof RunBeatenError) {
+      if (error instanceof RunBeatenError || error instanceof RoadExpiredError) {
         setChainError(error.message);
       } else {
         setChainError(chainMessage(error, 'The run could not be sent.'));
@@ -479,21 +684,18 @@ export function CrownPlayView({ id }: { id: string }) {
     }
   }
 
-  async function closeMatch() {
+  async function closeMatch(auto = false) {
     if (!room) return;
-    if (!signer) {
-      setChainError('Connect a wallet to end the game.');
-      return;
-    }
     setBusy('Closing…');
-    setChainError(null);
+    if (!auto) setChainError(null);
     try {
-      const result = await closeCrown(signer, loadCrown(id) ?? room);
+      const result = await closeCrown(getCkbClient(), loadCrown(id) ?? room, myLockHash);
       saveCrown(result.room);
       void pushCrownState(result.room).catch(() => undefined);
     } catch (error) {
       if (error instanceof MatchMovedError) saveCrown(error.room);
-      setChainError(chainMessage(error, 'The close failed.'));
+      // An automatic close usually loses to another page that got there first, which is fine.
+      if (!auto) setChainError(chainMessage(error, 'The close failed.'));
     } finally {
       setBusy(null);
     }
@@ -547,6 +749,7 @@ export function CrownPlayView({ id }: { id: string }) {
       const next = kickoff(
         { ...opened, hostAddress: room.hostAddress ?? (address ? address.toLowerCase() : null) },
         opened.deadlineAt ?? Date.now(),
+        null,
       );
       saveCrown(next);
       await pushCrownState(next);
@@ -573,21 +776,16 @@ export function CrownPlayView({ id }: { id: string }) {
   }
 
   const closeButton =
-    chain && room.matchId && live && !confirmingOpen && isConnected ? (
-      <div className="mt-4">
-        <button
-          type="button"
-          onClick={() => void closeMatch()}
-          disabled={Boolean(busy) || clock.counting || (medianAt != null && !sinceReady)}
-          className="bg-[#e1bf47] px-5 py-3 font-poster text-2xl uppercase leading-none text-[#111] disabled:opacity-40"
-        >
+    chain && room.matchId && live && !confirmingOpen ? (
+      <div className="clip-panel mt-4 bg-gold/10 p-6">
+        <Button variant="gold" size="lg" onClick={() => void closeMatch()} disabled={Boolean(busy) || clock.counting || (medianAt != null && !sinceReady)}>
           {busy === 'Closing…' ? busy : 'End the game and pay the winner'}
-        </button>
-        <p className="mt-2 text-sm text-white/55">
+        </Button>
+        <p className="mt-3 text-sm text-mute">
           {clock.counting
             ? 'You can end it once the clock runs out.'
             : sinceReady || medianAt == null
-              ? 'The prize goes to whoever holds the crown.'
+              ? 'No wallet needed. The prize goes to the last player who grabbed the crown in time.'
               : sinceWait != null && sinceWait > 0
                 ? `Opens in about ${formatWait(sinceWait)}.`
                 : 'Opening now…'}
@@ -598,146 +796,216 @@ export function CrownPlayView({ id }: { id: string }) {
   return (
     <ArenaStage backHref="/play" backLabel="Crowns">
       {room.status !== 'settled' ? <HowToPlayIntro /> : null}
-      <section className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(260px,320px)]">
-        <div className="relative z-10 min-w-0 pb-6">
-          <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">
-            {room.title} · {GAMES[room.game].title}
-          </p>
-          {/* Three fixed columns that never wrap: a ticking clock changing width must not reflow the page. */}
-          <div className="mt-4 grid grid-cols-3 items-end gap-3 sm:gap-6">
-            <div className="min-w-0">
-              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">Prize</p>
-              <p
-                className="whitespace-nowrap font-poster uppercase leading-none tabular-nums text-[#99ee2d]"
-                style={{ fontSize: fitFont(potText, 3.75) }}
-              >
-                {potText}
-              </p>
-              <p className="font-mono text-[11px] uppercase text-white/45">CKB</p>
-            </div>
-            <div className="min-w-0">
-              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">Best score</p>
-              <p
-                className="whitespace-nowrap font-poster uppercase leading-none tabular-nums text-[#e1bf47]"
-                style={{ fontSize: fitFont(String(room.kingScore), 2.25) }}
-              >
-                {room.kingScore}
-              </p>
-              <p className="truncate font-mono text-[11px] uppercase text-white/45">
-                {room.king ? `${iHold ? 'you' : room.king}` : 'nobody yet'}
-              </p>
-            </div>
-            <div className="min-w-0 text-right">
-              <p className="truncate font-mono text-[10px] font-bold uppercase text-white/40">
-                {entryWindow ? 'Starts in' : clock.counting ? 'Time left' : live ? 'Time up' : 'Closed'}
-              </p>
-              <p
-                className={`whitespace-nowrap font-poster uppercase leading-none tabular-nums ${!entryWindow && panic ? 'text-[#af2a3a]' : 'text-white'}`}
-                style={{ fontSize: fitFont(clockText, 2.25) }}
-              >
-                {clockText}
-              </p>
-              <p className="truncate font-mono text-[11px] uppercase text-white/45">+{ckbWhole(room.feeShannons)} CKB a crown</p>
-            </div>
+      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-3">
+            {room.status === 'settled' || (live && !clock.counting && !entryWindow) ? (
+              <StatusChip tone="closed">Closed</StatusChip>
+            ) : (
+              <StatusChip tone="live">Live</StatusChip>
+            )}
+            <span className="font-mono text-[11px] text-mute">{GAMES[room.game].title}</span>
           </div>
-          {live ? (
-            <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
-              <div
-                className={`h-full rounded-full ${panic ? 'bg-[#af2a3a]' : 'bg-gradient-to-r from-[#ff56f6] to-[#406aff]'}`}
-                style={{ width: `${clockProgress}%` }}
-              />
-            </div>
+          <h1 className="mt-3 truncate font-poster text-3xl font-black uppercase md:text-5xl">{room.title}</h1>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button href={`/watch/${room.id}`} variant="outline" size="sm">
+            <Monitor className="h-4 w-4" aria-hidden="true" /> Big screen
+          </Button>
+          {iHost && live ? (
+            <Button href={`/host/${room.id}`} variant="outline" size="sm">
+              <Crown className="h-4 w-4" aria-hidden="true" /> Your game
+            </Button>
           ) : null}
+          {room.matchOutPoint ? (
+            <Button href={`/verify/${room.matchOutPoint.txHash}`} variant="outline" size="sm">
+              <ShieldCheck className="h-4 w-4" aria-hidden="true" /> Check it
+            </Button>
+          ) : null}
+        </div>
+      </div>
+      <section className="mt-8 grid items-start gap-6 lg:grid-cols-[1.4fr_1fr]">
+        <div className="relative z-10 min-w-0 space-y-6">
+          {/* Pot and clock. The numbers fit their box, so a ticking clock never reflows the page. */}
+          <section aria-label="Prize and clock" className="clip-panel bg-ink-2 p-6 md:p-8">
+            <div className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
+              <div className="min-w-0">
+                <p className="font-mono text-[11px] uppercase tracking-wider text-mute">{room.status === 'settled' ? 'Prize paid' : 'Prize pot'}</p>
+                <p className="mt-2 inline-flex items-baseline gap-1 text-gold">
+                  <span className="whitespace-nowrap font-poster font-extrabold leading-none tabular-nums" style={{ fontSize: fitFont(potText, 5) }}>
+                    {potText}
+                  </span>
+                  <span className="font-mono text-base font-bold md:text-xl">CKB</span>
+                </p>
+              </div>
+              <div className="sm:text-right">
+                <p className="font-mono text-[11px] uppercase tracking-wider text-mute">
+                  {entryWindow ? 'Starts in' : clock.counting ? 'Clock' : live ? 'Time up' : 'Closed'}
+                </p>
+                <p className={`mt-1 inline-flex items-center gap-2 whitespace-nowrap font-poster font-black tabular-nums ${!entryWindow && panic ? 'text-danger' : ''}`} style={{ fontSize: fitFont(clockText, 3) }}>
+                  <Timer className="h-7 w-7 shrink-0" aria-hidden="true" />
+                  {clockText}
+                </p>
+              </div>
+            </div>
+            {live ? (
+              <div className="mt-6 h-3 overflow-hidden rounded-full bg-white/10" role="progressbar" aria-label="Time left" aria-valuenow={Math.round(clockProgress)} aria-valuemin={0} aria-valuemax={100}>
+                <div className={`h-full rounded-full transition-[width] duration-1000 ease-linear ${panic ? 'bg-danger' : 'bg-lime'}`} style={{ width: `${clockProgress}%` }} />
+              </div>
+            ) : null}
+            <div className="mt-6 grid gap-4 sm:grid-cols-2">
+              <div className="flex items-center gap-3 rounded-2xl bg-ink p-4">
+                {room.king ? (
+                  <>
+                    <Avatar name={room.king} tone="#e1bf47" size={56} src={kingPicture} />
+                    <div className="min-w-0">
+                      <p className="text-[11px] text-mute">Crown holder</p>
+                      <p className="truncate font-poster text-base font-bold">{iHold ? 'You' : room.king}</p>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-sm text-mute">Nobody holds it yet.</p>
+                )}
+              </div>
+              <div className="rounded-2xl bg-ink p-4">
+                <p className="text-[11px] text-mute">Score to beat</p>
+                <p className="font-poster text-3xl font-black tabular-nums">{room.kingScore || '—'}</p>
+                <p className="font-mono text-[10px] text-mute">+{ckbWhole(room.feeShannons)} CKB into the pot per crown</p>
+              </div>
+            </div>
+          </section>
 
           {confirmingOpen ? (
-            <div className="mt-6">
-              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/45">Setting up the game on chain</p>
-              <h1 className="mt-2 font-poster text-6xl uppercase leading-none text-[#99ee2d] sm:text-7xl">
-                {formatWait(now - (room.openedAt ?? now))}
-              </h1>
-              <p className="mt-4 max-w-md text-base font-light leading-relaxed text-white/70">
-                Opening the match on chain, usually 20 to 90 seconds. Practise meanwhile.
-              </p>
+            <div className="clip-panel bg-ink-2">
+              <ChainLoader compact title={`Setting up the game on chain · ${formatWait(now - (room.openedAt ?? now))}`} note="Usually 20 to 90 seconds. Practise meanwhile." />
             </div>
           ) : null}
 
           {room.status === 'settled' ? (
-            <div className="mt-6">
-              <h1 className="font-poster text-[clamp(2.75rem,6vw,4.5rem)] uppercase leading-[0.92] text-white">Closed</h1>
-              <p className="mt-4 max-w-md text-base font-light leading-relaxed text-white/60">
+            <div className="clip-panel bg-gold/10 p-6">
+              <div className="grid items-center gap-6 md:grid-cols-[180px_1fr]">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={ART.win} alt="" className="mx-auto w-40 rounded-2xl md:w-full" />
+                <div>
+                  <p className="font-mono text-[11px] uppercase tracking-wider text-gold">Crown closed</p>
+                  {room.king ? (
+                    <div className="mt-3 flex items-center gap-3">
+                      <Avatar name={room.king} tone="#e1bf47" size={56} src={kingPicture} />
+                      <div>
+                        <p className="font-poster text-xl font-black uppercase">{iHold ? 'You win' : `${room.king} wins`}</p>
+                        <Ckb value={ckbWhole(room.potShannons)} size="md" />
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+              <p className="mt-4 max-w-md text-sm text-mute">
                 {room.king
                   ? `${ckbWhole(room.potShannons)} CKB went to ${iHold ? 'you' : room.king}, who held the crown at ${room.kingScore}.`
                   : 'Nobody grabbed the crown, so the host got everything back.'}
               </p>
               {room.matchOutPoint ? (
                 <>
-                  <Link
-                    href={`/verify/${room.matchOutPoint.txHash}`}
-                    className="mt-5 inline-block border border-[#99ee2d] px-5 py-3 font-poster text-xl uppercase leading-none text-[#99ee2d] hover:bg-[#99ee2d]/10"
-                  >
-                    See how it was won →
-                  </Link>
+                  <div className="mt-5 flex flex-wrap gap-3">
+                    <Button href={`/verify/${room.matchOutPoint.txHash}`} variant="pink">
+                      Check this crown
+                    </Button>
+                    <Button href="/play" variant="ghost">
+                      Find another crown
+                    </Button>
+                  </div>
                   <CrownReceipt room={room} youWon={iHold} />
                 </>
               ) : null}
               {chain && entryBid && refund.at != null && !refund.sent ? (
-                <div className="mt-6 border border-white/10 bg-white/5 p-4">
-                  <p className="text-sm text-white/70">
+                <div className="mt-6 rounded-2xl bg-ink p-4">
+                  <p className="text-sm text-mute">
                     Unused entry.{' '}
                     {now >= refund.at ? 'You can take it back now.' : `Returnable after ${new Date(refund.at).toLocaleTimeString()}.`}
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => void returnEntry()}
-                    disabled={Boolean(busy) || now < refund.at}
-                    className="mt-3 border border-[#99ee2d] px-4 py-2 font-mono text-[11px] uppercase text-[#99ee2d] disabled:opacity-40"
-                  >
+                  <Button size="sm" className="mt-3" onClick={() => void returnEntry()} disabled={Boolean(busy) || now < refund.at}>
                     {busy === 'Getting your entry back…' ? busy : 'Get my entry back'}
-                  </button>
+                  </Button>
                 </div>
               ) : null}
-              {refund.sent ? <p className="mt-4 text-sm text-[#99ee2d]">Entry returned · {refund.sent.slice(0, 18)}…</p> : null}
+              {refund.sent ? <p className="mt-4 text-sm text-lime">Entry returned · {refund.sent.slice(0, 18)}…</p> : null}
             </div>
           ) : null}
 
           {live && seed != null ? (
-            <div className="mt-6">
+            <div>
               <LaneRunnerGame
+                title={room.title}
                 seed={seed}
                 toBeat={room.kingScore}
                 onFinish={onFinish}
-                startLabel={entryWindow ? 'Practise' : iHold ? 'Practise' : 'Race for the crown'}
+                startLabel={lapPlan && roadOpen && !entryWindow ? `Race lap ${currentLap} of ${LAPS}` : 'Practise'}
+                lap={lapPlan && !entryWindow ? lapPlan : undefined}
               />
-              <div className="mt-4 border border-white/10 bg-white/5 p-4">
+              {stamping ? (
+                <div className="pointer-events-none relative z-20 -mt-40 mb-16 flex justify-center" aria-live="polite">
+                  <div className="lap-stamp clip-sm bg-lime px-6 py-3 text-center text-ink shadow-[0_0_40px_rgba(153,238,45,0.35)]">
+                    <p className="font-poster text-3xl font-black uppercase leading-none">Lap {stamp!.lap} sealed</p>
+                    <p className="mt-1 font-mono text-[10px] font-bold uppercase tracking-wider text-ink/70">on chain · no wallet needed</p>
+                  </div>
+                </div>
+              ) : null}
+              <div className="clip-panel mt-4 bg-ink-2 p-6">
                 {entryWindow ? (
                   <>
-                    <p className="font-poster text-2xl uppercase leading-none text-white">{entryBid ? 'You are in' : 'Pay to enter'}</p>
-                    <p className="mt-2 max-w-xl text-sm leading-relaxed text-white/65">
+                    <p className="font-mono text-[11px] uppercase tracking-wider text-lime">{entryBid ? 'You’re in' : 'Entry open'}</p>
+                    <p className="mt-2 font-poster text-xl font-black uppercase">{entryBid ? 'Drive 5 laps' : 'Pay to enter'}</p>
+                    <p className="mt-1 max-w-xl text-sm text-mute">
                       The round starts for everyone together. Lock your entry now.
                     </p>
-                    <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.16em] text-[#99ee2d]">
+                    <p className="mt-2 font-mono text-[10px] uppercase tracking-wider text-lime">
                       {seats.filter((seat) => seat.bidOutPoint).length} locked · {seats.length} seated
                     </p>
                   </>
                 ) : iHold ? (
-                  <p className="text-sm text-white/70">
-                    You hold the crown at {room.kingScore}. If someone beats it, take it back.
-                  </p>
+                  <div className="-m-6 flex items-start justify-between gap-4 bg-gold p-6 text-ink">
+                    <div>
+                      <p className="font-mono text-[11px] font-bold uppercase tracking-wider">You hold the crown</p>
+                      <p className="mt-2 font-poster text-2xl font-black uppercase md:text-3xl">Hold it till zero</p>
+                      <p className="mt-1 font-medium">
+                        Your score {room.kingScore} is the one to beat. {clockText} to go. If someone beats it, take it back.
+                      </p>
+                    </div>
+                    <Crown className="h-12 w-12 shrink-0 -rotate-6 fill-ink" aria-hidden="true" />
+                  </div>
+                ) : lapMode ? (
+                  <LapPanel
+                    laps={sealedLaps.map((lap) => ({ score: lap.score, crashed: lap.crashed }))}
+                    current={currentLap}
+                    cleanScore={lapTry?.lap === currentLap ? (lapTry.clean?.score ?? null) : null}
+                    crashScore={lapTry?.lap === currentLap ? (lapTry.crash?.score ?? null) : null}
+                    toBeat={room.kingScore}
+                    runOver={runOver}
+                    pitStop={!nextLap || !inSync ? (sealedLaps.length ? 'seal' : 'entry') : null}
+                    otherDevice={!lapRun}
+                    waitedSeconds={lapRun?.sealedAt ? Math.max(0, Math.floor((now - lapRun.sealedAt) / 1000)) : null}
+                    windowLeft={roadLeft != null ? Math.max(0, roadLeft - SEND_MARGIN_MS) : null}
+                    busy={Boolean(busy)}
+                    onSeal={(kind) => void sealCurrentLap(kind)}
+                    formatWait={formatWait}
+                  />
                 ) : best ? (
                   <>
-                    <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/45">Your best run</p>
-                    <p className="mt-1 font-poster text-4xl uppercase leading-none text-white">
-                      {best.score} <span className="text-2xl text-white/40">vs {room.kingScore}</span>
+                    <p className="font-mono text-[11px] uppercase tracking-wider text-lime">Your best run</p>
+                    <p className="mt-2 font-poster text-3xl font-black tabular-nums">
+                      {best.score} <span className="text-xl text-mute">vs {room.kingScore}</span>
                     </p>
-                    <p className="mt-2 max-w-xl text-sm text-white/65">
+                    <p className="mt-2 max-w-xl text-sm text-mute">
                       {beats
                         ? `That beats the crown! Grab it: ${ckbWhole(room.feeShannons)} CKB goes into the prize.`
-                        : 'Not enough yet. Your road is the same every time, so you can learn it.'}
+                        : onChain
+                          ? 'Not enough yet. Keep trying while your road is open.'
+                          : 'Not enough yet. Your road is the same every time, so you can learn it.'}
                     </p>
                   </>
                 ) : (
-                  <p className="text-sm text-white/65">
-                    Practice is free. Beat {room.kingScore} to take the crown.
+                  <p className="text-sm text-mute">
+                    {room.kingScore ? `Practice is free. Beat ${room.kingScore} to take the crown.` : 'Practice is free. Be the first to finish and the crown is yours.'}
                   </p>
                 )}
                 {!isConnected ? (
@@ -745,28 +1013,43 @@ export function CrownPlayView({ id }: { id: string }) {
                     <ArenaCta onClick={() => void ensureAuth().catch(() => undefined)}>Connect to play for the prize</ArenaCta>
                   </div>
                 ) : null}
+                {onChain && live && !timeUp && !entryWindow && !iHold && !entryBid ? (
+                  <p className="mt-3 text-sm text-mute">
+                    {`This is a practice road. Pay to enter and the chain hands you your real run, ${LAPS} laps of 24 seconds, each lap’s road revealed only once the lap before it is sealed.`}
+                  </p>
+                ) : null}
                 {cellMoving ? (
-                  <p className="mt-3 text-sm text-white/60">Someone just grabbed the crown. Updating…</p>
+                  <div className="mt-3">
+                    <ChainLoader inline title={iHold ? 'Your grab is landing on chain…' : 'Someone just grabbed the crown. Updating…'} />
+                  </div>
                 ) : null}
                 {timeUp ? (
-                  <p className="mt-3 text-sm text-[#e1bf47]">
+                  <p className="mt-3 rounded-xl bg-gold/10 p-3 text-sm text-gold">
                     Time&apos;s up. {room.king ? `${iHold ? 'You hold' : `${room.king} holds`} the crown at ${room.kingScore}.` : 'Nobody took the crown.'}
                   </p>
                 ) : null}
-                {beats && !entryWindow && !timeUp && !iHold && isConnected ? (
+                {beats && !entryWindow && !timeUp && !iHold && isConnected && (!onChain || lapMode) && !(roadLeft != null && !roadOpen) ? (
                   <div className="mt-4">
                     <ArenaCta onClick={() => void takeCrown()} disabled={!canTake}>
-                      {busy ?? (entryBid || !chain || !room.matchId ? `Grab the crown with ${best?.score}` : `Pay to enter and grab the crown`)}
+                      {busy ??
+                        (lapMode && (!nextLap || !inSync)
+                          ? `Grab with ${runScore} once your seal lands…`
+                          : `Grab the crown with ${lapMode ? runScore : best?.score}`)}
                     </ArenaCta>
+                    {lapMode && !runOver ? (
+                      <p className="mt-2 text-xs text-mute">Grabbing now ends your run with the laps sealed so far.</p>
+                    ) : null}
                   </div>
                 ) : null}
-                {entryWindow && chain && room.matchId && isConnected && matchReady && !entryBid ? (
+                {onChain && live && !timeUp && !iHold && isConnected && matchReady && (!entryBid || (nextLap && inSync && !roadOpen)) ? (
                   <div className="mt-4">
                     <ArenaCta
                       onClick={() => {
                         setBusy('Paying your entry…');
                         setChainError(null);
-                        void lockEntry(loadCrown(id) ?? room)
+                        // A spent road's entry is still refunded at the close; this one gets a new road.
+                        if (entryBid) forgetEntry();
+                        void lockEntry({ ...(loadCrown(id) ?? room), bidOutPoint: null })
                           .catch((error: unknown) => {
                             if (error instanceof MatchMovedError) saveCrown(error.room);
                             setChainError(chainMessage(error, 'The entry payment failed.'));
@@ -775,7 +1058,7 @@ export function CrownPlayView({ id }: { id: string }) {
                       }}
                       disabled={Boolean(busy)}
                     >
-                      {busy ?? 'Pay to enter'}
+                      {busy ?? (entryBid ? 'Pay a new entry' : 'Pay to enter')}
                     </ArenaCta>
                   </div>
                 ) : null}
@@ -784,37 +1067,15 @@ export function CrownPlayView({ id }: { id: string }) {
             </div>
           ) : null}
 
-          {shownError ? <p className="mt-4 max-w-md text-sm text-[#af2a3a]">{shownError}</p> : null}
-          {busy && live ? <p className="mt-3 font-mono text-[10px] uppercase text-white/50">{busy}</p> : null}
-          <div className="mt-6 flex gap-4">
-            <Link href={`/watch/${room.id}`} className="border-b border-[#bef970] pb-1 text-sm font-bold uppercase text-white">
-              Watch →
-            </Link>
-            {iHost && live ? (
-              <Link href={`/host/${room.id}`} className="border-b border-[#e1bf47] pb-1 text-sm font-bold uppercase text-[#e1bf47]">
-                Your game →
-              </Link>
-            ) : null}
-          </div>
-          {room.seals[0] ? (
-            <div className="mt-4">
-              <VerifiedSeal seal={room.seals[0]} />
-            </div>
-          ) : null}
-          {room.matchOutPoint ? (
-            <Link
-              href={`/verify/${room.matchOutPoint.txHash}`}
-              className="mt-4 inline-block font-mono text-[10px] uppercase tracking-wider text-white/40 underline decoration-white/20 hover:text-[#99ee2d]"
-            >
-              Check this crown yourself
-            </Link>
-          ) : null}
+          {shownError ? <p className="rounded-xl bg-danger/10 p-3 text-sm text-danger">{shownError}</p> : null}
+          {busy && live ? <ChainLoader inline title={busy} /> : null}
+          {room.seals[0] ? <VerifiedSeal seal={room.seals[0]} /> : null}
         </div>
 
-        <aside className="relative z-10 border-t border-white/10 pt-6 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
+        <aside className="relative z-10 space-y-6">
           {matchOver ? (
-            <div className="mb-6 border-b border-white/10 pb-6">
-              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-[#99ee2d]">Play another game</p>
+            <div className="rounded-2xl bg-ink-2 p-5">
+              <h2 className="font-poster text-sm font-bold uppercase">Play another game</h2>
               {nextCrowns.length > 0 ? (
                 <ul className="mt-4 space-y-2.5">
                   {nextCrowns.map((item) => (
@@ -831,19 +1092,16 @@ export function CrownPlayView({ id }: { id: string }) {
                   ))}
                 </ul>
               ) : (
-                <p className="mt-3 text-sm text-white/55">No other game is running right now.</p>
+                <p className="mt-3 text-sm text-mute">No other game is running right now.</p>
               )}
-              <Link
-                href="/create"
-                className="mt-4 inline-flex font-mono text-[11px] font-bold uppercase text-[#99ee2d]"
-              >
-                Host your own →
-              </Link>
+              <Button href="/create" size="sm" className="mt-4">
+                Host your own
+              </Button>
             </div>
           ) : null}
           {live && !matchOver ? (
             // Mid-match sharing: the link carries this round, so the preview shows today's score.
-            <div className="mb-6">
+            <div>
               <InviteButton
                 url={crownShareUrl(room)}
                 title={room.title}
@@ -852,16 +1110,23 @@ export function CrownPlayView({ id }: { id: string }) {
               />
             </div>
           ) : null}
-          <div>
-            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/40">Feed</p>
-            <ul className="mt-2 space-y-1.5">
-              {room.feed.slice(0, 6).map((item) => (
-                <li key={item.id} className={`text-xs ${item.good ? 'text-white/70' : 'text-white/40'}`}>
-                  {item.text}
-                </li>
-              ))}
-            </ul>
-          </div>
+          <section aria-labelledby="steals" className="rounded-2xl bg-ink-2 p-5">
+            <h2 id="steals" className="font-poster text-sm font-bold uppercase">
+              Crown steals
+            </h2>
+            {room.feed.length ? (
+              <ol className="mt-4 space-y-2">
+                {room.feed.slice(0, 8).map((item, index) => (
+                  <li key={`${item.id}-${index}`} className={`flex items-center gap-3 rounded-xl p-2.5 ${index === 0 && item.good ? 'bg-gold/10' : ''}`}>
+                    <Crown className={`h-4 w-4 shrink-0 ${item.good ? 'fill-gold text-gold' : 'text-mute'}`} aria-hidden="true" />
+                    <p className={`flex-1 text-sm ${item.good ? 'text-white' : 'text-mute'}`}>{item.text}</p>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="mt-3 text-sm text-mute">No steals yet. The first run takes the crown.</p>
+            )}
+          </section>
         </aside>
       </section>
     </ArenaStage>

@@ -1,55 +1,46 @@
 @import "tailwindcss";
 
 :root {
-  --font-body: "Outfit", system-ui, sans-serif;
-  --font-dm-mono: "DM Mono", ui-monospace, monospace;
+  --font-body: "Inter", system-ui, sans-serif;
+  --font-dm-mono: "JetBrains Mono", ui-monospace, monospace;
   --font-instrument-serif: "Instrument Serif", Georgia, serif;
-  --font-display: "Orbitron", Impact, sans-serif;
+  --font-display: "Unbounded", system-ui, sans-serif;
 
-  /* Uismod-adapted Keepers palette */
   --arena: #111111;
-  --arena-elevated: #1a1a1a;
+  --arena-elevated: #191919;
   --arena-glass: rgba(255, 255, 255, 0.08);
-  --ink: #ffffff;
-  --muted: rgba(255, 255, 255, 0.55);
-  --blitz: #af2a3a;
-  --quest: #e1bf47;
-  --archive: #49b649;
   --lime: #99ee2d;
-  --lime-soft: #bef970;
   --lime-pale: #f5ffe6;
-  --lime-deep: #46810a;
-  --cta-from: #99ee2d;
-  --cta-mid: #99ee2d;
-  --cta-to: #bef970;
-  --cta-end: #99ee2d;
-  --paper: #f5ffe6;
-  --acid: #99ee2d;
-  --cobalt: #406aff;
-  --pink: #ff56f6;
-  --orange: #f15d09;
-  --sun: #e1bf47;
+}
+
+/* The arcade palette: ink surfaces, a colour per mode, gold for prizes, blue for the chain. */
+@theme {
+  --color-ink: #111111;
+  --color-ink-2: #191919;
+  --color-ink-3: #232323;
+  --color-ink-4: #2d2d2d;
+  --color-line: #333333;
+  --color-mute: #a6a6a6;
+  --color-lime: #99ee2d;
+  --color-lime-deep: #5c9c14;
+  --color-pink: #ff56f6;
+  --color-pink-deep: #b02aa9;
+  --color-gold: #e1bf47;
+  --color-gold-deep: #9a7f22;
+  --color-chain: #406aff;
+  --color-chain-deep: #2443b3;
+  --color-chain-soft: #8ea6ff;
+  --color-danger: #ff5a5a;
+  --color-danger-deep: #a32a2a;
+  --color-fire: #ff8a1f;
+  --color-fire-deep: #b85a06;
+  --font-display: "Unbounded", system-ui, sans-serif;
+  --ease-snap: cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 @theme inline {
-  --color-arena: var(--arena);
-  --color-arena-elevated: var(--arena-elevated);
-  --color-ink: var(--ink);
-  --color-muted: var(--muted);
-  --color-blitz: var(--blitz);
-  --color-quest: var(--quest);
-  --color-archive: var(--archive);
-  --color-lime: var(--lime);
-  --color-paper: var(--paper);
-  --color-acid: var(--acid);
-  --color-cobalt: var(--cobalt);
-  --color-pink: var(--pink);
-  --color-orange: var(--orange);
-  --color-sun: var(--sun);
   --font-sans: var(--font-body);
   --font-mono: var(--font-dm-mono);
-  --font-serif-display: var(--font-instrument-serif);
-  --font-poster: var(--font-display);
 }
 
 html,
@@ -59,8 +50,8 @@ body {
 
 body {
   margin: 0;
-  background: var(--arena);
-  color: var(--ink);
+  background: #111111;
+  color: #ffffff;
   font-family: var(--font-body), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
@@ -73,9 +64,26 @@ body {
   font-family: var(--font-dm-mono), ui-monospace, monospace;
 }
 
+/* Headings: the wide arcade display face. */
 .font-poster {
-  font-family: var(--font-display), Impact, sans-serif;
-  letter-spacing: -0.02em;
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+/* Clipped corners for panels, like an arcade cabinet's cards. */
+.clip-panel {
+  clip-path: polygon(16px 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%, 0 16px);
+}
+.clip-sm {
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  scrollbar-width: none;
 }
 
 .bg-arena {
@@ -92,20 +100,52 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
+/* Duel power slider: a fat thumb-sized track that fills as power rises (--fill set inline) */
+.duel-power {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #ff8a1f 0%, #ff8a1f var(--fill, 50%), #2d2d2d var(--fill, 50%));
+}
+.duel-power::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+  background: #ff8a1f;
+  border: 3px solid #fff;
+  cursor: pointer;
+}
+.duel-power::-moz-range-thumb {
+  width: 24px;
+  height: 24px;
+  border-radius: 10px;
+  background: #ff8a1f;
+  border: 3px solid #fff;
+  cursor: pointer;
+}
+
 /* Uismod lime CTA — dark text on neon green */
 .arena-cta {
   background: var(--lime);
   border: none;
-  box-shadow: 0 0 17px rgba(153, 238, 45, 0.3);
+  filter: drop-shadow(0 0 12px rgba(153, 238, 45, 0.35));
   color: #111 !important;
-  clip-path: polygon(0 0, calc(100% - 18px) 0, 100% 50%, calc(100% - 18px) 100%, 0 100%);
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-weight: 700;
+  clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 50%, calc(100% - 16px) 100%, 0 100%);
   padding-right: 2.25rem;
-  transition: transform 160ms ease, filter 160ms ease;
+  transition: transform 150ms cubic-bezier(0.23, 1, 0.32, 1), filter 150ms ease, box-shadow 150ms ease;
 }
 
 .arena-cta:hover:not(:disabled) {
-  transform: translateY(-2px);
   filter: brightness(1.08);
+}
+
+.arena-cta:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: none;
 }
 
 .arena-cta-light {
@@ -125,6 +165,30 @@ body {
 
 .pot-pulse {
   animation: pot-pulse 2.4s ease-in-out infinite;
+}
+
+/* A lap sealed on chain: the stamp slams down, holds, then fades. */
+.lap-stamp {
+  animation: lap-stamp 2.6s cubic-bezier(0.2, 0.9, 0.3, 1.2) forwards;
+}
+
+@keyframes lap-stamp {
+  0% {
+    opacity: 0;
+    transform: scale(2.4) rotate(-14deg);
+  }
+  14% {
+    opacity: 1;
+    transform: scale(1) rotate(-8deg);
+  }
+  80% {
+    opacity: 1;
+    transform: scale(1) rotate(-8deg);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.96) rotate(-8deg);
+  }
 }
 
 @keyframes pot-pulse {
@@ -230,3 +294,89 @@ button:disabled {
     scroll-behavior: auto !important;
   }
 }
+
+/* The "turn your phone" hint: tips the phone over to landscape and back */
+@keyframes turn-phone {
+  0%, 20% { transform: rotate(0deg); }
+  50%, 70% { transform: rotate(-90deg); }
+  100% { transform: rotate(0deg); }
+}
+
+/* ChainLoader: blocks light up in turn, like blocks landing on the chain */
+@keyframes chain-loader-block {
+  0%, 100% { background: #4a1f48; transform: scale(1); }
+  50% { background: #ff56f6; transform: scale(1.12); }
+}
+@keyframes chain-loader-link {
+  0%, 100% { background: rgba(255, 86, 246, 0.25); }
+  50% { background: rgba(255, 86, 246, 0.8); }
+}
+.chain-loader-block { background: #4a1f48; animation: chain-loader-block 1.2s ease-in-out infinite; }
+.chain-loader-link { animation: chain-loader-link 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .chain-loader-block, .chain-loader-link { animation-duration: 4s; }
+}
+
+/* The 2D battlefield's effects: a blast that bursts and fades, smoke, a jolted tank, a shaking field. */
+.field-blast-outer,
+.field-blast-inner,
+.field-smoke,
+.field-damage,
+.field-tank-hit,
+.field-wreck-smoke {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.field-blast-outer { animation: field-blast 0.55s cubic-bezier(0.23, 1, 0.32, 1) forwards; }
+.field-blast-inner { animation: field-blast 0.45s cubic-bezier(0.23, 1, 0.32, 1) forwards; }
+@keyframes field-blast {
+  0% { transform: scale(0.3); opacity: 1; }
+  70% { opacity: 0.9; }
+  100% { transform: scale(1.1); opacity: 0; }
+}
+.field-smoke { opacity: 0; animation: field-smoke 0.9s ease-out forwards; }
+@keyframes field-smoke {
+  0% { transform: translateY(0) scale(0.5); opacity: 0.8; }
+  100% { transform: translateY(-36px) scale(1.4); opacity: 0; }
+}
+.field-damage { animation: field-damage 1.2s ease-out forwards; }
+@keyframes field-damage {
+  0% { transform: translateY(8px) scale(0.6); opacity: 0; }
+  15% { transform: translateY(0) scale(1.15); opacity: 1; }
+  70% { opacity: 1; }
+  100% { transform: translateY(-24px) scale(1); opacity: 0; }
+}
+.field-tank-hit { animation: field-tank-hit 0.5s ease-out; }
+@keyframes field-tank-hit {
+  0%, 100% { transform: translateX(0); filter: none; }
+  15% { transform: translateX(-6px); filter: brightness(2.2); }
+  35% { transform: translateX(6px); filter: brightness(1.6); }
+  55% { transform: translateX(-4px); }
+  75% { transform: translateX(3px); }
+}
+.field-wreck-smoke { animation: field-wreck-smoke 1.8s ease-out infinite; }
+@keyframes field-wreck-smoke {
+  0% { transform: translateY(0) scale(0.6); opacity: 0.7; }
+  100% { transform: translateY(-40px) scale(1.6); opacity: 0; }
+}
+.field-shake { animation: field-shake 0.35s ease-out; }
+@keyframes field-shake {
+  0%, 100% { transform: translate(0, 0); }
+  20% { transform: translate(-6px, 3px); }
+  40% { transform: translate(5px, -3px); }
+  60% { transform: translate(-3px, 2px); }
+  80% { transform: translate(2px, -1px); }
+}
+
+/* Lane runner (2D): the dashed lane lines scroll while driving. */
+@keyframes road-scroll {
+  from { background-position-y: 0; }
+  to { background-position-y: 80px; }
+}
+.road-lines {
+  background-image: repeating-linear-gradient(to bottom, rgba(255, 255, 255, 0.55) 0 40px, transparent 40px 80px);
+  background-size: 4px 80px;
+  background-repeat: repeat-y;
+}
+.road-lines.moving { animation: road-scroll 0.35s linear infinite; }
+.runner-crash { animation: field-shake 0.4s ease-out; }

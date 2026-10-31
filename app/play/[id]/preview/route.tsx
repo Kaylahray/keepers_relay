@@ -35,7 +35,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
           flexDirection: 'column',
           justifyContent: 'space-between',
           padding: '64px 72px',
-          background: 'linear-gradient(135deg, #0b0b12 0%, #1a0f2b 60%, #2a0f3d 100%)',
+          background: 'linear-gradient(135deg, #111111 0%, #191919 60%, #232323 100%)',
           color: '#ffffff',
           fontFamily: 'sans-serif',
         }}

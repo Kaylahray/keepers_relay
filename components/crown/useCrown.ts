@@ -41,6 +41,7 @@ function mergeCrown(
   if (local && ahead(local, remote, Date.now())) {
     return {
       ...local,
+      feed: remote.feed.length ? remote.feed : local.feed,
       hostAddress: local.hostAddress ?? remote.hostAddress,
       bidOutPoint: keptBid(local, seatBid),
     };

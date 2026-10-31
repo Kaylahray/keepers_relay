@@ -1,16 +1,16 @@
 import * as THREE from 'three';
-import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
-import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { createCarRig } from '@/lib/game/apex/car-model';
 import { LANE, type LaneRow } from '@/lib/game/lane-runner';
 
 /**
- * The lane runner drawn as a night drive: your car in three lanes of a neon road between city
- * buildings. Only the drawing changes. Every position comes from the same rules the chain replays
- * (the car's x, each row's distance, blocked lanes and coin), so what you see is what is scored.
+ * The lane runner drawn as a daytime highway: your car in three lanes of asphalt, grass verges,
+ * trees and a town going by, striped road barriers to dodge and gold coins to grab. Only the
+ * drawing changes. Every position comes from the same rules the chain replays (the car's x, each
+ * row's distance, blocked lanes and coin), so what you see is what is scored.
  *
  * Everything is built from simple shapes and generated textures: no model or image files.
+ * (The file keeps its first name, from when the drive was set at night.)
  */
 
 export type DriveState = {
@@ -31,25 +31,25 @@ export type NightDrive = {
 const LANE_UNITS = 2.4; // one lane, in scene units
 const Z_SCALE = 0.012; // a row's distance in rule units -> scene depth
 const ROAD_HALF = LANE_UNITS * 1.5 + 0.6;
-const BUILDINGS = 64;
-const CITY_LENGTH = 132;
+const ROAD_LENGTH = 220;
+const BUILDINGS = 40;
+const TREES = 56;
+const SCENERY_LENGTH = 132;
 const DASH_GAP = 4;
 const DASHES = 24;
+/** One tile of asphalt or grass texture, in scene units, so the ground scrolls at road speed. */
+const TILE = 4;
 
 const COLORS = {
-  sky: '#0d0420',
-  fog: 0x1a0733,
-  road: 0x07060f,
-  lane: 0x99ee2d,
-  edge: 0xff56f6,
-  barrier: 0xff2bd6,
-  coin: 0xffcf3a,
-  body: 0x14161f,
-  glow: 0x406aff,
-  tail: 0xff2244,
+  fog: 0xcfe6f5,
+  grass: 0x6aaa45,
+  line: 0xffffff,
+  body: 0x1f4fd1,
+  crashed: 0xaf2a3a,
+  coin: 0xffc533,
 };
 
-/** The rules' speed, mirrored only to scroll the road markings; rows move by themselves. */
+/** The rules' speed, mirrored only to scroll the road; rows move by themselves. */
 function speedAt(tick: number): number {
   return Math.min(220, 60 + 2 * Math.floor(tick / 45));
 }
@@ -65,7 +65,7 @@ function canvasTexture(width: number, height: number, paint: (ctx: CanvasRenderi
   return texture;
 }
 
-/** A small deterministic generator for the city's layout, so it looks the same every load. */
+/** A small deterministic generator for the scenery's layout, so it looks the same every load. */
 function layout(seed: number) {
   let s = seed >>> 0 || 1;
   return () => {
@@ -76,8 +76,24 @@ function layout(seed: number) {
   };
 }
 
-/** Accent colours for the road edges, lane dashes and the car's underglow. The game uses the default. */
-export type DriveTheme = { edge: number; lane: number; glow: number };
+/** Speckles of `colors` over `base`, repeating without seams. */
+function speckle(base: string, colors: string[], count: number, seed: number) {
+  const texture = canvasTexture(128, 128, (ctx) => {
+    ctx.fillStyle = base;
+    ctx.fillRect(0, 0, 128, 128);
+    const rand = layout(seed);
+    for (let i = 0; i < count; i += 1) {
+      ctx.fillStyle = colors[i % colors.length]!;
+      ctx.fillRect(rand() * 128, rand() * 128, 1 + rand() * 2, 1 + rand() * 2);
+    }
+  });
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  return texture;
+}
+
+/** Colours for the road lines. The game uses the default (white). */
+export type DriveTheme = { edge: number; lane: number };
 
 export type DriveOptions = {
   theme?: Partial<DriveTheme>;
@@ -86,7 +102,7 @@ export type DriveOptions = {
 };
 
 export function createNightDrive(canvas: HTMLCanvasElement, options: DriveOptions = {}): NightDrive | null {
-  const theme: DriveTheme = { edge: COLORS.edge, lane: COLORS.lane, glow: COLORS.glow, ...options.theme };
+  const theme: DriveTheme = { edge: COLORS.line, lane: COLORS.line, ...options.theme };
   let renderer: THREE.WebGLRenderer;
   try {
     renderer = new THREE.WebGLRenderer({
@@ -102,209 +118,224 @@ export function createNightDrive(canvas: HTMLCanvasElement, options: DriveOption
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, small ? 1.5 : 2));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
 
-  const scene = new THREE.Scene();
-  scene.background = canvasTexture(4, 256, (ctx) => {
-    const sky = ctx.createLinearGradient(0, 0, 0, 256);
-    sky.addColorStop(0, '#05010d');
-    sky.addColorStop(0.55, '#1a0733');
-    sky.addColorStop(1, '#4a0f5c');
-    ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, 4, 256);
-  });
-  scene.fog = new THREE.Fog(COLORS.fog, 28, 92);
-
-  const camera = new THREE.PerspectiveCamera(62, 1, 0.1, 220);
-  camera.position.set(0, 3.4, 7.4);
-  camera.lookAt(0, 0.2, -16);
-
   const disposables: { dispose(): void }[] = [];
   const keep = <T extends { dispose(): void }>(thing: T) => {
     disposables.push(thing);
     return thing;
   };
 
-  // Sun: a striped disc low on the horizon, ignoring fog so it stays bright.
-  const sunTexture = keep(
-    canvasTexture(256, 256, (ctx) => {
-      const glow = ctx.createLinearGradient(0, 0, 0, 256);
-      glow.addColorStop(0, '#ffd86b');
-      glow.addColorStop(0.6, '#ff5ab0');
-      glow.addColorStop(1, '#a12cff');
-      ctx.fillStyle = glow;
-      ctx.beginPath();
-      ctx.arc(128, 128, 126, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalCompositeOperation = 'destination-out';
-      for (let i = 0; i < 7; i += 1) {
-        const y = 140 + i * 16;
-        ctx.fillRect(0, y, 256, 3 + i * 1.4);
-      }
+  const scene = new THREE.Scene();
+  scene.background = keep(
+    canvasTexture(4, 256, (ctx) => {
+      const sky = ctx.createLinearGradient(0, 0, 0, 256);
+      sky.addColorStop(0, '#3f8fd8');
+      sky.addColorStop(0.55, '#8cc6f0');
+      sky.addColorStop(0.85, '#d9eef8');
+      sky.addColorStop(1, '#fbeed2');
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, 0, 4, 256);
     }),
   );
-  const sun = new THREE.Mesh(
-    keep(new THREE.CircleGeometry(16, 48)),
-    keep(new THREE.MeshBasicMaterial({ map: sunTexture, transparent: true, fog: false })),
-  );
-  sun.position.set(0, 7, -150);
-  scene.add(sun);
+  scene.fog = new THREE.Fog(COLORS.fog, 40, 125);
 
-  // Ground and road.
-  const ground = new THREE.Mesh(
-    keep(new THREE.PlaneGeometry(240, 240)),
-    keep(new THREE.MeshBasicMaterial({ color: 0x090313 })),
-  );
+  const camera = new THREE.PerspectiveCamera(62, 1, 0.1, 220);
+  camera.position.set(0, 3.4, 7.4);
+  camera.lookAt(0, 0.2, -16);
+
+  // Daylight: a soft sky, a warm sun, and a studio reflection for the car's paint and glass.
+  const pmrem = keep(new THREE.PMREMGenerator(renderer));
+  const room = new RoomEnvironment();
+  scene.environment = keep(pmrem.fromScene(room, 0.04).texture);
+  scene.environmentIntensity = 0.6;
+  room.dispose();
+  scene.add(new THREE.HemisphereLight(0xdcefff, 0x6b8f4a, 1.5));
+  const sunLight = new THREE.DirectionalLight(0xfff3dc, 2.4);
+  sunLight.position.set(-6, 12, 6);
+  scene.add(sunLight);
+
+  // Grass either side, and the asphalt road with its painted lines. Both scroll with the drive.
+  const grassMap = keep(speckle('#6aaa45', ['#5c9a3a', '#7dbb52', '#4f8a33'], 900, 3));
+  grassMap.repeat.set(60, 60);
+  const ground = new THREE.Mesh(keep(new THREE.PlaneGeometry(240, 240)), keep(new THREE.MeshLambertMaterial({ map: grassMap })));
   ground.rotation.x = -Math.PI / 2;
   ground.position.set(0, -0.02, -90);
   scene.add(ground);
 
-  const grid = new THREE.GridHelper(240, 60, 0x5a1b8c, 0x2a0b45);
-  grid.position.set(0, -0.01, -90);
-  scene.add(grid);
-  keep(grid.geometry);
-  keep(grid.material as THREE.Material);
-
+  const asphaltMap = keep(speckle('#45484e', ['#3a3d42', '#55585e', '#2f3236', '#62656b'], 1400, 5));
+  asphaltMap.repeat.set(2, ROAD_LENGTH / TILE);
   const road = new THREE.Mesh(
-    keep(new THREE.PlaneGeometry(ROAD_HALF * 2, 220)),
-    keep(new THREE.MeshBasicMaterial({ color: COLORS.road })),
+    keep(new THREE.PlaneGeometry(ROAD_HALF * 2, ROAD_LENGTH)),
+    keep(new THREE.MeshLambertMaterial({ map: asphaltMap })),
   );
   road.rotation.x = -Math.PI / 2;
   road.position.set(0, 0, -100);
   scene.add(road);
 
-  const edgeMaterial = keep(new THREE.MeshBasicMaterial({ color: theme.edge }));
+  // Solid edge lines, and a pale concrete kerb where the road meets the grass.
+  const edgeMaterial = keep(new THREE.MeshLambertMaterial({ color: theme.edge }));
+  const kerbMaterial = keep(new THREE.MeshLambertMaterial({ color: 0xd8d4cb }));
   for (const side of [-1, 1]) {
-    const edge = new THREE.Mesh(keep(new THREE.BoxGeometry(0.12, 0.05, 220)), edgeMaterial);
-    edge.position.set(side * ROAD_HALF, 0.03, -100);
+    const edge = new THREE.Mesh(keep(new THREE.BoxGeometry(0.16, 0.02, ROAD_LENGTH)), edgeMaterial);
+    edge.position.set(side * (ROAD_HALF - 0.3), 0.01, -100);
     scene.add(edge);
+    const kerb = new THREE.Mesh(keep(new THREE.BoxGeometry(0.35, 0.14, ROAD_LENGTH)), kerbMaterial);
+    kerb.position.set(side * (ROAD_HALF + 0.17), 0.07, -100);
+    scene.add(kerb);
   }
 
   // Lane dashes between the three lanes, scrolled by the distance driven.
   const dashes = new THREE.InstancedMesh(
-    keep(new THREE.BoxGeometry(0.1, 0.03, 1.4)),
-    keep(new THREE.MeshBasicMaterial({ color: theme.lane })),
+    keep(new THREE.BoxGeometry(0.14, 0.02, 1.6)),
+    keep(new THREE.MeshLambertMaterial({ color: theme.lane })),
     DASHES * 2,
   );
   scene.add(dashes);
 
-  // City: instanced towers on both sides with lit windows, scrolling past.
-  const windows = keep(
+  // A town set back from the road: pale walls with windows, in a few soft colours.
+  const facade = keep(
     canvasTexture(64, 128, (ctx) => {
-      ctx.fillStyle = '#0b0618';
+      ctx.fillStyle = '#efe9dc';
       ctx.fillRect(0, 0, 64, 128);
-      const rand = layout(7);
-      for (let y = 4; y < 124; y += 8) {
-        for (let x = 4; x < 60; x += 8) {
-          const lit = rand();
-          if (lit < 0.45) continue;
-          ctx.fillStyle = lit > 0.9 ? '#ff7ae6' : lit > 0.75 ? '#7ad7ff' : '#ffd86b';
-          ctx.fillRect(x, y, 4, 4);
+      for (let y = 6; y < 122; y += 12) {
+        for (let x = 6; x < 58; x += 14) {
+          ctx.fillStyle = '#5d7fa3';
+          ctx.fillRect(x, y, 8, 7);
+          ctx.fillStyle = 'rgba(255,255,255,0.35)';
+          ctx.fillRect(x, y, 8, 2);
         }
       }
     }),
   );
-  windows.wrapS = THREE.RepeatWrapping;
-  windows.wrapT = THREE.RepeatWrapping;
-  windows.repeat.set(1, 2);
-  const towers = new THREE.InstancedMesh(
+  facade.wrapS = THREE.RepeatWrapping;
+  facade.wrapT = THREE.RepeatWrapping;
+  facade.repeat.set(1, 2);
+  const buildings = new THREE.InstancedMesh(
     keep(new THREE.BoxGeometry(1, 1, 1)),
-    keep(new THREE.MeshBasicMaterial({ map: windows })),
+    keep(new THREE.MeshLambertMaterial({ map: facade })),
     BUILDINGS,
   );
-  const towerBase: { x: number; z: number; w: number; h: number; d: number }[] = [];
+  const buildingBase: { x: number; z: number; w: number; h: number; d: number }[] = [];
   {
     const rand = layout(1234);
     const tint = new THREE.Color();
+    const palette = [0xf3d9b1, 0xe8c4c4, 0xc9dbe8, 0xd7e4c4, 0xf0e6d2, 0xd9cbe6];
     for (let i = 0; i < BUILDINGS; i += 1) {
       const side = i % 2 === 0 ? -1 : 1;
-      const w = 2.4 + rand() * 3.4;
-      const h = 4 + rand() * rand() * 26;
-      const d = 2.4 + rand() * 3;
-      const x = side * (ROAD_HALF + 3 + w / 2 + rand() * 9);
-      const z = -(i / BUILDINGS) * CITY_LENGTH;
-      towerBase.push({ x, z, w, h, d });
-      tint.setHSL(0.72 + rand() * 0.2, 0.6, 0.55 + rand() * 0.3);
-      towers.setColorAt(i, tint);
+      const w = 3 + rand() * 4;
+      const h = 4 + rand() * rand() * 18;
+      const d = 3 + rand() * 3;
+      const x = side * (ROAD_HALF + 13 + w / 2 + rand() * 14);
+      const z = -(i / BUILDINGS) * SCENERY_LENGTH;
+      buildingBase.push({ x, z, w, h, d });
+      tint.setHex(palette[Math.floor(rand() * palette.length)]!);
+      buildings.setColorAt(i, tint);
     }
   }
-  scene.add(towers);
+  scene.add(buildings);
 
-  // Barriers and coins, pooled: at most three barriers and one coin per row on screen.
+  // Trees along the verges, close enough to give a feeling of speed.
+  const foliage = new THREE.InstancedMesh(
+    keep(new THREE.ConeGeometry(1, 1, 8)),
+    keep(new THREE.MeshLambertMaterial({ color: 0xffffff })),
+    TREES,
+  );
+  const trunks = new THREE.InstancedMesh(
+    keep(new THREE.CylinderGeometry(0.12, 0.16, 1, 6)),
+    keep(new THREE.MeshLambertMaterial({ color: 0x7a5232 })),
+    TREES,
+  );
+  const treeBase: { x: number; z: number; r: number; h: number }[] = [];
+  {
+    const rand = layout(77);
+    const tint = new THREE.Color();
+    for (let i = 0; i < TREES; i += 1) {
+      const side = i % 2 === 0 ? -1 : 1;
+      treeBase.push({
+        x: side * (ROAD_HALF + 2 + rand() * 8),
+        z: -(i / TREES) * SCENERY_LENGTH,
+        r: 0.8 + rand() * 0.7,
+        h: 2.6 + rand() * 2.2,
+      });
+      tint.setHSL(0.27 + rand() * 0.07, 0.5, 0.3 + rand() * 0.12);
+      foliage.setColorAt(i, tint);
+    }
+  }
+  scene.add(foliage, trunks);
+
+  // Barriers (red and white road blocks) and coins, pooled: at most three barriers and one coin per row on screen.
   const MAX_ROWS = 20;
   const BARRIER_CAP = MAX_ROWS * LANE.LANES;
   const COIN_CAP = MAX_ROWS;
+  const stripes = keep(
+    canvasTexture(128, 32, (ctx) => {
+      ctx.fillStyle = '#f4f4f4';
+      ctx.fillRect(0, 0, 128, 32);
+      ctx.fillStyle = '#e0262f';
+      for (let x = -32; x < 160; x += 32) {
+        ctx.beginPath();
+        ctx.moveTo(x, 32);
+        ctx.lineTo(x + 16, 32);
+        ctx.lineTo(x + 32, 0);
+        ctx.lineTo(x + 16, 0);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }),
+  );
   const barriers = new THREE.InstancedMesh(
     keep(new THREE.BoxGeometry(LANE_UNITS * 0.82, 0.95, 0.5)),
-    keep(new THREE.MeshBasicMaterial({ color: COLORS.barrier })),
+    keep(new THREE.MeshLambertMaterial({ map: stripes })),
     BARRIER_CAP,
   );
   scene.add(barriers);
   const barrierTops = new THREE.InstancedMesh(
     keep(new THREE.BoxGeometry(LANE_UNITS * 0.84, 0.1, 0.54)),
-    keep(new THREE.MeshBasicMaterial({ color: 0xffd1fb })),
+    keep(new THREE.MeshLambertMaterial({ color: 0x3a3d42 })),
     BARRIER_CAP,
   );
   scene.add(barrierTops);
   const coins = new THREE.InstancedMesh(
     keep(new THREE.CylinderGeometry(0.42, 0.42, 0.12, 24)),
-    keep(new THREE.MeshBasicMaterial({ color: COLORS.coin })),
+    keep(new THREE.MeshStandardMaterial({ color: COLORS.coin, metalness: 0.85, roughness: 0.3, emissive: 0x5a3a00 })),
     COIN_CAP,
   );
   scene.add(coins);
 
-  // The car: a low body, a cabin, wheels, tail lights and a blue underglow.
+  // The car: the Apex GT, built in code (lib/game/apex, from the "Apex GT" AI Studio app).
   const car = new THREE.Group();
-  const bodyMaterial = keep(new THREE.MeshBasicMaterial({ color: COLORS.body }));
-  const body = new THREE.Mesh(keep(new THREE.BoxGeometry(1.5, 0.42, 2.7)), bodyMaterial);
-  body.position.y = 0.42;
-  car.add(body);
-  const cabin = new THREE.Mesh(
-    keep(new THREE.BoxGeometry(1.1, 0.38, 1.25)),
-    keep(new THREE.MeshBasicMaterial({ color: 0x2a3550 })),
+  const apex = createCarRig({ paintColor: COLORS.body, accentColor: 0xffffff, headlightsOn: false });
+  keep(apex);
+  // The rig faces +Z and is a real 4.7 m long; the road runs away from the camera toward -Z and a
+  // lane is 2.4 units wide, so it is turned round and scaled to fill a lane.
+  apex.root.rotation.y = Math.PI;
+  apex.root.scale.setScalar(0.68);
+  for (const lamp of apex.lights.taillightPointLights) lamp.intensity = 0.2;
+  car.add(apex.root);
+  let paintCrashed = false;
+  let wheelTurn = 0;
+  // A soft contact shadow under the car, so it sits on the road.
+  const shadow = new THREE.Mesh(
+    keep(new THREE.PlaneGeometry(2.1, 3.6)),
+    keep(
+      new THREE.MeshBasicMaterial({
+        map: keep(
+          canvasTexture(64, 128, (ctx) => {
+            const blob = ctx.createRadialGradient(32, 64, 4, 32, 64, 60);
+            blob.addColorStop(0, 'rgba(0,0,0,0.55)');
+            blob.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = blob;
+            ctx.fillRect(0, 0, 64, 128);
+          }),
+        ),
+        transparent: true,
+        depthWrite: false,
+      }),
+    ),
   );
-  cabin.position.set(0, 0.8, 0.15);
-  car.add(cabin);
-  const stripe = new THREE.Mesh(
-    keep(new THREE.BoxGeometry(1.52, 0.05, 2.72)),
-    keep(new THREE.MeshBasicMaterial({ color: theme.lane })),
-  );
-  stripe.position.y = 0.56;
-  car.add(stripe);
-  const tailMaterial = keep(new THREE.MeshBasicMaterial({ color: COLORS.tail }));
-  for (const side of [-0.5, 0.5]) {
-    const tail = new THREE.Mesh(keep(new THREE.BoxGeometry(0.42, 0.1, 0.05)), tailMaterial);
-    tail.position.set(side, 0.5, 1.37);
-    car.add(tail);
-  }
-  const wheelGeometry = keep(new THREE.CylinderGeometry(0.26, 0.26, 0.22, 16));
-  const wheelMaterial = keep(new THREE.MeshBasicMaterial({ color: 0x050505 }));
-  for (const [x, z] of [
-    [-0.78, -0.85],
-    [0.78, -0.85],
-    [-0.78, 0.85],
-    [0.78, 0.85],
-  ]) {
-    const wheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
-    wheel.rotation.z = Math.PI / 2;
-    wheel.position.set(x, 0.26, z);
-    car.add(wheel);
-  }
-  const underglow = new THREE.Mesh(
-    keep(new THREE.PlaneGeometry(1.9, 3.1)),
-    keep(new THREE.MeshBasicMaterial({ color: theme.glow, transparent: true, opacity: 0.55 })),
-  );
-  underglow.rotation.x = -Math.PI / 2;
-  underglow.position.y = 0.02;
-  car.add(underglow);
+  shadow.rotation.x = -Math.PI / 2;
+  shadow.position.y = 0.015;
+  car.add(shadow);
   scene.add(car);
-
-  // Glow: bloom makes every bright colour bleed into the dark. Off on phones to keep it smooth.
-  let composer: EffectComposer | null = null;
-  if (!small) {
-    composer = new EffectComposer(renderer);
-    composer.addPass(new RenderPass(scene, camera));
-    composer.addPass(new UnrealBloomPass(new THREE.Vector2(256, 256), 0.55, 0.45, 0.35));
-    composer.addPass(new OutputPass());
-  }
 
   const matrix = new THREE.Matrix4();
   const spin = new THREE.Quaternion();
@@ -327,12 +358,14 @@ export function createNightDrive(canvas: HTMLCanvasElement, options: DriveOption
     width = w;
     height = h;
     renderer.setSize(w, h, false);
-    composer?.setSize(w, h);
     camera.aspect = w / Math.max(1, h);
     // Narrow screens need a wider view to keep all three lanes in frame.
     camera.fov = camera.aspect < 0.75 ? 74 : 62;
     camera.updateProjectionMatrix();
   }
+
+  /** Where a piece of scenery is now: it slides toward the camera and wraps round to the far end. */
+  const scrolled = (z: number, travelled: number) => ((((z + travelled) % SCENERY_LENGTH) + SCENERY_LENGTH) % SCENERY_LENGTH) - SCENERY_LENGTH + 8;
 
   function render(state: DriveState, now: number) {
     resize();
@@ -346,30 +379,53 @@ export function createNightDrive(canvas: HTMLCanvasElement, options: DriveOption
     const targetX = (state.x / LANE.LANE_W - 1) * LANE_UNITS;
     carX += (targetX - carX) * 0.35;
     car.position.x = carX;
-    car.rotation.z = (carX - targetX) * 0.08;
-    bodyMaterial.color.setHex(state.crashed ? 0xaf2a3a : COLORS.body);
+    // Steer into the move, lean on the suspension, and turn the wheels with the distance driven.
+    wheelTurn = travelled / (0.33 * 0.68);
+    apex.update({ steeringAngle: (targetX - carX) * 0.35, bodyRoll: (carX - targetX) * 0.09, wheelSpin: wheelTurn });
+    if (state.crashed !== paintCrashed) {
+      paintCrashed = state.crashed;
+      apex.setPaintColor(state.crashed ? COLORS.crashed : COLORS.body);
+    }
+
+    // The ground under the car runs toward the camera.
+    asphaltMap.offset.y = (travelled / TILE) % 1;
+    grassMap.offset.y = ((travelled / 240) * 60) % 1;
 
     // Lane dashes.
     for (let i = 0; i < DASHES; i += 1) {
       const z = -((i * DASH_GAP - (travelled % DASH_GAP)) % (DASHES * DASH_GAP)) + 2;
       for (const [k, side] of [-0.5, 0.5].entries()) {
-        matrix.makeTranslation(side * LANE_UNITS, 0.02, z);
+        matrix.makeTranslation(side * LANE_UNITS, 0.01, z);
         dashes.setMatrixAt(i * 2 + k, matrix);
       }
     }
     dashes.instanceMatrix.needsUpdate = true;
 
-    // City scrolling past at road speed.
+    // Town and trees going by at road speed.
     for (let i = 0; i < BUILDINGS; i += 1) {
-      const b = towerBase.at(i);
+      const b = buildingBase.at(i);
       if (!b) continue;
-      const z = (((b.z + travelled * 0.9) % CITY_LENGTH) + CITY_LENGTH) % CITY_LENGTH - CITY_LENGTH + 8;
-      position.set(b.x, b.h / 2, z);
+      position.set(b.x, b.h / 2, scrolled(b.z, travelled * 0.9));
       size.set(b.w, b.h, b.d);
       matrix.compose(position, upright, size);
-      towers.setMatrixAt(i, matrix);
+      buildings.setMatrixAt(i, matrix);
     }
-    towers.instanceMatrix.needsUpdate = true;
+    buildings.instanceMatrix.needsUpdate = true;
+    for (let i = 0; i < TREES; i += 1) {
+      const t = treeBase.at(i);
+      if (!t) continue;
+      const z = scrolled(t.z, travelled);
+      position.set(t.x, 0.6 + t.h / 2, z);
+      size.set(t.r, t.h, t.r);
+      matrix.compose(position, upright, size);
+      foliage.setMatrixAt(i, matrix);
+      position.set(t.x, 0.4, z);
+      size.set(1, 0.8, 1);
+      matrix.compose(position, upright, size);
+      trunks.setMatrixAt(i, matrix);
+    }
+    foliage.instanceMatrix.needsUpdate = true;
+    trunks.instanceMatrix.needsUpdate = true;
 
     // Barriers and coins, exactly where the rules put them.
     let barrierCount = 0;
@@ -406,19 +462,17 @@ export function createNightDrive(canvas: HTMLCanvasElement, options: DriveOption
     camera.position.set(carX * 0.35 + shake, 3.4, 7.4);
     camera.lookAt(carX * 0.2, 0.2, -16);
 
-    if (composer) composer.render();
-    else renderer.render(scene, camera);
+    renderer.render(scene, camera);
   }
 
   function dispose() {
-    composer?.dispose();
     for (const thing of disposables) thing.dispose();
     renderer.dispose();
   }
 
   // Pools are sized for the most rows at once; counts are set each frame. Three works out whether a
   // pool is on screen once, from its first (empty) contents, so pooled meshes are always drawn.
-  for (const pooled of [dashes, towers, barriers, barrierTops, coins]) pooled.frustumCulled = false;
+  for (const pooled of [dashes, buildings, foliage, trunks, barriers, barrierTops, coins]) pooled.frustumCulled = false;
   barriers.count = 0;
   barrierTops.count = 0;
   coins.count = 0;

@@ -45,3 +45,8 @@ export function clearAvatarIfSpore(address: string, sporeId: string) {
 export function getPlayerStats(address: string): Promise<PlayerStats> {
   return request<PlayerStats>(`/api/builders/${encodeURIComponent(address)}/stats`);
 }
+
+/** Clears the released username from the profile (after the on-chain release). */
+export function releaseBuilderName(address: string) {
+  return post<BuilderProfile | null>(`/api/builders/${encodeURIComponent(address)}/release`, {});
+}

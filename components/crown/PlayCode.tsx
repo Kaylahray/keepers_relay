@@ -8,7 +8,7 @@ function noSubscription() {
 }
 
 /** Same job as the prototype watch code: a phone scans this and opens the play page. */
-export function PlayCode({ id, size = 160 }: { id: string; size?: number }) {
+export function PlayCode({ id, size = 160, caption = true }: { id: string; size?: number; /** The "Scan to play" line under the code. */ caption?: boolean }) {
   // The origin is only known in the browser; the server renders the empty placeholder.
   const origin = useSyncExternalStore(noSubscription, () => window.location.origin, () => '');
   const url = origin ? `${origin}/play/${id}` : '';
@@ -17,11 +17,11 @@ export function PlayCode({ id, size = 160 }: { id: string; size?: number }) {
 
   return (
     <div>
-      <div className="w-fit bg-white p-3">
+      <div className="mx-auto w-fit rounded-2xl bg-white p-3">
         <QRCodeSVG value={url} size={size} fgColor="#111111" bgColor="#ffffff" />
       </div>
-      <p className="mt-3 font-poster text-2xl uppercase leading-none text-white">Scan to play</p>
-      <p className="mt-2 break-all text-sm text-white/70">{url.replace(/^https?:\/\//, '')}</p>
+      {caption ? <p className="mt-3 font-poster text-xl font-black uppercase leading-none">Scan to play</p> : null}
+      <p className="mt-2 break-all text-center font-mono text-sm font-bold opacity-80">{url.replace(/^https?:\/\//, '')}</p>
     </div>
   );
 }

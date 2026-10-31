@@ -2,16 +2,29 @@
 
 import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { ArrowLeft } from 'lucide-react';
 import { ArenaStage } from '@/components/arena/ArenaStage';
-import { NeonPlate } from '@/components/crown/CrownCard';
+import { ChainLoader } from '@/components/arena/ChainLoader';
+import { CrownCard } from '@/components/crown/CrownCard';
+import { Button } from '@/components/ui/Button';
+import { ChoiceChip, EmptyState, Stepper } from '@/components/ui/kit';
+import { ART } from '@/lib/art';
 import { useWallet } from '@/hooks/useWallet';
 import { useUsername } from '@/hooks/useUsername';
 import { useRequireUsername } from '@/hooks/useRequireUsername';
 import { publishCrown } from '@/lib/crown/remote';
-import { DEFAULT_DURATION_MS, FLOOR_CROWN, GAMES, saveCrown, sealCrown, type CrownSetup, type GameId } from '@/lib/crown/rooms';
+import { DEFAULT_DURATION_MS, FLOOR_CROWN, GAMES, saveCrown, sealCrown, type CrownRoom, type CrownSetup, type GameId } from '@/lib/crown/rooms';
 import { registryConfigured } from '@/lib/registry/config';
 
-const STEPS = ['Game', 'Clock', 'Lobby'] as const;
+const STEPS = ['Game', 'Entry fee', 'Clock', 'Title'] as const;
+const FEES = [5, 10, 20, 50];
+const CLOCKS = [
+  { label: '15 min', minutes: 15 },
+  { label: '30 min', minutes: 30 },
+  { label: '1 hour', minutes: 60 },
+  { label: '6 hours', minutes: 360 },
+];
+const FIELD = 'w-full rounded-xl bg-ink-2 px-4 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-lime';
 const MAX_MINUTES = 48 * 60;
 
 function minutesOf(durationMs?: number): number {
@@ -57,7 +70,7 @@ export function OpenCrownView() {
   if (!isReady || (isConnected && registryConfigured() && nameLoading)) {
     return (
       <ArenaStage backHref="/play" backLabel="Crowns">
-        <p className="font-mono text-xs uppercase text-white/50">Checking your wallet…</p>
+        <ChainLoader title="Checking your wallet…" />
       </ArenaStage>
     );
   }
@@ -65,11 +78,7 @@ export function OpenCrownView() {
   if (!isConnected) {
     return (
       <ArenaStage backHref="/play" backLabel="Crowns">
-        <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">Host</p>
-        <h1 className="mt-3 font-poster text-5xl uppercase text-white">Connect first</h1>
-        <p className="mt-3 max-w-md text-sm text-white/60">
-          Connect your wallet in the header to host.
-        </p>
+        <EmptyState title="Connect first" body="Connect your wallet in the header to host a crown." />
       </ArenaStage>
     );
   }
@@ -77,167 +86,218 @@ export function OpenCrownView() {
   if (registryConfigured() && !onChainUsername?.username) {
     return (
       <ArenaStage backHref="/play" backLabel="Crowns">
-        <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">Host</p>
-        <h1 className="mt-3 font-poster text-5xl uppercase text-white">Claim a username</h1>
-        <p className="mt-3 max-w-md text-sm text-white/60">Claim a username to host.</p>
-        <a href="/join?next=/create" className="arena-cta mt-6 inline-flex px-4 py-2 font-mono text-[11px] font-bold uppercase">
-          Claim a username
-        </a>
+        <EmptyState title="Claim a username" body="Players see your name on the crown. Claim one to host." action={<Button href="/join?next=/create">Claim a username</Button>} />
       </ArenaStage>
     );
   }
 
+  const fee = Number(setup.feeShannons / 100_000_000n);
+  const minutes = minutesOf(setup.durationMs);
+  // What the lobby will look like, without opening anything yet.
+  const preview: CrownRoom = {
+    id: 'preview',
+    title: setup.title.trim() || 'Your crown',
+    feeShannons: setup.feeShannons,
+    durationMs: setup.durationMs,
+    game: setup.game,
+    status: 'lobby',
+    round: 0,
+    potShannons: 0n,
+    king: null,
+    kingScore: 0,
+    openedAt: null,
+    deadlineAt: null,
+    feed: [],
+    seals: [],
+    matchId: null,
+    hostLockHash: null,
+    hostLock: null,
+    matchOutPoint: null,
+    treasuryOutPoint: null,
+    bidOutPoint: null,
+    kingLock: null,
+    hostAddress: null,
+  };
+
+  const open = () => {
+    const host = address.toLowerCase();
+    const sealed = { ...sealCrown(setup), hostAddress: host };
+    saveCrown(sealed);
+    setSealing(true);
+    setShareError(null);
+    void publishCrown(sealed, host)
+      .then(() => router.push(`/play/${sealed.id}`))
+      .catch((error: unknown) => {
+        setShareError(error instanceof Error ? error.message : 'The lobby could not be saved.');
+        setSealing(false);
+      });
+  };
+
   return (
-    <ArenaStage backHref="/play" backLabel="Crowns">
-      <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[#99ee2d]">Start a game</p>
-      <h1 className="mt-2 font-poster text-5xl uppercase leading-none text-white sm:text-6xl">{STEPS[step]}</h1>
+    <div className="mx-auto w-full max-w-6xl px-4 pt-6 md:px-8 md:pt-12">
+      <button
+        type="button"
+        onClick={() => (step ? setStep(step - 1) : router.push('/play'))}
+        className="mb-6 inline-flex h-10 items-center gap-2 text-sm font-semibold text-mute hover:text-white"
+      >
+        <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Back
+      </button>
+      <h1 className="font-poster text-3xl font-black uppercase md:text-5xl">
+        Host a <span className="text-lime">crown</span>
+      </h1>
       {duel ? (
-        <p className="mt-3 max-w-xl text-sm text-white/60">
+        <p className="mt-3 max-w-xl text-sm text-mute">
           Duel with {duel.slice(0, 8)}…{duel.slice(-6)}. Hosting this crown is the challenge. They enter from the play link.
         </p>
       ) : null}
-      <ol className="mt-4 flex gap-4 font-mono text-[10px] uppercase text-white/40">
-        {STEPS.map((label, index) => (
-          <li key={label} className={index === step ? 'text-[#99ee2d]' : ''}>
-            0{index + 1} {label}
-          </li>
-        ))}
-      </ol>
 
-      {step === 0 ? (
-        <div className="mt-8">
-          <p className="max-w-2xl text-sm text-white/60">
-            Pick the game players race on. More are coming.
-          </p>
-          <ul className="mt-6 grid max-w-3xl gap-3 sm:grid-cols-2">
-            {(Object.keys(GAMES) as GameId[]).map((game) => {
-              const on = setup.game === game;
-              return (
-                <li key={game}>
-                  <button
-                    type="button"
-                    onClick={() => setSetup((current) => ({ ...current, game }))}
-                    className={`relative aspect-[16/10] w-full overflow-hidden border text-left ${on ? 'border-[#99ee2d]' : 'border-white/15'}`}
-                  >
-                    <span className="absolute inset-0 bg-[repeating-linear-gradient(90deg,transparent_0,transparent_32%,rgba(153,238,45,0.25)_32%,rgba(153,238,45,0.25)_33.3%)]" />
-                    <span className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-black/10" />
-                    <span className="relative flex h-full flex-col justify-end p-5">
-                      <span className="font-poster text-3xl uppercase leading-none text-white">{GAMES[game].title}</span>
-                      <span className="mt-2 text-sm text-white/75">{GAMES[game].blurb}</span>
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+      <div className="mt-8 grid gap-10 lg:grid-cols-[1fr_360px]">
+        <div>
+          <Stepper steps={[...STEPS]} current={step} tone="lime" onJump={setStep} />
+
+          <div className="mt-8 min-h-[280px]">
+            {step === 0 ? (
+              <fieldset>
+                <legend className="font-poster text-lg font-bold uppercase">Pick the game</legend>
+                <div role="radiogroup" className="mt-4 grid gap-3 sm:grid-cols-2">
+                  {(Object.keys(GAMES) as GameId[]).map((game) => (
+                    <ChoiceChip key={game} selected={setup.game === game} tone="lime" onClick={() => setSetup((current) => ({ ...current, game }))} className="overflow-hidden p-0">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={ART.laneRace} alt="" className="aspect-video w-full object-cover" />
+                      <div className="p-4">
+                        <p className="font-poster text-sm font-bold uppercase">{GAMES[game].title}</p>
+                        <p className="mt-1 text-sm text-mute">{GAMES[game].blurb}</p>
+                      </div>
+                    </ChoiceChip>
+                  ))}
+                  <div className="grid place-items-center rounded-2xl border-2 border-dashed border-white/10 p-6 text-center text-sm text-mute">More games are on the way.</div>
+                </div>
+              </fieldset>
+            ) : null}
+
+            {step === 1 ? (
+              <fieldset>
+                <legend className="font-poster text-lg font-bold uppercase">Entry fee</legend>
+                <p className="mt-1 text-sm text-mute">What each player pays to send a winning run. Every new crown holder adds theirs to the pot. Unused entries are refunded.</p>
+                <div role="radiogroup" className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {FEES.map((value) => (
+                    <ChoiceChip
+                      key={value}
+                      selected={fee === value}
+                      tone="lime"
+                      onClick={() => {
+                        setFeeText(String(value));
+                        commitFee(String(value));
+                      }}
+                      className="text-center"
+                    >
+                      <span className="block font-poster text-2xl font-extrabold text-gold">{value}</span>
+                      <span className="font-mono text-[10px] text-mute">CKB</span>
+                    </ChoiceChip>
+                  ))}
+                </div>
+                <label className="mt-5 block max-w-xs">
+                  <span className="text-sm font-semibold">Or any amount (CKB)</span>
+                  <input
+                    type="number"
+                    min={1}
+                    inputMode="numeric"
+                    value={feeText}
+                    onChange={(event) => setFeeText(event.target.value)}
+                    onBlur={() => commitFee(feeText)}
+                    className={`${FIELD} mt-2 h-12`}
+                  />
+                </label>
+              </fieldset>
+            ) : null}
+
+            {step === 2 ? (
+              <fieldset>
+                <legend className="font-poster text-lg font-bold uppercase">Clock length</legend>
+                <p className="mt-1 text-sm text-mute">The clock gets shorter every time someone takes the crown: 10 minutes off first, then less.</p>
+                <div role="radiogroup" className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {CLOCKS.map((c) => (
+                    <ChoiceChip
+                      key={c.minutes}
+                      selected={minutes === c.minutes}
+                      tone="lime"
+                      onClick={() => {
+                        setLengthText(String(c.minutes));
+                        commitLength(String(c.minutes));
+                      }}
+                      className="text-center"
+                    >
+                      <span className="block font-poster text-lg font-extrabold">{c.label}</span>
+                      <span className="font-mono text-[10px] text-mute">{c.minutes} min</span>
+                    </ChoiceChip>
+                  ))}
+                </div>
+                <label className="mt-5 block max-w-xs">
+                  <span className="text-sm font-semibold">Or any length (minutes)</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={MAX_MINUTES}
+                    inputMode="numeric"
+                    value={lengthText}
+                    onChange={(event) => setLengthText(event.target.value)}
+                    onBlur={() => commitLength(lengthText)}
+                    className={`${FIELD} mt-2 h-12`}
+                  />
+                </label>
+              </fieldset>
+            ) : null}
+
+            {step === 3 ? (
+              <div>
+                <label htmlFor="crown-title" className="font-poster text-lg font-bold uppercase">
+                  Title
+                </label>
+                <p className="mt-1 text-sm text-mute">Players see this in the lobby.</p>
+                <input
+                  id="crown-title"
+                  value={setup.title}
+                  maxLength={32}
+                  onChange={(event) => setSetup((current) => ({ ...current, title: event.target.value }))}
+                  className={`${FIELD} mt-4 h-14 text-lg font-semibold`}
+                />
+                <p className="mt-2 text-right font-mono text-[11px] text-mute">{setup.title.length}/32</p>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="mt-6 flex justify-end">
+            {step < STEPS.length - 1 ? (
+              <Button
+                size="lg"
+                className="w-full sm:w-auto"
+                onClick={() => {
+                  if (step === 1) commitFee(feeText);
+                  if (step === 2) commitLength(lengthText);
+                  setStep((current) => current + 1);
+                }}
+              >
+                Next
+              </Button>
+            ) : (
+              <div className="flex w-full flex-col items-end gap-2">
+                <Button size="xl" className="w-full sm:w-auto" disabled={sealing || !setup.title.trim()} onClick={open}>
+                  {sealing ? 'Saving the lobby…' : 'Open the lobby'}
+                </Button>
+                <p className="text-xs text-mute">Share the link, then start the clock when players are in. Starting it is one wallet approval.</p>
+              </div>
+            )}
+          </div>
+          {shareError ? <p className="mt-4 rounded-xl bg-danger/10 p-3 text-sm text-danger">{shareError}</p> : null}
         </div>
-      ) : null}
 
-      {step === 1 ? (
-        <NeonPlate className="mt-8 max-w-2xl p-6">
-          <p className="text-sm leading-relaxed text-white/70">
-            Set the clock and the entry fee. Each crown taken adds the fee to the pot and cuts the clock: 10 minutes first, then less.
-          </p>
-          <label className="mt-8 block max-w-md">
-            <span className="font-mono text-[10px] uppercase text-white/50">Game name</span>
-            <input
-              value={setup.title}
-              onChange={(event) => setSetup((current) => ({ ...current, title: event.target.value }))}
-              className="mt-2 w-full border border-white/15 bg-black px-3 py-3 text-white outline-none focus:border-[#99ee2d]"
-            />
-          </label>
-          <label className="mt-4 block max-w-xs">
-            <span className="font-mono text-[10px] uppercase text-white/50">Length (minutes)</span>
-            <input
-              type="number"
-              min={1}
-              max={MAX_MINUTES}
-              inputMode="numeric"
-              value={lengthText}
-              onChange={(event) => setLengthText(event.target.value)}
-              onBlur={() => commitLength(lengthText)}
-              className="mt-2 w-full border border-white/15 bg-black px-3 py-3 text-white outline-none focus:border-[#99ee2d]"
-            />
-          </label>
-          <label className="mt-4 block max-w-xs">
-            <span className="font-mono text-[10px] uppercase text-white/50">Entry fee (CKB)</span>
-            <input
-              type="number"
-              min={1}
-              inputMode="numeric"
-              value={feeText}
-              onChange={(event) => setFeeText(event.target.value)}
-              onBlur={() => commitFee(feeText)}
-              className="mt-2 w-full border border-white/15 bg-black px-3 py-3 text-white outline-none focus:border-[#99ee2d]"
-            />
-          </label>
-          <p className="mt-4 max-w-xl text-sm text-white/60">
-            Players pay only to send a winning run. Unused entries are refunded.
-          </p>
-        </NeonPlate>
-      ) : null}
-
-      {step === 2 ? (
-        <NeonPlate className="mt-8 max-w-2xl p-5">
-          <p className="font-mono text-[10px] uppercase text-white/70">{GAMES[setup.game].title}</p>
-          <p className="mt-2 font-poster text-3xl uppercase leading-none text-white">{setup.title}</p>
-          <p className="mt-3 font-mono text-[11px] uppercase text-[#bef970]">
-            {minutesOf(setup.durationMs)} min · {Number(setup.feeShannons / 100_000_000n)} CKB entry
-          </p>
-          <p className="mt-4 text-sm leading-relaxed text-white/85">
-            Open the lobby, share the link, then start the clock when players are in.
-          </p>
-        </NeonPlate>
-      ) : null}
-
-      <div className="mt-8 flex flex-wrap gap-3">
-        {step > 0 ? (
-          <button
-            type="button"
-            onClick={() => setStep((current) => current - 1)}
-            className="border border-white/30 px-4 py-2 font-mono text-[11px] uppercase text-white"
-          >
-            Back
-          </button>
-        ) : null}
-        {step < STEPS.length - 1 ? (
-          <button
-            type="button"
-            onClick={() => {
-              if (step === 1) {
-                commitLength(lengthText);
-                commitFee(feeText);
-              }
-              setStep((current) => current + 1);
-            }}
-            className="arena-cta px-4 py-2 font-mono text-[11px] font-bold uppercase"
-          >
-            Continue
-          </button>
-        ) : (
-          <button
-            type="button"
-            disabled={sealing || !setup.title.trim()}
-            onClick={() => {
-              const host = address.toLowerCase();
-              const sealed = { ...sealCrown(setup), hostAddress: host };
-              saveCrown(sealed);
-              setSealing(true);
-              setShareError(null);
-              void publishCrown(sealed, host)
-                .then(() => router.push(`/play/${sealed.id}`))
-                .catch((error: unknown) => {
-                  setShareError(error instanceof Error ? error.message : 'The lobby could not be saved.');
-                  setSealing(false);
-                });
-            }}
-            className="arena-cta px-4 py-2 font-mono text-[11px] font-bold uppercase disabled:opacity-40"
-          >
-            {sealing ? 'Saving the lobby…' : 'Open the lobby and invite friends'}
-          </button>
-        )}
+        <aside aria-label="Preview">
+          <p className="mb-3 font-mono text-[11px] uppercase tracking-wider text-mute">Preview</p>
+          <div className="pointer-events-none">
+            <CrownCard room={preview} />
+          </div>
+        </aside>
       </div>
-      {shareError ? <p className="mt-4 text-sm text-[#af2a3a]">{shareError}</p> : null}
-    </ArenaStage>
+    </div>
   );
 }

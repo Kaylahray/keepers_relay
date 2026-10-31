@@ -1,8 +1,8 @@
 //! Game script for the lane runner. Never a lock or type script: match-type spawns it.
 //!
-//! Game ABI v1 (see `score_run` in sudden-death-common): one argument, `hex(seed u64 LE ‖ tape)`,
-//! one inherited fd. Writes the score as u64 LE to the fd and exits 0; exits non-zero for an
-//! illegal tape.
+//! Game ABI v2 (see `score_run` in sudden-death-common): one argument, the hex of
+//! `lap count u8` then per lap `seed u64 LE ‖ tape length u16 LE ‖ tape`, and one inherited fd.
+//! Writes the score as u64 LE to the fd and exits 0; exits non-zero for an illegal run.
 
 #![no_std]
 #![no_main]
@@ -28,12 +28,7 @@ fn program_entry() -> i8 {
     let Ok(raw) = decode_hex(&args[0]) else {
         return ERR_ARGS;
     };
-    if raw.len() < 8 {
-        return ERR_ARGS;
-    }
-    let mut seed = [0u8; 8];
-    seed.copy_from_slice(&raw[..8]);
-    let Ok(outcome) = crowns_game_core::replay(u64::from_le_bytes(seed), &raw[8..]) else {
+    let Ok(outcome) = crowns_game_core::replay_encoded(&raw) else {
         return ERR_TAPE;
     };
     let fds = inherited_fds();

@@ -563,6 +563,15 @@ export async function syncCrown(incoming: CrownRoom, sessionAddress: string): Pr
       seals: incoming.seals.length ? incoming.seals : next.seals,
     };
   }
+  if (opening && next.matchId) {
+    next = {
+      ...next,
+      feed: [
+        { id: `${Date.now()}-open`, text: 'Game opened on chain. Entries are open; the clock starts after the countdown.', good: true },
+        ...next.feed,
+      ].slice(0, 8),
+    };
+  }
   if (next.matchId) next = await announce(current, next, existing.seats);
   await writeVault({
     room: roomToStored(next),
@@ -588,7 +597,15 @@ export async function joinCrown(
     found.displayName = seat.displayName || found.displayName;
     found.lastSeenAt = now;
     if (seat.clearBid) found.bidOutPoint = null;
-    else if (seat.bidOutPoint) found.bidOutPoint = seat.bidOutPoint;
+    else if (seat.bidOutPoint) {
+      // A first entry is news for the lobby; a seal only moves the same entry along.
+      if (!found.bidOutPoint) {
+        const room = roomFromStored(existing.room);
+        room.feed = [{ id: `${now}-entry`, text: `${found.displayName} paid an entry.`, good: true }, ...room.feed].slice(0, 8);
+        existing.room = roomToStored(room);
+      }
+      found.bidOutPoint = seat.bidOutPoint;
+    }
   } else {
     seats.push({
       address,

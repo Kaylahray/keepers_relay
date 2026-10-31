@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Check, Link2, Share2 } from 'lucide-react';
+import { buttonClass, tipStyle, type ButtonVariant } from '@/components/ui/Button';
 
 /** Copy/share a join link. We do not send email — you send this however you already talk. */
 export function InviteButton({
@@ -10,13 +11,16 @@ export function InviteButton({
   text = 'Jump in with me on Crowns.',
   compact = false,
   variant = 'default',
+  tone = 'lime',
 }: {
   url: string;
   title?: string;
   text?: string;
   compact?: boolean;
-  /** Arena dark UI (COD-style lobby). */
+  /** `arena`: the big key on a lobby or duel page. */
   variant?: 'default' | 'arena';
+  /** The key's colour: the mode's (lime for crowns, pink for duels). */
+  tone?: ButtonVariant;
 }) {
   const [copied, setCopied] = useState(false);
 
@@ -36,21 +40,17 @@ export function InviteButton({
     window.setTimeout(() => setCopied(false), 2000);
   }
 
-  const className =
-    variant === 'arena'
-      ? 'inline-flex items-center gap-2 border border-[#99ee2d]/60 bg-[#99ee2d]/10 px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-[#99ee2d] transition hover:bg-[#99ee2d]/20'
-      : compact
-        ? 'inline-flex items-center gap-1.5 border-2 border-black bg-white px-3 py-2 text-[10px] font-black uppercase'
-        : 'neo-button inline-flex items-center gap-1.5 bg-[#ffe454] px-3 py-2 text-[10px] font-black uppercase';
+  const size = compact ? 'sm' : variant === 'arena' ? 'lg' : 'md';
+  const className = buttonClass(compact ? 'ghost' : tone, size);
 
   return (
-    <button type="button" onClick={() => void invite()} className={className}>
+    <button type="button" onClick={() => void invite()} className={className} style={tipStyle(size)}>
       {copied ? (
-        <Check className="h-3.5 w-3.5 stroke-[3]" />
+        <Check className="h-3.5 w-3.5" />
       ) : typeof navigator !== 'undefined' && 'share' in navigator ? (
-        <Share2 className="h-3.5 w-3.5 stroke-[3]" />
+        <Share2 className="h-3.5 w-3.5" />
       ) : (
-        <Link2 className="h-3.5 w-3.5 stroke-[3]" />
+        <Link2 className="h-3.5 w-3.5" />
       )}
       {copied ? 'Link copied' : 'Invite friends'}
     </button>

@@ -8,7 +8,10 @@ members = [
   "contracts/bid-type",
   "contracts/treasury-lock",
   "contracts/game-core",
+  "contracts/artillery-core",
   "contracts/lane-runner",
+  "contracts/artillery",
+  "contracts/duel-type",
   "tests",
 ]
 

@@ -1,7 +1,7 @@
-import Link from 'next/link';
 import type { ReactNode } from 'react';
+import { Button, type ButtonSize, type ButtonVariant } from '@/components/ui/Button';
 
-
+/** The main call to action: a lime arcade key with our pointed edge. */
 export function ArenaCta({
   href,
   children,
@@ -9,6 +9,8 @@ export function ArenaCta({
   onClick,
   type = 'button',
   disabled,
+  variant = 'lime',
+  size = 'lg',
 }: {
   href?: string;
   children: ReactNode;
@@ -16,19 +18,12 @@ export function ArenaCta({
   onClick?: () => void;
   type?: 'button' | 'submit' | 'reset';
   disabled?: boolean;
+  variant?: ButtonVariant;
+  size?: ButtonSize;
 }) {
-  const cls = `arena-cta inline-flex items-center justify-center gap-2 rounded px-8 py-3.5 text-[15px] font-bold uppercase tracking-wide disabled:opacity-40 ${className}`;
-  if (href) {
-    return (
-      <Link href={href} className={cls}>
-        {children}
-      </Link>
-    );
-  }
   return (
-    <button type={type} onClick={onClick} disabled={disabled} className={cls}>
+    <Button href={href} onClick={onClick} type={type} disabled={disabled} variant={variant} size={size} className={className}>
       {children}
-    </button>
+    </Button>
   );
 }
-

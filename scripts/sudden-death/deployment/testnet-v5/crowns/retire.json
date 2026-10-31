@@ -1,0 +1,87 @@
+{
+  "transaction": {
+    "version": "0x0",
+    "cell_deps": [
+      {
+        "out_point": {
+          "tx_hash": "0xf8de3bb47d055cdf460d93a2a6e1b05f7432f9777c8c474abf4eec1d4aee5d37",
+          "index": "0x0"
+        },
+        "dep_type": "dep_group"
+      }
+    ],
+    "header_deps": [],
+    "inputs": [
+      {
+        "since": "0x0",
+        "previous_output": {
+          "tx_hash": "0xc9f1f7a3da0aaed8b6f0a0c98614b7c75756db89c938cb7c1f1e5447070301d4",
+          "index": "0x0"
+        }
+      },
+      {
+        "since": "0x0",
+        "previous_output": {
+          "tx_hash": "0xc9f1f7a3da0aaed8b6f0a0c98614b7c75756db89c938cb7c1f1e5447070301d4",
+          "index": "0x1"
+        }
+      },
+      {
+        "since": "0x0",
+        "previous_output": {
+          "tx_hash": "0xc9f1f7a3da0aaed8b6f0a0c98614b7c75756db89c938cb7c1f1e5447070301d4",
+          "index": "0x2"
+        }
+      },
+      {
+        "since": "0x0",
+        "previous_output": {
+          "tx_hash": "0xc9f1f7a3da0aaed8b6f0a0c98614b7c75756db89c938cb7c1f1e5447070301d4",
+          "index": "0x3"
+        }
+      },
+      {
+        "since": "0x0",
+        "previous_output": {
+          "tx_hash": "0xb068b72a89e8d758c69569a1eda11c997570039c6f23226011ab64e1df55c8db",
+          "index": "0x0"
+        }
+      },
+      {
+        "since": "0x0",
+        "previous_output": {
+          "tx_hash": "0xb068b72a89e8d758c69569a1eda11c997570039c6f23226011ab64e1df55c8db",
+          "index": "0x1"
+        }
+      },
+      {
+        "since": "0x0",
+        "previous_output": {
+          "tx_hash": "0xb068b72a89e8d758c69569a1eda11c997570039c6f23226011ab64e1df55c8db",
+          "index": "0x2"
+        }
+      }
+    ],
+    "outputs": [
+      {
+        "capacity": "0x23659afde6c0",
+        "lock": {
+          "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+          "hash_type": "type",
+          "args": "0x9c50f3fe9f198cbcfe7b5c046502ebdd8cdfe77d"
+        },
+        "type": null
+      }
+    ],
+    "outputs_data": [
+      "0x"
+    ],
+    "witnesses": []
+  },
+  "multisig_configs": {},
+  "signatures": {
+    "0x9c50f3fe9f198cbcfe7b5c046502ebdd8cdfe77d": [
+      "0x539af684923390b2a567b66da171420f40cf039897e9715ac2c61d0192a580214c74a18b33eb44a7daed810eb9eaada2dc22b4586d745469bee2aeb17b87844600"
+    ]
+  }
+}
