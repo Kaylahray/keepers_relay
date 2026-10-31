@@ -21,7 +21,7 @@ import { useWallet } from '@/hooks/useWallet';
 import { getCkbClient } from '@/lib/ckb/client';
 import { newSessionKey, returnKeyCell } from '@/lib/crown/chain';
 import { fire, replay, type ArtilleryState, type ShotRecord } from '@/lib/duel/artillery';
-import { acceptDuel, cancelDuel, finishDuel, fireShot, skipTurns } from '@/lib/duel/chain';
+import { acceptDuel, cancelDuel, finishDuel, fireShot, hasSessionCell, restoreSessionCell, skipTurns } from '@/lib/duel/chain';
 import { KIND_ARTILLERY, KIND_RACE, STATUS_OPEN, timerShrinkMs, turnMs } from '@/lib/duel/codec';
 import { forgetDuelKey, loadDuelKey, pendingKeys, rememberPendingKey, saveDuelKey } from '@/lib/duel/keys';
 import { nameOf } from '@/lib/registry/chain-names';
@@ -147,6 +147,35 @@ export function DuelView({ id }: { id: string }) {
       .then(() => forgetDuelKey(duelId))
       .catch(() => undefined);
   }, [chain.gone, sessionKey, signer, duelId]);
+
+  // An artillery key with no live cell can't sign moves; checked after every move, and every few seconds while missing.
+  const [keyCellMissing, setKeyCellMissing] = useState(false);
+  const livePoint = !chain.gone && duel?.kind === KIND_ARTILLERY && duel.status === 1 && side !== null ? (snapshot?.point.txHash ?? null) : null;
+  useEffect(() => {
+    if (!livePoint || !sessionKey) return;
+    let stop = false;
+    const check = () =>
+      void hasSessionCell(getCkbClient(), sessionKey)
+        .then((has) => {
+          if (!stop) setKeyCellMissing(!has);
+        })
+        .catch(() => undefined);
+    check();
+    const id = window.setInterval(check, 6_000);
+    return () => {
+      stop = true;
+      window.clearInterval(id);
+    };
+  }, [livePoint, sessionKey]);
+
+  function restoreKey() {
+    if (!signer || !sessionKey) return;
+    void run(
+      'Approve in your wallet to restore your play key…',
+      () => restoreSessionCell(signer, sessionKey),
+      'The play key could not be restored.',
+    );
+  }
 
   async function run(label: string, task: () => Promise<unknown>, fallback: string) {
     setError(null);
@@ -415,11 +444,13 @@ export function DuelView({ id }: { id: string }) {
                   canFire={
                     myTurn &&
                     Boolean(sessionKey) &&
+                    !keyCellMissing &&
                     !busy &&
                     !(pending && shots.length < pending.count)
                   }
                   onShot={shoot}
-                  incoming={incoming}
+                  incoming={shotInFlight ? null : incoming}
+                  action={keyCellMissing && sessionKey && signer ? { label: busy ?? 'Restore play key (64 CKB, comes back after)', onClick: restoreKey, disabled: Boolean(busy) } : null}
                   alert={busy ? null : error}
                   you={side}
                   timeLeft={turnSide !== null ? timeLeft : null}
@@ -428,8 +459,9 @@ export function DuelView({ id }: { id: string }) {
                       ? 'You’re watching this duel.'
                       : !sessionKey
                         ? 'This duel’s play key is in another browser, so you can’t fire from here.'
-                        : // Once you have fired, you are simply waiting for them, whether your shot is
-                          // still landing or their clock is running (or just ran out: theirs may be landing).
+                        : keyCellMissing && !busy
+                          ? 'Your play key has no CKB left on chain, so it can’t fire. Restore it to keep playing.'
+                          : // Once you have fired, you are waiting for them, whether your shot is still landing or their clock is running.
                           myTurn && !shotInFlight
                           ? (busy ?? undefined)
                           : theirTimeUp

@@ -55,6 +55,8 @@ type Props = {
   timeLeft?: number | null;
   /** The game fills the whole screen, like a game app (live duels). False keeps it in the page (replays). */
   immersive?: boolean;
+  /** A button under the message, for a fix the player can make from here. */
+  action?: { label: string; onClick: () => void; disabled?: boolean } | null;
 };
 
 type Flight = { shot: ShotRecord; result: ShotResult; from: ArtilleryState; incoming: boolean };
@@ -74,6 +76,7 @@ export function DuelBoard({
   pictures = [null, null],
   onIncomingDone,
   immersive = true,
+  action = null,
 }: Props) {
   // A live duel fills the screen on every device.
   const phone = usePhoneOrientation();
@@ -331,12 +334,19 @@ export function DuelBoard({
           ) : null}
 
           {/* What just happened, or what we are waiting for */}
-          {message ? (
-            <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center px-4" aria-live="polite">
-              <div className={`flex items-center gap-3 rounded-xl px-4 py-2.5 font-poster text-xs font-bold uppercase shadow-lg md:text-sm ${MESSAGE_TONES[message.tone]}`}>
-                {message.tone === 'chain' ? <ChainLoader inline title="" /> : null}
-                {message.text}
-              </div>
+          {message || action ? (
+            <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex flex-col items-center gap-2 px-4" aria-live="polite">
+              {message ? (
+                <div className={`flex items-center gap-3 rounded-xl px-4 py-2.5 font-poster text-xs font-bold uppercase shadow-lg md:text-sm ${MESSAGE_TONES[message.tone]}`}>
+                  {message.tone === 'chain' ? <ChainLoader inline title="" /> : null}
+                  {message.text}
+                </div>
+              ) : null}
+              {action ? (
+                <Button variant="pink" size="sm" onClick={action.onClick} disabled={action.disabled} className="pointer-events-auto">
+                  {action.label}
+                </Button>
+              ) : null}
             </div>
           ) : null}
 

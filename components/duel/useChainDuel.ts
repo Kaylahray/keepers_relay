@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getCkbClient } from '@/lib/ckb/client';
 import { replay, type ArtilleryState } from '@/lib/duel/artillery';
-import { findDuel, findPastDuel, type DuelSnapshot } from '@/lib/duel/chain';
+import { duelEnded, findDuel, findPastDuel, type DuelSnapshot } from '@/lib/duel/chain';
 import { duelSeed, duelWind, KIND_ARTILLERY } from '@/lib/duel/codec';
 import { bytesToHex, hexToBytes } from '@/lib/sudden-death/codec';
 import { chainNames } from '@/lib/registry/chain-names';
@@ -39,16 +39,21 @@ export function useChainDuel(duelId: string): ChainDuel {
         seen.current = true;
         setSnapshot(found);
         setGone(false);
-      } else if (seen.current) {
-        setGone(true);
       } else {
-        // Opened after the duel ended: show its last state from history, so it can still be replayed.
-        const past = await findPastDuel(getCkbClient(), duelId).catch(() => null);
+        // An empty read can be the indexer catching up between moves; only the history decides the duel is over.
+        const ended = await duelEnded(getCkbClient(), duelId).catch(() => false);
         if (stop) return;
-        if (past) {
-          seen.current = true;
-          setSnapshot(past);
+        if (ended && seen.current) {
           setGone(true);
+        } else if (ended) {
+          // Opened after the duel ended: show its last state from history, so it can still be replayed.
+          const past = await findPastDuel(getCkbClient(), duelId).catch(() => null);
+          if (stop) return;
+          if (past) {
+            seen.current = true;
+            setSnapshot(past);
+            setGone(true);
+          }
         }
       }
       setLoading(false);

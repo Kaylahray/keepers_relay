@@ -247,6 +247,26 @@ export async function artilleryBoard(
   };
 }
 
+/** Whether this browser's session key still has a live cell to sign and pay for moves with. */
+export async function hasSessionCell(client: ccc.Client, session: ccc.Hex): Promise<boolean> {
+  return (await sessionCell(new ccc.SignerCkbPrivateKey(client, session))) !== null;
+}
+
+/** Gives a session key a new key cell from the player's wallet, for an artillery duel whose key cell was sent home too early. */
+export async function restoreSessionCell(signer: Signer, session: ccc.Hex): Promise<string> {
+  const owner = (await signer.getRecommendedAddressObj()).script;
+  const lock = (await new ccc.SignerCkbPrivateKey(signer.client, session).getRecommendedAddressObj()).script;
+  const tx = ccc.Transaction.from({
+    outputs: [ccc.CellOutput.from({ capacity: keyCellCapacity(lock, owner), lock })],
+    outputsData: ['0x'],
+  });
+  await tx.completeInputsByCapacity(signer);
+  await tx.completeFeeBy(signer, REGISTRY_FEE_RATE);
+  const txHash = await signer.sendTransaction(tx);
+  requestWalletRefresh();
+  return txHash;
+}
+
 /** Fires one artillery shot, signed by the player's session key: no wallet popup. */
 export async function fireShot(client: ccc.Client, point: OutPointRef, session: ccc.Hex, aim: Shot): Promise<OutPointRef> {
   return addMoves(client, point, session, (duelId, block) => ({
@@ -513,6 +533,17 @@ export async function findDuel(client: ccc.Client, duelId: string): Promise<Duel
     return viewOf(client, cell);
   }
   return null;
+}
+
+/** True only when the duel's newest transaction spent its cell and made no new one, so an empty read alone never counts as an end. */
+export async function duelEnded(client: ccc.Client, duelId: string): Promise<boolean> {
+  const script = duelScript(duelId);
+  for await (const item of client.findTransactionsByType(script, false, 'desc', 1)) {
+    const tx = (await client.getTransaction(item.txHash))?.transaction;
+    if (!tx) return false;
+    return !tx.outputs.some((output) => output.type?.eq(script));
+  }
+  return false;
 }
 
 /** A duel that is no longer live (finished or cancelled): its last state, read back from the transaction that wrote it, so a finished duel can still be shown and replayed. */
