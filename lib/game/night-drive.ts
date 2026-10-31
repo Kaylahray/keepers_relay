@@ -89,6 +89,8 @@ export type DriveTheme = { edge: number; lane: number };
 
 export type DriveOptions = {
   theme?: Partial<DriveTheme>;
+  /** The car's paint; blue when not given. */
+  paint?: number;
   /** Keep the last frame readable, so a still can be saved from the canvas. */
   stills?: boolean;
 };
@@ -295,7 +297,8 @@ export function createNightDrive(canvas: HTMLCanvasElement, options: DriveOption
 
   // The car: the Apex GT, built in code (lib/game/apex, from the "Apex GT" AI Studio app).
   const car = new THREE.Group();
-  const apex = createCarRig({ paintColor: COLORS.body, accentColor: 0xffffff, headlightsOn: false });
+  const body = options.paint ?? COLORS.body;
+  const apex = createCarRig({ paintColor: body, accentColor: 0xffffff, headlightsOn: false });
   keep(apex);
   // The rig faces +Z and is a real 4.7 m long; the road runs away from the camera toward -Z and a lane is 2.4 units wide, so it is turned round and scaled to fill a lane.
   apex.root.rotation.y = Math.PI;
@@ -375,7 +378,7 @@ export function createNightDrive(canvas: HTMLCanvasElement, options: DriveOption
     apex.update({ steeringAngle: (targetX - carX) * 0.35, bodyRoll: (carX - targetX) * 0.09, wheelSpin: wheelTurn });
     if (state.crashed !== paintCrashed) {
       paintCrashed = state.crashed;
-      apex.setPaintColor(state.crashed ? COLORS.crashed : COLORS.body);
+      apex.setPaintColor(state.crashed ? COLORS.crashed : body);
     }
 
     // The ground under the car runs toward the camera.
@@ -459,6 +462,8 @@ export function createNightDrive(canvas: HTMLCanvasElement, options: DriveOption
   function dispose() {
     for (const thing of disposables) thing.dispose();
     renderer.dispose();
+    // Phones allow only a few live WebGL contexts; free this one now, not at garbage collection.
+    renderer.forceContextLoss();
   }
 
   // Pools are sized for the most rows at once; counts are set each frame.

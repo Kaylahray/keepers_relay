@@ -286,7 +286,7 @@ export function CrownPlayView({ id }: { id: string }) {
     // entryKey stands for entryBid, so the effect does not restart on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chain, matchIdForRoad, myLockHash, entryKey]);
-  const nextLap = lapFound && lapFound.entry === entryKey ? lapFound.next : null;
+  const foundLap = lapFound && lapFound.entry === entryKey ? lapFound.next : null;
 
   // This browser's run: the session key that seals its laps and every lap sealed so far.
   const [runVersion, setRunVersion] = useState(0);
@@ -297,8 +297,11 @@ export function CrownPlayView({ id }: { id: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [roomKey, address, runVersion],
   );
+  // Right after a new entry the page can still be reading the old one; its lap is not this run's.
+  const nextLap = foundLap && (!lapRun?.entryTx || foundLap.point.txHash === lapRun.entryTx) ? foundLap : null;
   const sealedLaps = useMemo(() => lapRun?.laps ?? [], [lapRun]);
-  const runOver = sealedLaps.length >= LAPS || Boolean(sealedLaps.at(-1)?.crashed);
+  // A grab spends the entry, so a run sent as a grab has no more laps.
+  const runOver = sealedLaps.length >= LAPS || Boolean(sealedLaps.at(-1)?.crashed) || Boolean(lapRun?.finished);
   // The chain and this browser agree on how many laps are sealed.
   const inSync = !nextLap || nextLap.sealed === sealedLaps.length;
   const lapPlan = useMemo<LapPlan | null>(() => {
@@ -513,12 +516,12 @@ export function CrownPlayView({ id }: { id: string }) {
     }
     const session = await newSessionKey(signer.client);
     const next = await lockBid(signer, current, session, setBusy);
+    saveCrown(next);
     if (address) {
-      saveLapRun(current.id, address, { session: session.secret, laps: [] });
+      saveLapRun(current.id, address, { session: session.secret, laps: [], entryTx: next.bidOutPoint?.txHash });
       setRunVersion((version) => version + 1);
       setLapTry(null);
     }
-    saveCrown(next);
     if (address && next.bidOutPoint) {
       rememberBid(current.id, address, next.bidOutPoint);
       void joinCrownRemote(current.id, {
@@ -555,6 +558,7 @@ export function CrownPlayView({ id }: { id: string }) {
         ...lapRun,
         laps: [...lapRun.laps, { block: nextLap.block, tape: bytesToHex(chosen.tape), score: chosen.score, crashed: chosen.crashed }],
         sealedAt: Date.now(),
+        entryTx: point.txHash,
       });
       moveEntry(point);
       setRunVersion((version) => version + 1);

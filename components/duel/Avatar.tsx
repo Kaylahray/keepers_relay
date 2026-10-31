@@ -24,9 +24,24 @@ function hairPath(style: number): string | null {
   }
 }
 
-/** A player's face: a cartoon portrait drawn from their name, framed in their side's colour. */
-export function Avatar({ name, tone, size = 36, src = null }: { name: string; tone: string; size?: number; src?: string | null }) {
-  // A player's own profile picture when they have one; otherwise the drawn face below.
+/** A player's face, framed in their side's colour: `src` is their picture, null when they have none (a face drawn from their name), undefined while it is still loading. */
+export function Avatar({ name, tone, size = 36, src }: { name: string; tone: string; size?: number; src: string | null | undefined }) {
+  // Still looking: an empty frame with a spinner, so a drawn face never flashes before the real picture.
+  if (src === undefined) {
+    return (
+      <span
+        className="grid shrink-0 place-items-center rounded-[22%]"
+        style={{ width: size, height: size, border: `2px solid ${tone}`, background: `${tone}26` }}
+        role="img"
+        aria-label={`${name}, loading picture`}
+      >
+        <span
+          className="animate-spin rounded-full border-2 border-white/20"
+          style={{ width: Math.max(10, size * 0.36), height: Math.max(10, size * 0.36), borderTopColor: tone }}
+        />
+      </span>
+    );
+  }
   if (src) {
     return (
       // eslint-disable-next-line @next/next/no-img-element

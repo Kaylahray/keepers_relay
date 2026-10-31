@@ -79,7 +79,7 @@ export function DuelView({ id }: { id: string }) {
     side === 1 ? 'You' : opponentHash && opponentHash !== ZERO ? nameOf(chain.names, opponentHash) : 'Open seat',
   ];
   const [picture0, picture1] = useChainPictures([challengerHash, opponentHash]);
-  const pictures: [string | null, string | null] = [picture0 ?? null, picture1 ?? null];
+  const pictures: [string | null | undefined, string | null | undefined] = [picture0, picture1];
   const stakeCkb = duel ? Number(duel.stake / CKB) : 0;
   const game = duel?.kind === KIND_RACE ? 'Lane race' : duel && timerShrinkMs(duel.timerMs) > 0n ? 'Artillery · Pressure' : 'Artillery';
   const isOpen = duel?.status === STATUS_OPEN;
@@ -450,7 +450,7 @@ export function DuelView({ id }: { id: string }) {
                   }
                   onShot={shoot}
                   incoming={shotInFlight ? null : incoming}
-                  action={keyCellMissing && sessionKey && signer ? { label: busy ?? 'Restore play key (64 CKB, comes back after)', onClick: restoreKey, disabled: Boolean(busy) } : null}
+                  action={keyCellMissing && sessionKey && signer ? { label: busy ?? 'Restore play key', onClick: restoreKey, disabled: Boolean(busy) } : null}
                   alert={busy ? null : error}
                   you={side}
                   timeLeft={turnSide !== null ? timeLeft : null}
@@ -460,7 +460,7 @@ export function DuelView({ id }: { id: string }) {
                       : !sessionKey
                         ? 'This duel’s play key is in another browser, so you can’t fire from here.'
                         : keyCellMissing && !busy
-                          ? 'Your play key has no CKB left on chain, so it can’t fire. Restore it to keep playing.'
+                          ? 'Your play key has no CKB on chain. Restore it (64 CKB, returned after the duel) to keep playing.'
                           : // Once you have fired, you are waiting for them, whether your shot is still landing or their clock is running.
                           myTurn && !shotInFlight
                           ? (busy ?? undefined)

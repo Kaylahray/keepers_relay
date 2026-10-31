@@ -123,7 +123,7 @@ export function CrownLobby({
                 return (
                   <li key={seat.address} className={`flex items-center gap-3 rounded-xl p-3 ${you ? 'bg-lime/10 ring-2 ring-inset ring-lime' : 'bg-ink'}`}>
                     <span className="relative">
-                      <Avatar name={seat.displayName} tone="#99ee2d" size={40} src={seatPictures[seats.indexOf(seat)] ?? null} />
+                      <Avatar name={seat.displayName} tone="#99ee2d" size={40} src={seatPictures[seats.indexOf(seat)]} />
                       <span className={`absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-ink-2 ${live ? 'bg-lime' : 'bg-white/30'}`} aria-label={live ? 'Here' : 'Away'} />
                     </span>
                     <span className="min-w-0">

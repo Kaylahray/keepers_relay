@@ -328,7 +328,7 @@ export function NewDuelView() {
   );
 }
 
-/** A player's own profile picture (the Spore they set), or their drawn face while it loads or if they have none. */
+/** A player's own profile picture (the Spore they set), a spinner while it loads, or their drawn face if they have none. */
 function PlayerFace({ name, sporeId, tone, size }: { name: string; sporeId: string | null; tone: string; size: number }) {
   const picture = useQuery({
     queryKey: ['avatar-spore', sporeId],
@@ -336,7 +336,7 @@ function PlayerFace({ name, sporeId, tone, size }: { name: string; sporeId: stri
     queryFn: () => loadAvatarSpore(sporeId!),
     staleTime: Infinity,
   });
-  return <Avatar name={name} tone={tone} size={size} src={picture.data?.imageUrl ?? null} />;
+  return <Avatar name={name} tone={tone} size={size} src={!sporeId ? null : picture.isPending ? undefined : (picture.data?.imageUrl ?? null)} />;
 }
 
 function Fighter({ name, sporeId, tone, sub, open = false }: { name: string; sporeId: string | null; tone: string; sub: string; open?: boolean }) {

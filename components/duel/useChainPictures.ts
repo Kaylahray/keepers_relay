@@ -58,30 +58,40 @@ function lockHashOf(who: string): Promise<string | null> {
   return found;
 }
 
-/** Each player's own profile picture, straight from the chain like their name: their on-chain profile names a Spore, and the Spore holds the image. */
-export function useChainPictures(players: (string | null | undefined)[]): (string | null)[] {
+// Answers already found on this page visit, so a face seen once never shows its loading frame again.
+const known = new Map<string, string | null>();
+
+/** Each player's own profile picture, straight from the chain like their name: a URL, null when they have none, undefined while still looking. */
+export function useChainPictures(players: (string | null | undefined)[]): (string | null | undefined)[] {
   const key = players.map((who) => who?.toLowerCase() ?? '').join(',');
-  const [found, setFound] = useState<Map<string, string>>(new Map());
+  const [, setVersion] = useState(0);
 
   useEffect(() => {
-    const wanted = key.split(',').filter((who) => who && !/^0x0+$/.test(who));
-    if (wanted.length === 0 || !registryConfigured()) return;
+    const wanted = key.split(',').filter((who) => who && !/^0x0+$/.test(who) && !known.has(who));
+    if (wanted.length === 0) return;
     let stop = false;
     void (async () => {
       const owners = await profileSpores();
-      const next = new Map<string, string>();
       for (const who of wanted) {
         const hash = await lockHashOf(who);
         const sporeId = hash ? owners.get(hash) : undefined;
-        const url = sporeId ? await pictureOf(sporeId) : null;
-        if (url) next.set(who, url);
+        known.set(who, sporeId ? await pictureOf(sporeId) : null);
       }
-      if (!stop) setFound(next);
-    })().catch(() => undefined);
+    })()
+      // A failed read shows the drawn faces rather than spinning for ever.
+      .catch(() => wanted.forEach((who) => known.has(who) || known.set(who, null)))
+      .finally(() => {
+        if (!stop) setVersion((v) => v + 1);
+      });
     return () => {
       stop = true;
     };
   }, [key]);
 
-  return players.map((who) => (who ? (found.get(who.toLowerCase()) ?? null) : null));
+  if (!registryConfigured()) return players.map(() => null);
+  return players.map((who) => {
+    if (!who || /^0x0+$/.test(who)) return null;
+    const hit = known.get(who.toLowerCase());
+    return hit === undefined ? undefined : hit;
+  });
 }

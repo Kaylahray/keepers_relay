@@ -15,6 +15,8 @@ export type LapRun = {
   /** The session key's secret (hex). It can only seal laps into this one entry. */
   session: string;
   laps: SealedLapRecord[];
+  /** The transaction holding this run's entry right now; a lap read from any other entry is ignored. */
+  entryTx?: string;
   /** When the last seal was sent, for the pit stop's timer. */
   sealedAt?: number;
   /** The run was sent as a grab, so nothing more can be sealed into it. */

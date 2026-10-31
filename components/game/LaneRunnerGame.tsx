@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/Button';
 import { LANE, loadLaneRunner, TapeRecorder, type LaneRow, type LaneRunner } from '@/lib/game/lane-runner';
+import { createNightDrive, type NightDrive } from '@/lib/game/night-drive';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { LapBoxes, type LapState } from '@/components/ui/kit';
 
@@ -101,14 +102,45 @@ export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run', lap
     };
   }, [seed]);
 
-  // What the road shows right now, read from the rules after every tick.
-  const [frame, setFrame] = useState<{ rows: LaneRow[]; x: number; crashed: boolean }>({ rows: [], x: LANE.LANE_W, crashed: false });
+  // The road is drawn in 3D, the same highway the replays show; a phone without WebGL gets the flat road instead.
+  const glRef = useRef<HTMLCanvasElement | null>(null);
+  const driveRef = useRef<NightDrive | null>(null);
+  const noGlRef = useRef(false);
+  const [noGl, setNoGl] = useState(false);
+  const [crashed, setCrashed] = useState(false);
+  // The flat road's frame, read from the rules after every tick.
+  const [frame, setFrame] = useState<{ rows: LaneRow[]; x: number }>({ rows: [], x: LANE.LANE_W });
 
   const draw = useCallback(() => {
     const runner = runnerRef.current;
     if (!runner) return;
-    setFrame({ rows: runner.rows(), x: runner.x(), crashed: runner.over() && runner.tick() < LANE.MAX_TICKS });
-  }, []);
+    const hit = runner.over() && runner.tick() < LANE.MAX_TICKS;
+    setCrashed(hit);
+    const canvas = glRef.current;
+    if (canvas && !noGlRef.current) {
+      // Opening or leaving full screen mounts a new canvas; the renderer moves with it.
+      if (driveRef.current && driveRef.current.canvas !== canvas) {
+        driveRef.current.dispose();
+        driveRef.current = null;
+      }
+      driveRef.current ??= createNightDrive(canvas, { paint: tone === 'lime' ? 0x99ee2d : 0xff56f6 });
+      if (driveRef.current) {
+        driveRef.current.render({ x: runner.x(), rows: runner.rows(), tick: runner.tick(), crashed: hit }, performance.now());
+        return;
+      }
+      noGlRef.current = true;
+      setNoGl(true);
+    }
+    setFrame({ rows: runner.rows(), x: runner.x() });
+  }, [tone]);
+
+  useEffect(
+    () => () => {
+      driveRef.current?.dispose();
+      driveRef.current = null;
+    },
+    [],
+  );
 
   useEffect(() => {
     if (phase === 'ready' || phase === 'over') draw();
@@ -234,7 +266,7 @@ export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run', lap
   const sealed = lap?.sealed.length ?? 0;
   const lapNo = lap ? sealed + 1 : null;
   const lapStates: LapState[] = Array.from({ length: LANE.LAPS }, (_, i) =>
-    i < sealed ? 'done' : i === sealed ? (phase === 'over' && frame.crashed ? 'crash' : 'current') : 'empty',
+    i < sealed ? 'done' : i === sealed ? (phase === 'over' && crashed ? 'crash' : 'current') : 'empty',
   );
   const shown = phase === 'playing' || phase === 'over' ? hud.score : 0;
   const carLeft = (frame.x / LANE.LANE_W) * 33.333 + 16.666;
@@ -266,16 +298,23 @@ export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run', lap
         const box = event.currentTarget.getBoundingClientRect();
         steer(event.clientX - box.left < box.width / 2 ? -1 : 1);
       }}
-      className={`relative flex-1 touch-none select-none overflow-hidden bg-[#1b1b1b] outline-none ${phase === 'over' && frame.crashed ? 'runner-crash' : ''}`}
+      // Only a lap being driven takes the touches; otherwise a finger on the road scrolls the page.
+      className={`relative flex-1 select-none overflow-hidden bg-[#1b1b1b] outline-none ${phase === 'playing' ? 'touch-none' : 'touch-pan-y'} ${phase === 'over' && crashed ? 'runner-crash' : ''}`}
     >
-      {/* Verges and lane lines */}
-      <div className="absolute inset-y-0 left-0 w-1.5 bg-lime/60" />
-      <div className="absolute inset-y-0 right-0 w-1.5 bg-lime/60" />
-      <div className={`road-lines absolute inset-y-0 left-1/3 w-1 -translate-x-1/2 ${phase === 'playing' ? 'moving' : ''}`} />
-      <div className={`road-lines absolute inset-y-0 left-2/3 w-1 -translate-x-1/2 ${phase === 'playing' ? 'moving' : ''}`} />
+      {noGl ? null : <canvas ref={glRef} className="absolute inset-0 block h-full w-full" aria-hidden="true" />}
+
+      {/* The flat road, for phones without WebGL: verges and lane lines */}
+      {noGl ? (
+        <>
+          <div className="absolute inset-y-0 left-0 w-1.5 bg-lime/60" />
+          <div className="absolute inset-y-0 right-0 w-1.5 bg-lime/60" />
+          <div className={`road-lines absolute inset-y-0 left-1/3 w-1 -translate-x-1/2 ${phase === 'playing' ? 'moving' : ''}`} />
+          <div className={`road-lines absolute inset-y-0 left-2/3 w-1 -translate-x-1/2 ${phase === 'playing' ? 'moving' : ''}`} />
+        </>
+      ) : null}
 
       {/* Road blocks and coins, where the rules have them */}
-      {frame.rows.map((row, r) => {
+      {(noGl ? frame.rows : []).map((row, r) => {
         const top = CAR_TOP - (row.y / LANE.VIEW_DEPTH) * (CAR_TOP + 12);
         return (
           <div key={`${r}-${row.y}`}>
@@ -299,10 +338,11 @@ export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run', lap
         );
       })}
 
-      {/* Your car */}
-      <div className="absolute transition-[left] duration-100 ease-snap" style={{ top: `${CAR_TOP}%`, height: '12%', width: '15%', left: `${carLeft}%`, transform: 'translateX(-50%)' }}>
-        <Car tone={tone} crashed={phase === 'over' && frame.crashed} />
-      </div>
+      {noGl ? (
+        <div className="absolute transition-[left] duration-100 ease-snap" style={{ top: `${CAR_TOP}%`, height: '12%', width: '15%', left: `${carLeft}%`, transform: 'translateX(-50%)' }}>
+          <Car tone={tone} crashed={phase === 'over' && crashed} />
+        </div>
+      ) : null}
 
       {phase !== 'playing' ? (
         <div className="absolute inset-0 z-10 grid place-items-center bg-ink/70 px-6 backdrop-blur-[2px]">
@@ -313,8 +353,8 @@ export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run', lap
               <p className="font-mono text-xs uppercase text-mute">Loading the game…</p>
             ) : phase === 'over' && last != null ? (
               <>
-                <p className={`font-mono text-[11px] uppercase tracking-wider ${frame.crashed ? 'text-danger' : 'text-mute'}`}>
-                  {frame.crashed ? (lapNo ? `Crash on lap ${lapNo}` : 'Crash') : lapNo ? `Lap ${lapNo} clear` : 'Run over'}
+                <p className={`font-mono text-[11px] uppercase tracking-wider ${crashed ? 'text-danger' : 'text-mute'}`}>
+                  {crashed ? (lapNo ? `Crash on lap ${lapNo}` : 'Crash') : lapNo ? `Lap ${lapNo} clear` : 'Run over'}
                 </p>
                 <p className={`mt-2 font-poster text-4xl font-black tabular-nums ${beats ? 'text-lime' : 'text-white'}`}>{last}</p>
                 <p className="mt-2 text-sm text-mute">

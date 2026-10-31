@@ -132,7 +132,7 @@ export function JoinHandleForm({ nextHref = '/' }: { nextHref?: string }) {
       ) : (
         <div className="mt-8">
           <div className="flex items-center gap-4">
-            <Avatar name={`@${claimed}`} tone="#99ee2d" size={80} />
+            <Avatar name={`@${claimed}`} tone="#99ee2d" size={80} src={null} />
             <div>
               <p className="font-mono text-[11px] uppercase tracking-wider text-lime">You&apos;re in</p>
               <h1 className="font-poster text-2xl font-black uppercase">@{claimed}</h1>

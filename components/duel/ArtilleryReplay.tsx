@@ -21,7 +21,7 @@ export function ArtilleryReplay({
   seed: number;
   shots: ShotRecord[];
   names: [string, string];
-  pictures: [string | null, string | null];
+  pictures: [string | null | undefined, string | null | undefined];
   /** Leaves the replay; without it there is no Close button (the replay is the page). */
   onClose?: () => void;
 }) {

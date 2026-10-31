@@ -28,14 +28,14 @@ const GLOW: Partial<Record<ButtonVariant, string>> = {
 
 /** Our pointed right edge, deeper on bigger keys. */
 const SIZES: Record<ButtonSize, { box: string; tip: number }> = {
-  sm: { box: 'h-9 pl-3.5 pr-6 text-[10px]', tip: 10 },
-  md: { box: 'h-11 pl-5 pr-8 text-[11px]', tip: 13 },
-  lg: { box: 'h-14 pl-6 pr-10 text-xs', tip: 16 },
-  xl: { box: 'h-16 pl-8 pr-12 text-sm', tip: 18 },
+  sm: { box: 'min-h-9 py-1.5 pl-3.5 pr-6 text-[10px]', tip: 10 },
+  md: { box: 'min-h-11 py-2 pl-5 pr-8 text-[11px]', tip: 13 },
+  lg: { box: 'min-h-14 py-2.5 pl-6 pr-10 text-xs', tip: 16 },
+  xl: { box: 'min-h-16 py-3 pl-8 pr-12 text-sm', tip: 18 },
 };
 
 const BASE =
-  'inline-flex items-center justify-center gap-2 font-poster font-bold uppercase tracking-wide whitespace-nowrap select-none ' +
+  'inline-flex items-center justify-center gap-2 font-poster font-bold uppercase leading-tight tracking-wide text-center text-balance select-none ' +
   'transition-[transform,background-color,filter] duration-150 ease-snap active:translate-y-[2px] ' +
   'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white ' +
   'disabled:pointer-events-none disabled:opacity-40 aria-disabled:pointer-events-none aria-disabled:opacity-40';
@@ -82,7 +82,7 @@ export function Button({ variant = 'lime', size = 'md', href, block, className =
     </button>
   );
   return (
-    <span className={`${block ? 'flex w-full' : 'inline-flex'} ${className}`} style={glow ? { filter: glow } : undefined}>
+    <span className={`${block ? 'flex w-full' : 'inline-flex max-w-full'} ${className}`} style={glow ? { filter: glow } : undefined}>
       {key}
     </span>
   );

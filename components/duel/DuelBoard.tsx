@@ -36,7 +36,7 @@ type Props = {
   /** The side this screen plays, shown as "You"; null when watching (or in a replay). */
   you?: Side | null;
   /** Each player's own profile picture, when they have one; otherwise a drawn face. */
-  pictures?: [string | null, string | null];
+  pictures?: [string | null | undefined, string | null | undefined];
   /** Called when another player's shot (or a replayed one) has finished playing out. */
   onIncomingDone?: () => void;
   /** False while it is not this screen's turn, or the duel is waiting or over. */
@@ -371,10 +371,10 @@ export function DuelBoard({
           ) : null}
         </div>
 
-        {/* Bottom bar: angle, power and fire under the thumbs. Watchers and replays have nothing to aim. */}
+        {/* Bottom bar: power and fire under the thumbs; on phones the angle is set by dragging on the field. */}
         {you === null ? null : (
         <div className="flex items-center gap-3 px-3 py-2 md:gap-6 md:px-6 md:py-3">
-          <div className="flex items-center gap-1.5" aria-label="Angle">
+          <div className="hidden items-center gap-1.5 md:flex" aria-label="Angle">
             <NudgeButton label="Lower angle" disabled={!ready} onClick={() => setAim({ angle: aim.angle - raise })}>
               <Minus className="h-5 w-5" />
             </NudgeButton>
@@ -418,7 +418,7 @@ const MESSAGE_TONES = {
 } as const;
 
 /** One player across the top: face, name, and health as blocks that empty as they are hit. */
-function PlayerHud({ side, name, face, picture, hp, active }: { side: Side; name: string; face: string; picture: string | null; hp: number; active: boolean }) {
+function PlayerHud({ side, name, face, picture, hp, active }: { side: Side; name: string; face: string; picture: string | null | undefined; hp: number; active: boolean }) {
   const tone = SIDE_COLORS[side];
   return (
     <div className={`flex min-w-0 flex-1 items-center gap-2 ${side === 1 ? 'order-3 flex-row-reverse text-right' : ''}`}>

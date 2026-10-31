@@ -73,7 +73,8 @@ function MyFace({ name }: { name: string }) {
     queryFn: () => loadAvatarSpore(sporeId!),
     staleTime: 60_000,
   });
-  return <Avatar name={name} tone="#99ee2d" size={40} src={picture.data?.imageUrl ?? null} />;
+  const src = mine.isPending ? undefined : !sporeId ? null : picture.isPending ? undefined : (picture.data?.imageUrl ?? null);
+  return <Avatar name={name} tone="#99ee2d" size={40} src={src} />;
 }
 
 export function SiteHeader() {

@@ -19,7 +19,7 @@ export function VsBanner({
   active: 0 | 1 | null;
   hp?: [number, number] | null;
   /** Each player's own profile picture, when they have one. */
-  pictures?: [string | null, string | null];
+  pictures?: [string | null | undefined, string | null | undefined];
   /** `open`: waiting for the opponent's stake. `cancelled`: taken back before anyone accepted. */
   stage?: 'open' | 'cancelled' | 'live';
 }) {

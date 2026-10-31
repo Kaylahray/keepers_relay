@@ -32,7 +32,7 @@ export function DuelVerify({ replay }: { replay: DuelReplay }) {
   }, [replay.challenger, replay.opponent]);
   const players: [string, string] = [nameOf(names, replay.challenger), nameOf(names, replay.opponent)];
   const [picture0, picture1] = useChainPictures([replay.challenger, replay.opponent]);
-  const pictures: [string | null, string | null] = [picture0 ?? null, picture1 ?? null];
+  const pictures: [string | null | undefined, string | null | undefined] = [picture0, picture1];
   const game = replay.kind === KIND_ARTILLERY ? 'Artillery' : 'Lane race';
 
   const outcome =
@@ -161,7 +161,7 @@ export function DuelVerify({ replay }: { replay: DuelReplay }) {
   );
 }
 
-function MoveRow({ move, players, pictures }: { move: DuelMove; players: [string, string]; pictures: [string | null, string | null] }) {
+function MoveRow({ move, players, pictures }: { move: DuelMove; players: [string, string]; pictures: [string | null | undefined, string | null | undefined] }) {
   const target = move.side === 0 ? 1 : 0;
   const hit = move.damage[target];
   const self = move.damage[move.side];

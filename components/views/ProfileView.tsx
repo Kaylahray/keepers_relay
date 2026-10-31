@@ -92,7 +92,7 @@ export function ProfileView({ address }: { address: string }) {
               <CharacterAvatar characterId={profile.characterId} size="lg" />
             </div>
           ) : (
-            <Avatar name={handle ? `@${handle}` : displayName} tone="#99ee2d" size={128} />
+            <Avatar name={handle ? `@${handle}` : displayName} tone="#99ee2d" size={128} src={null} />
           )}
         </div>
         <div className="min-w-0 flex-1">
