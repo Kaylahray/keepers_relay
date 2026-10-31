@@ -1,7 +1,4 @@
-/**
- * A wait on the chain: three blocks lighting up one after another, like blocks landing, with what we
- * are waiting for underneath. Full page by default; `compact` inside a panel; `inline` in a line of text.
- */
+/** A wait on the chain: three blocks lighting up one after another, like blocks landing, with what we are waiting for underneath. */
 export function ChainLoader({
   title,
   note,

@@ -16,10 +16,7 @@ const VARIANTS: Record<ButtonVariant, string> = {
   outline: 'bg-white/[0.06] text-white hover:bg-white/[0.12]',
 };
 
-/**
- * A soft glow in the key's colour, as the design has. It sits on a wrapper: the key itself is cut
- * to our pointed shape, which would cut a glow off with it.
- */
+/** A soft glow in the key's colour, as the design has. */
 const GLOW: Partial<Record<ButtonVariant, string>> = {
   lime: 'drop-shadow(0 0 12px rgba(153, 238, 45, 0.45))',
   pink: 'drop-shadow(0 0 12px rgba(255, 86, 246, 0.45))',

@@ -8,14 +8,7 @@ import { useUsername } from '@/hooks/useUsername';
 import { useWallet } from '@/hooks/useWallet';
 import { registryConfigured } from '@/lib/registry/config';
 
-/**
- * Every player claims a username before they sit in a lobby or play. A connected wallet without
- * one is sent to /join, which brings them back to this page once the name is claimed.
- *
- * It also keeps the players list in step with the chain: a name claimed on another device, or one
- * whose profile row never got saved, is written to the profile the first time it is seen here.
- * The server refuses seats to wallets with no profile name, so this has to happen before joining.
- */
+/** Every player claims a username before they sit in a lobby or play. */
 export function useRequireUsername(): { ready: boolean; username: string | null } {
   const router = useRouter();
   const pathname = usePathname();

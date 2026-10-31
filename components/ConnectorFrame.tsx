@@ -2,12 +2,7 @@
 
 import { useEffect } from 'react';
 
-/**
- * The CCC connector measures its card while the host is still
- * `display: none`, writes `height: 0`, then clips the wallet list
- * (`overflow: hidden`). The next open never recovers, so Connect
- * sits on a dimmed page with no picker.
- */
+/** The CCC connector measures its card while the host is still `display: none`, writes `height: 0`, then clips the wallet list (`overflow: hidden`). */
 const PATCH = `
   .main {
     height: auto !important;

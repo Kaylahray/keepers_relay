@@ -1,12 +1,4 @@
-/**
- * Artillery duel rules, mirrored exactly by the Rust crate `crowns-artillery-core` that the chain
- * runs (scripts/sudden-death/contracts/artillery-core). A conformance test replays the same duels
- * in both and compares every shot, so the browser and the chain can never disagree.
- *
- * Everything is integer maths on purpose: no floats, no Math.sin, so the Rust port gives exactly
- * the same terrain, flight and damage. Positions in flight are fixed point (1/256 of a pixel).
- * The world is y-up: `heights[x]` is how tall the ground is at column x.
- */
+/** Artillery duel rules, mirrored exactly by the Rust crate `crowns-artillery-core` that the chain runs (scripts/sudden-death/contracts/artillery-core). */
 
 export const WORLD_W = 960;
 export const WORLD_H = 540;
@@ -24,10 +16,7 @@ const BLAST_RADIUS = 30;
 const DAMAGE_RADIUS = 45;
 const MAX_DAMAGE = 50;
 export const MAX_WIND = 10;
-/**
- * A skipped turn: the player to move ran out of time, so no shell flies and the turn passes. Stored
- * as a shot with this angle (real shots stop at 180), power 0 and wind 0.
- */
+/** A skipped turn: the player to move ran out of time, so no shell flies and the turn passes. */
 export const PASS = 255;
 export const PASS_SHOT: ShotRecord = { angle: PASS, power: 0, wind: 0 };
 /** The tower stands within this many pixels of the middle of the field. */
@@ -111,20 +100,14 @@ export function sideToMove(state: ArtilleryState): Side {
   return (state.turn % 2) as Side;
 }
 
-/**
- * Practice wind for a turn, from −10 (to the left) to 10. In a real duel the wind comes from the
- * block the last shot landed in instead (see `windFromBlock`), so nobody knows it early.
- */
+/** Practice wind for a turn, from −10 (to the left) to 10. In a real duel the wind comes from the block the last shot landed in instead (see `windFromBlock`), so nobody knows it early. */
 export function windFor(seed: number, turn: number): number {
   const next = rng((seed ^ Math.imul(turn + 1, 0x9e3779b9)) >>> 0);
   next();
   return (next() % (2 * MAX_WIND + 1)) - MAX_WIND;
 }
 
-/**
- * Low rolling ground, two tank pads, and a tower in the middle that every shot has to clear (and
- * that craters chip away), all from the seed.
- */
+/** Low rolling ground, two tank pads, and a tower in the middle that every shot has to clear (and that craters chip away), all from the seed. */
 export function newDuel(seed: number): ArtilleryState {
   const next = rng(seed);
   const spacing = 160;

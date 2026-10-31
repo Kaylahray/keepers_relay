@@ -60,7 +60,7 @@ function StealRow({ steal, fee, names }: { steal: StealCheck; fee: bigint; names
         <span className="font-mono text-[11px] text-mute">
           score <span className="text-white">{steal.score}</span> · replayed here{' '}
           <span className={steal.replayed === steal.score ? 'text-lime' : 'text-danger'}>
-            {steal.replayed ?? '—'}
+            {steal.replayed ?? 'older build'}
           </span>{' '}
           · {steal.moves} moves
         </span>
@@ -77,7 +77,7 @@ function StealRow({ steal, fee, names }: { steal: StealCheck; fee: bigint; names
       <p className="mt-1 font-mono text-[10px] text-mute">{stamp(steal.deadlineAfter)} deadline</p>
 
       <div className="mt-3 flex flex-wrap gap-1.5">
-        <Rule ok={steal.runOk} label="run replayed, beats the crown" />
+        <Rule ok={steal.runOk} label={steal.replayed == null ? 'beats the crown (older game build, replayed by the chain only)' : 'run replayed, beats the crown'} />
         <Rule ok={steal.roundOk} label="round +1" />
         <Rule ok={steal.potOk} label="pot +fee" />
         <Rule ok={steal.clockOk} label="clock cut" />
@@ -114,6 +114,8 @@ function StealRow({ steal, fee, names }: { steal: StealCheck; fee: bigint; names
 
 export function VerifyView({ initialTx }: { initialTx?: string }) {
   const [input, setInput] = useState(initialTx ?? '');
+  // The transaction being checked, so its own round leads and the rest of the crown folds away.
+  const [checked, setChecked] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [replay, setReplay] = useState<MatchReplay | null>(null);
@@ -122,6 +124,7 @@ export function VerifyView({ initialTx }: { initialTx?: string }) {
 
   const run = useCallback(async (hash: string) => {
     const target = hash.trim();
+    setChecked(target.toLowerCase());
     if (!target) return;
     setBusy(true);
     setError(null);
@@ -154,8 +157,7 @@ export function VerifyView({ initialTx }: { initialTx?: string }) {
 
   useEffect(() => {
     if (!initialTx) return;
-    // Start the replay off the synchronous effect body, and drop the result if the hash
-    // changes underneath us — a slow chain walk must not land on a newer match.
+    // Start the replay off the synchronous effect body, and drop the result if the hash changes underneath us — a slow chain walk must not land on a newer match.
     let cancelled = false;
     void Promise.resolve().then(() => {
       if (!cancelled) return run(initialTx);
@@ -234,7 +236,9 @@ export function VerifyView({ initialTx }: { initialTx?: string }) {
                   : 'Nobody took the crown, so the host got everything back.'
                 : `${replay.steals.length} ${replay.steals.length === 1 ? 'crown' : 'crowns'} taken. ` +
                   (replay.ok
-                    ? 'Every run replays to its score and every cut matches.'
+                    ? replay.gameKnown
+                      ? 'Every run replays to its score and every cut matches.'
+                      : 'Every pot and clock change matches. These runs used an older build of the game, which the chain replayed when each steal landed.'
                     : 'At least one steal broke a rule. That should be impossible on chain — please report it.')}
             </p>
             </div>
@@ -284,13 +288,35 @@ export function VerifyView({ initialTx }: { initialTx?: string }) {
             </div>
           </dl>
 
-          {replay.steals.length ? <h2 className="font-poster text-lg font-bold uppercase">Winning runs</h2> : null}
           {replay.steals.length ? (
-            <ol className="-mt-4 space-y-3">
-              {replay.steals.map((steal) => (
-                <StealRow key={steal.txHash} steal={steal} fee={replay.fee} names={names} />
-              ))}
-            </ol>
+            (() => {
+              const mine = replay.steals.find((steal) => steal.txHash.toLowerCase() === checked) ?? null;
+              const rest = mine ? replay.steals.filter((steal) => steal !== mine) : replay.steals;
+              return (
+                <>
+                  {mine ? (
+                    <section className="space-y-3">
+                      <h2 className="font-poster text-lg font-bold uppercase">This transaction</h2>
+                      <ol>
+                        <StealRow steal={mine} fee={replay.fee} names={names} />
+                      </ol>
+                    </section>
+                  ) : null}
+                  {rest.length ? (
+                    <details className="rounded-2xl bg-ink-2 p-4" open={!mine}>
+                      <summary className="cursor-pointer font-poster text-sm font-bold uppercase">
+                        {mine ? 'The rest of this crown · ' + rest.length + (rest.length === 1 ? ' more round' : ' more rounds') : 'Every round of this crown'}
+                      </summary>
+                      <ol className="mt-4 space-y-3">
+                        {rest.map((steal) => (
+                          <StealRow key={steal.txHash} steal={steal} fee={replay.fee} names={names} />
+                        ))}
+                      </ol>
+                    </details>
+                  ) : null}
+                </>
+              );
+            })()
           ) : null}
 
           <p className="border-t border-white/10 pt-4 font-mono text-[10px] leading-relaxed text-mute">

@@ -163,9 +163,6 @@ export function CrownDeskView({ id }: { id: string }) {
           </div>
           <div className="flex flex-wrap gap-3">
             <Button href={`/play/${room.id}`}>Play</Button>
-            <Button href={`/watch/${room.id}`} variant="ghost">
-              Big screen
-            </Button>
           </div>
         </aside>
       </div>

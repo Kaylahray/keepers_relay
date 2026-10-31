@@ -3,15 +3,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { createCarRig } from '@/lib/game/apex/car-model';
 import { LANE, type LaneRow } from '@/lib/game/lane-runner';
 
-/**
- * The lane runner drawn as a daytime highway: your car in three lanes of asphalt, grass verges,
- * trees and a town going by, striped road barriers to dodge and gold coins to grab. Only the
- * drawing changes. Every position comes from the same rules the chain replays (the car's x, each
- * row's distance, blocked lanes and coin), so what you see is what is scored.
- *
- * Everything is built from simple shapes and generated textures: no model or image files.
- * (The file keeps its first name, from when the drive was set at night.)
- */
+/** The lane runner drawn as a daytime highway: your car in three lanes of asphalt, grass verges, trees and a town going by, striped road barriers to dodge and gold coins to grab. */
 
 export type DriveState = {
   /** Car position from the rules: 0 is the left lane's centre, 2000 the right lane's. */
@@ -305,8 +297,7 @@ export function createNightDrive(canvas: HTMLCanvasElement, options: DriveOption
   const car = new THREE.Group();
   const apex = createCarRig({ paintColor: COLORS.body, accentColor: 0xffffff, headlightsOn: false });
   keep(apex);
-  // The rig faces +Z and is a real 4.7 m long; the road runs away from the camera toward -Z and a
-  // lane is 2.4 units wide, so it is turned round and scaled to fill a lane.
+  // The rig faces +Z and is a real 4.7 m long; the road runs away from the camera toward -Z and a lane is 2.4 units wide, so it is turned round and scaled to fill a lane.
   apex.root.rotation.y = Math.PI;
   apex.root.scale.setScalar(0.68);
   for (const lamp of apex.lights.taillightPointLights) lamp.intensity = 0.2;
@@ -470,8 +461,7 @@ export function createNightDrive(canvas: HTMLCanvasElement, options: DriveOption
     renderer.dispose();
   }
 
-  // Pools are sized for the most rows at once; counts are set each frame. Three works out whether a
-  // pool is on screen once, from its first (empty) contents, so pooled meshes are always drawn.
+  // Pools are sized for the most rows at once; counts are set each frame.
   for (const pooled of [dashes, buildings, foliage, trunks, barriers, barrierTops, coins]) pooled.frustumCulled = false;
   barriers.count = 0;
   barrierTops.count = 0;

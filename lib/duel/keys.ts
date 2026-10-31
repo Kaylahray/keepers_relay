@@ -1,8 +1,4 @@
-/**
- * The session key this browser plays a duel with: it signs every shot and race lap, so the wallet
- * only pops up to stake. Kept per duel, in this browser only, like a Crowns run's key. Losing it
- * means this browser can no longer move in that duel (the opponent can then claim it on time).
- */
+/** The session key this browser plays a duel with: it signs every shot and race lap, so the wallet only pops up to stake. */
 
 const KEY = 'crowns-duel-keys';
 
@@ -35,5 +31,26 @@ export function forgetDuelKey(duelId: string) {
     window.localStorage.setItem(KEY, JSON.stringify(all));
   } catch {
     // Nothing to forget.
+  }
+}
+
+const PENDING = 'crowns-duel-pending-keys';
+
+/** Remembers a fresh session key before the wallet is asked to approve. */
+export function rememberPendingKey(secret: string) {
+  try {
+    const list = JSON.parse(window.localStorage.getItem(PENDING) ?? '[]') as string[];
+    if (!list.includes(secret)) list.push(secret);
+    window.localStorage.setItem(PENDING, JSON.stringify(list.slice(-20)));
+  } catch {
+    // Storage unavailable: nothing to fall back on.
+  }
+}
+
+export function pendingKeys(): `0x${string}`[] {
+  try {
+    return JSON.parse(window.localStorage.getItem(PENDING) ?? '[]') as `0x${string}`[];
+  } catch {
+    return [];
   }
 }

@@ -9,8 +9,7 @@ import {
   type ScriptConfig,
 } from '@/lib/registry/config';
 
-// Core-only on purpose: the chain code that uses these also runs outside a browser (the devnet
-// end-to-end test), and the React connector cannot load there.
+// Core-only on purpose: the chain code that uses these also runs outside a browser (the devnet end-to-end test), and the React connector cannot load there.
 
 function toCellDep(s: ScriptConfig): ccc.CellDep {
   return ccc.CellDep.from({ outPoint: { txHash: s.outPoint.txHash, index: s.outPoint.index }, depType: s.depType });

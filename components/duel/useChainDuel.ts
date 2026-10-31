@@ -54,9 +54,7 @@ export function useChainDuel(duelId: string): ChainDuel {
       setLoading(false);
     };
     void read();
-    // Keep reading even in a background tab: a duel moves on whether or not you are looking, and a
-    // screen left on an old turn would fire into a duel that has moved past it. Read again the
-    // moment the tab is looked at.
+    // Keep reading even in a background tab: a duel moves on whether or not you are looking, and a screen left on an old turn would fire into a duel that has moved past it.
     const id = window.setInterval(() => void read(), 3_000);
     const onShow = () => {
       if (!document.hidden) void read();

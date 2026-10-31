@@ -1,7 +1,4 @@
-/**
- * Simple in-memory sliding-window rate limit (per isolate).
- * Keyed by client IP + route bucket — good enough for single-node / edge isolates.
- */
+/** Simple in-memory sliding-window rate limit (per isolate). */
 
 import { ApiError } from '@/lib/server/errors';
 

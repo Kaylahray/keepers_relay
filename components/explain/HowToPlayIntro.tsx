@@ -26,10 +26,7 @@ function seenOnThisDevice(): boolean {
   }
 }
 
-/**
- * How to play, card by card with the pictures, the first time someone opens a game. It can be
- * skipped and does not come back on this device. The server renders nothing, so nobody sees a flash.
- */
+/** How to play, card by card with the pictures, the first time someone opens a game. */
 export function HowToPlayIntro() {
   const seen = useSyncExternalStore(subscribe, seenOnThisDevice, () => true);
   const [step, setStep] = useState(0);

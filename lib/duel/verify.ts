@@ -15,14 +15,7 @@ import { duelType } from '@/lib/registry/config';
 import type { LaneRunner } from '@/lib/game/lane-runner';
 import { bytesToHex, hexToBytes, lapsFromWitness, MAX_TX_FEE, runSeed } from '@/lib/sudden-death/codec';
 
-/**
- * An independent replay of a duel, straight from chain.
- *
- * Like the crown check beside it, nothing here asks our server. From one transaction hash it finds
- * the duel, reads every transaction that ever held the duel cell and the block each one landed in,
- * and rebuilds the duel from those alone: the battlefield from the accept's block, each shot's wind
- * from the block before it, every skipped turn, and who the payout paid. The page can then play the duel back and say, rule by rule, whether it checks out.
- */
+/** An independent replay of a duel, straight from chain. */
 
 export class DuelVerifyError extends Error {}
 

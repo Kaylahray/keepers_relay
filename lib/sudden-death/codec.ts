@@ -1,22 +1,15 @@
 import { ccc } from '@ckb-ccc/core';
 
-/**
- * Match cell data, version 5. Same offsets as `sudden-death-common`. v5 keeps v4's layout and only
- * reckons land_by from the entry's last seal instead of from the entry itself.
- */
+/** Match cell data, version 5. Same offsets as `sudden-death-common`. */
 export const MATCH_DATA_LEN = 215;
 export const MATCH_VERSION = 5;
 /** Version 2 cells: the first 166 bytes of v4, with no postmark or work fields. Still readable for history. */
 const V2_DATA_LEN = 166;
 /** v4 only: a run counted if it landed within this long after the entry's block. Kept to verify old matches. */
 export const RUN_WINDOW_MS = 10 * 60 * 1000;
-/**
- * Each lap's window, from the block its road came from to the block its seal lands in. Waiting for
- * one lap's road never counts against it. A steal counts if it lands within one window of the last seal.
- */
+/** Each lap's window, from the block its road came from to the block its seal lands in. */
 export const LAP_WINDOW_MS = 3 * 60 * 1000;
-/** Laps in a full run. Lap 1 is seeded by the entry's block, each later lap by the block where the
- * lap before it was sealed. */
+/** Laps in a full run. */
 export const LAPS = 5;
 /** Proof of work a new crown asks of each entry: about 65,000 hashes, a second or two on a phone. */
 export const DEFAULT_POW_BITS = 16;
@@ -27,12 +20,7 @@ export const CLOSER_REWARD = 100_000_000n;
 /** How much less than their share the host may receive from a close: the fee and the closer's reward. */
 export const HOST_ALLOWANCE = CLOSER_REWARD + MAX_TX_FEE;
 /** Bid data: `version ‖ refund_after_ms u64 ‖ pow nonce u64 ‖ owner lock script`. */
-/**
- * Bid data, version 5. The entry is also the player's run, one sealed lap at a time:
- * `version ‖ refund_after_ms ‖ pow nonce ‖ laps ‖ key lock hash ‖ lap start ms ‖ lap chain ‖ owner`.
- * The key lock is the player's key cell: CKB's built-in lock under a throwaway session key, spent by
- * each seal. Lap start is when the latest sealed lap's road appeared (v4 kept the entry's time there).
- */
+/** Bid data, version 5. The entry is also the player's run, one sealed lap at a time: `version ‖ refund_after_ms ‖ pow nonce ‖ laps ‖ key lock hash ‖ lap start ms ‖ lap chain ‖ owner`. */
 export const BID_VERSION = 5;
 export const BID_HEADER_LEN = 90;
 const OFF_LAPS = 17;
@@ -84,11 +72,7 @@ function bytesOf(value: string | Uint8Array): Uint8Array {
   return typeof value === 'string' ? hexToBytes(value) : value;
 }
 
-/**
- * The course `owner` runs with the entry that landed in `entryBlock`. Mirrors `run_seed` in the
- * scripts: a run copied out of someone else's pending steal plays the copier's course, and nobody
- * sees their road before their entry lands, because nobody knows that block's hash in advance.
- */
+/** The course `owner` runs with the entry that landed in `entryBlock`. */
 export function runSeed(
   matchId: string | Uint8Array,
   ownerLockHash: string | Uint8Array,
@@ -136,10 +120,7 @@ export function powBits(matchTypeHash: Uint8Array, owner: Uint8Array, firstInput
   return bits;
 }
 
-/**
- * Finds a nonce that gives at least `bits` leading zero bits. Hashes in batches and yields between
- * them so the page keeps drawing; `onProgress` hears how many tries so far.
- */
+/** Finds a nonce that gives at least `bits` leading zero bits. */
 export async function solvePow(
   matchTypeHash: Uint8Array,
   owner: Uint8Array,
@@ -217,10 +198,7 @@ export type MatchCell = {
   bidCode: Uint8Array;
   /** The score a steal has to beat. Zero before the first crown. */
   kingScore: bigint;
-  /**
-   * When the king's steal had to land to count: the deadline running when it was sent, or the end of
-   * the king's run window if that came first. Zero before the first crown.
-   */
+  /** When the king's steal had to land to count: the deadline running when it was sent, or the end of the king's run window if that came first. */
   landByMs: bigint;
   /** The last king whose steal is proven to have landed on time. All zero if none. */
   certified: Uint8Array;
@@ -235,11 +213,7 @@ function isZero(bytes: Uint8Array): boolean {
   return bytes.every((byte) => byte === 0);
 }
 
-/**
- * The king and score that are certified once `cell`, which landed at `landedMs` (its block's
- * timestamp), is spent. Mirrors `certified_after` in the scripts: the king counts if their steal
- * landed by the deadline that was running when it was sent; otherwise the earlier one stands.
- */
+/** The king and score that are certified once `cell`, which landed at `landedMs` (its block's timestamp), is spent. */
 export function certifiedAfter(cell: MatchCell, landedMs: bigint): { king: Uint8Array; score: bigint } {
   if (!isZero(cell.king) && landedMs <= cell.landByMs) {
     return { king: cell.king, score: cell.kingScore };
@@ -324,10 +298,7 @@ export function sealedBidData(raw: Uint8Array, laps: number, lapStartMs: bigint,
   return data;
 }
 
-/**
- * An entry's run so far. `lapStartMs` is when the latest sealed lap's road appeared; in a v4 entry the
- * same field held the entry's own time. Entries older than v4 read as having sealed nothing.
- */
+/** An entry's run so far. */
 export type EntryRun = { version: number; laps: number; key: Uint8Array; lapStartMs: bigint; chain: Uint8Array };
 
 export function decodeEntryRun(raw: Uint8Array): EntryRun {

@@ -1,9 +1,4 @@
-/**
- * The lane runner, as the browser runs it: the same Rust rules the game script runs on chain,
- * compiled to wasm (`scripts/sudden-death/game-wasm`). Whatever score this reports for a tape is
- * the score the chain will compute, which is what lets a player know before they pay whether
- * their run takes the crown.
- */
+/** The lane runner, as the browser runs it: the same Rust rules the game script runs on chain, compiled to wasm (`scripts/sudden-death/game-wasm`). */
 
 export const LANE = {
   TICK_HZ: 30,

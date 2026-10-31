@@ -29,12 +29,7 @@ type Hit = { side: Side; damage: number; key: number };
 /** Flat cartoon terrain columns, from the world (y-up) into SVG (y-down). */
 const svgY = (y: number) => WORLD_H - y;
 
-/**
- * The battlefield, drawn flat in 2D: blue sky, clouds, green hills, the stone tower and two tanks.
- * Everything that matters comes from the duel rules, the same ones the chain replays: the ground
- * and its craters are the board's heights, the shell flies the path the rules computed, and the
- * blast lands where the rules say it did. The drawing is only how it looks.
- */
+/** The battlefield, drawn flat in 2D: blue sky, clouds, green hills, the stone tower and two tanks. */
 export function ArtilleryField2D({ state, aimAngle, flight, onFlightDone, onScene }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -263,7 +258,7 @@ export function ArtilleryField2D({ state, aimAngle, flight, onFlightDone, onScen
           {shell ? <circle cx={shell.x} cy={svgY(shell.y)} r="6" fill="#1d1d1d" stroke="#fff" strokeWidth="2" /> : null}
 
           {blast ? (
-            <g key={blast.key} transform={`translate(${blast.x} ${svgY(blast.y)})`}>
+            <g key={`blast-${blast.key}`} transform={`translate(${blast.x} ${svgY(blast.y)})`}>
               <circle className="field-blast-outer" r="40" fill="#ff8a1f" />
               <circle className="field-blast-inner" r="20" fill="#ffe08a" />
               {[-16, 0, 14].map((dx, i) => (
@@ -274,7 +269,7 @@ export function ArtilleryField2D({ state, aimAngle, flight, onFlightDone, onScen
 
           {hit ? (
             <text
-              key={hit.key}
+              key={`hit-${hit.key}`}
               className="field-damage"
               x={state.tanks[hit.side].x}
               y={svgY(heights[state.tanks[hit.side].x]! + 40)}

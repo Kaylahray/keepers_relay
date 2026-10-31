@@ -1,7 +1,4 @@
-/**
- * Wallet session auth — challenge + CCC message signature + HMAC cookie.
- * Stateless challenges (HMAC-bound); sessions verified via AUTH_SECRET.
- */
+/** Wallet session auth — challenge + CCC message signature + HMAC cookie. */
 
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import * as ccc from '@ckb-ccc/core';
@@ -167,13 +164,7 @@ export async function verifyWalletSignature(input: {
   }
 }
 
-/**
- * Does the key that signed actually control the address being claimed?
- *
- * A valid signature alone proves nothing about the address: anyone can sign a challenge issued for
- * someone else's address with their own key. So the addresses the signing key controls are derived
- * here from its identity, and the claimed address must be one of them.
- */
+/** Does the key that signed actually control the address being claimed? */
 export async function signerControlsAddress(input: {
   address: string;
   identity: string;

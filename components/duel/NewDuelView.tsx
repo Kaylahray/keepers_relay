@@ -18,7 +18,7 @@ import { getCkbClient } from '@/lib/ckb/client';
 import { newSessionKey } from '@/lib/crown/chain';
 import { openDuel } from '@/lib/duel/chain';
 import { artilleryTimer, KIND_ARTILLERY, KIND_RACE, MIN_RACE_MS, type DuelKind } from '@/lib/duel/codec';
-import { saveDuelKey } from '@/lib/duel/keys';
+import { rememberPendingKey, saveDuelKey } from '@/lib/duel/keys';
 import { duelsConfigured } from '@/lib/registry/config';
 
 const CKB = 100_000_000n;
@@ -82,6 +82,7 @@ export function NewDuelView() {
       setBusy('Preparing your challenge…');
       const opponentLockHash = opponent ? (await ccc.Address.fromString(opponent.address, client)).script.hash() : null;
       const session = await newSessionKey(client);
+      rememberPendingKey(session.secret);
       setBusy('Approve in your wallet to lock your stake…');
       const opened = await openDuel(signer, {
         kind,

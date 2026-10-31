@@ -4,14 +4,7 @@ import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { ckbWhole, type CrownRoom } from '@/lib/crown/rooms';
 
-/**
- * The card you post after losing.
- *
- * A result anyone has to take on trust is a screenshot. A result with the transaction on it is
- * evidence — whoever you send it to can paste that hash into the checker and watch the whole
- * match replay from chain. That is the only reason this exists: to make the brag and the proof
- * the same object.
- */
+/** A shareable result card with the transaction hash, so anyone can check it. */
 
 function held(room: CrownRoom): string | null {
   if (room.openedAt == null || room.deadlineAt == null) return null;

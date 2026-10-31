@@ -1,7 +1,4 @@
-/**
- * The Crowns mark: a crown cut out of a tile that runs from Crowns lime to Duels pink, the two
- * ways to play in one badge. Pointed on the right like our buttons.
- */
+/** The Crowns mark: a crown cut out of a tile that runs from Crowns lime to Duels pink, the two ways to play in one badge. */
 export function LogoMark({ size = 32, className = '' }: { size?: number; className?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 64 64" className={className} aria-hidden="true">

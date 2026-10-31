@@ -1,69 +1,88 @@
 # Crowns
 
-A live skill game on CKB. A host opens a crown with an entry fee and a clock. Players run a short
-arcade game in the browser, and a run that beats the standing score takes the crown. Each steal
-adds the entry fee to the pot and cuts the clock. Whoever holds the crown when the clock runs out
-takes the whole pot.
+Crowns is a set of skill games on Nervos CKB. Players stake CKB, and the chain decides who wins. Stakes are held in cells controlled by on-chain scripts. Before any CKB is paid out, the scripts replay the game from the recorded moves and pay only the real winner.
 
-Runs are not taken on trust. The match script replays the run on chain before the crown moves, so
-the score that wins is the score the chain computed.
+## Games
 
-## How a match works
+**Crowns** are king-of-the-hill games for many players. A host opens a crown with an entry fee and a clock. Players drive 5 laps of the lane runner. A higher score takes the crown, adds the entry to the pot and shortens the clock. The player holding the crown when the clock runs out wins the pot.
 
-1. **Open.** The host picks a game, a clock and an entry fee, shares the lobby link, then starts
-   the clock. That writes the match cell: game, fee, pot, king, score to beat and deadline.
-2. **Play.** Players run the game as often as they like. It costs nothing until a run beats the
-   score to beat. Each player gets their own course, seeded from the match and their lock.
-3. **Steal.** The player locks one entry (a bid cell) and sends the run. The match script spawns
-   the game script, replays the recorded inputs, and accepts only a higher score from a new king.
-   The pot grows by the fee and the clock shrinks: 10 minutes first, halving every two rounds,
-   down to a 72 second floor.
-4. **Close.** After the deadline anyone can close the match. The king gets the pot. Unused entries
-   can be refunded an hour after the deadline.
+**Duels** are one-on-one games. Both players lock the same stake and play one of two games:
+
+- **Artillery**: players take turns firing over a tower. Each shot sets an angle and power, and the wind changes every turn.
+- **Lane race**: both players drive the same 5 laps.
+
+The winner takes both stakes. In a draw, each player gets their stake back.
+
+## How a crown works
+
+1. **Open.** The host sets the entry fee, the clock and a title, then starts the crown. This creates a match cell and a treasury cell. A 3-minute entry window lets players join before play begins.
+2. **Practise.** Practice runs are free and use the same rules as the chain.
+3. **Enter.** The player pays the entry fee. The app creates a temporary session key, so laps can be sent without a wallet prompt each time.
+4. **Drive.** Each lap's road comes from the block in which the previous lap was saved, so no one can see a lap in advance. Each lap must be saved within 3 minutes.
+5. **Take the crown.** A finished run that beats the current score takes the crown. The match script replays every lap and accepts only a higher score. The clock starts at 10 minutes, halves every two takeovers, and never drops below 72 seconds.
+6. **Close.** After the deadline, anyone can close the crown without a signature. The pot goes to the last player who took the crown in time. Unused entries are refunded.
+
+## How a duel works
+
+1. **Challenge.** The challenger picks the game, the opponent (or leaves it open to anyone) and the stake. Artillery also has a turn timer: Classic, or Pressure, where each turn is 5 seconds shorter, down to a minimum of 30 seconds.
+2. **Accept.** The opponent locks the same stake. The block that includes this step sets the battlefield.
+3. **Play.** Moves are signed with a session key, so there are no wallet prompts during play. If a player misses a turn, anyone can skip it.
+4. **Finish.** The game ends when a tank is destroyed, after 30 turns, or when race time runs out. Anyone can then send the payout. The duel script replays the full game and pays the winner.
+
+Any game can be checked at `/verify`. Paste a transaction hash and the page replays the game from the chain, in the browser.
 
 ## On-chain scripts
 
-All in `scripts/sudden-death/` (Rust, CKB-VM v2).
+The scripts are written in Rust for CKB-VM v2 and live in `scripts/sudden-death/contracts/`. "Sudden Death" is the internal name used in the code.
 
-| Script | Role |
+| Script | Purpose |
 | --- | --- |
-| `match-type` | The match cell: open, steal (with the replay) and close rules |
-| `bid-type` | Entry cells: one per steal, refundable after the deadline |
-| `treasury-lock` | Holds the pot until the match closes |
-| `lane-runner` | The game. Reads a seed and an input tape, writes the score |
-| `game-core` | The lane runner rules, shared by the chain script and the browser (wasm) |
+| `match-type` | Crown match cell: open, take the crown, close |
+| `treasury-lock` | Holds the crown pot and pays the winner at close |
+| `bid-type` | A player's entry: proof of work, saved laps, refund |
+| `duel-type` | Duels: open, cancel, accept, shot, skip, race result, finish |
+| `lane-runner` | Replays a lane runner run and returns the score |
+| `artillery` | Replays a duel's shots and returns the result |
+| `game-core` | Lane runner rules, shared by the chain and the browser (WebAssembly) |
+| `artillery-core` | Artillery rules, mirrored in `lib/duel/artillery.ts` and tested for matching results |
+| `common` | Shared cell layouts, clock rules and helpers |
 
-Games plug in through one small interface. The match script spawns the game script by data hash,
-with the seed and the input tape as its argument, and reads back a `u64` score. A new game is a new
-script that follows that interface; the match script does not change.
+The scripts that hold money do not contain game rules. They run the game script and read its result, so the rules exist in one place. All game math uses integers, so the browser and the chain always get the same result.
 
-Also used: the Input Type Proxy Lock, the username and profile registries (ckb-js-vm), Spore for
-avatars, and JoyID or any CCC wallet to sign in.
+Other components: the Input Type Proxy Lock, the username and profile registries (ckb-js-vm), Spore for profile pictures, and JoyID or any CCC-supported wallet.
 
-### Pudge testnet
+### Pudge testnet deployment (v5)
 
-| Cell | Reference |
+Deployed with `ckb-cli deploy` from `scripts/sudden-death/deployment/testnet-v5/crowns/`. All cell references are in `.env.local.example`.
+
+| Script | Type ID |
 | --- | --- |
-| Deploy transaction | `0xc9f1f7a3da0aaed8b6f0a0c98614b7c75756db89c938cb7c1f1e5447070301d4` |
-| match-type (type id) | `0xbb388fcce8ceef841e98a614f49281032fd66ae57f20aecbc6167ad766b0813f` |
-| bid-type (type id) | `0xa76ff5305f3b76692a3fe513a2ee5407164f21344d2d0c8eb93288be3051c78b` |
-| treasury-lock (type id) | `0x9e94bb5a49f906bc36bf8059cd8719f16e4f90aad6b76e6aa9ed55cb78c1be75` |
-| lane-runner (data hash) | `0xffac03926858495fb6481b1ef64d9a801db214eacb1847ab8e30cc63a35830f2` |
+| match-type | `0x3e1240fd9efbb38e72466449301ef2a96f5554ca4cd9a0a0ff16623290a01d34` |
+| bid-type | `0x5c41a20b5b4361448b8fd3fde00dfbd4464d0f1d7abb66e7b8729cbce61671ac` |
+| treasury-lock | `0x7dab4b0d44d7ab6b2df6befa902ac4268f5c8c4e29a8bc90eb52a90711b99241` |
+| duel-type | `0x726d6e4b30737e5caade98ee78f25fcfd7d495ea76971861768c4e267e20b0d1` |
 
-## Repository layout
+Crowns from earlier deployments (v1, v2, v4) can still be checked at `/verify`.
 
-| Path | What |
+## Project structure
+
+| Path | Contents |
 | --- | --- |
-| `app/`, `components/`, `hooks/`, `context/` | Next.js app: lobby, play screen, host desk, watch, verify, profiles |
-| `lib/crown/` | Crowns on the client: rooms, chain transactions, the shared clock |
-| `lib/game/`, `components/game/` | The lane runner in the browser, on the same rules as the chain |
-| `lib/sudden-death/` | Cell layouts, seeds and run witnesses, and the replay check used by `/verify` |
-| `lib/server/` | API storage on Neon Postgres: lobbies, seats, profiles, steal history, sign-in |
-| `scripts/sudden-death/` | On-chain scripts, their tests, and the wasm build of the game |
-| `scripts/crowns-devnet/` | Local devnet deploy and an end-to-end match |
-| `scripts/crowns-testnet/` | Testnet config, inventory, reclaim and steal-history tools |
+| `app/` | Pages and API routes |
+| `components/ui/` | Shared UI components |
+| `components/crown/`, `components/duel/` | Crown and duel screens, including the artillery game |
+| `components/game/` | Lane runner game and run playback |
+| `lib/crown/`, `lib/duel/` | Building and reading crown and duel transactions |
+| `lib/game/` | Lane runner WebAssembly loader |
+| `lib/sudden-death/` | Cell layouts, seeds and the replay check used by `/verify` |
+| `lib/registry/` | Usernames, profiles and script configuration |
+| `lib/server/`, `lib/db/` | Database access (Neon Postgres): crowns, players, sign-in |
+| `hooks/`, `context/` | Wallet, sign-in and profile hooks |
+| `scripts/sudden-death/` | On-chain scripts, tests and deployments |
+| `scripts/crowns-devnet/` | Local devnet deployment and end-to-end tests |
+| `scripts/crowns-testnet/` | Testnet tools: config check, inventory, reclaim, stats backfill |
 
-## Run it
+## Running locally
 
 ```bash
 cp .env.local.example .env.local
@@ -71,42 +90,38 @@ pnpm install
 pnpm dev
 ```
 
-Set `DATABASE_URL` (Neon, pooled) and `AUTH_SECRET` (any long random string) in `.env.local`. The
-example already points at the Pudge testnet scripts above. Leave the `NEXT_PUBLIC_SD_GAME_*` values
-empty to play in practice mode with nothing on chain.
+Set `DATABASE_URL` (Neon, pooled connection) and `AUTH_SECRET` (a long random string) in `.env.local`. The other values already point to the Pudge testnet v5 scripts. The database stores crown lobbies and player data. Games and duels are read from the chain.
 
-Sign-in is a message signature: the server checks that the key that signed owns the address, then
-sets a seven-day session cookie.
+Players sign in by signing a message with their wallet. The server checks the signature and sets a session cookie that lasts seven days.
 
-## Test it
+## Testing
 
 ```bash
-# On-chain scripts, including every rejection path (Rust; WSL on Windows)
+# On-chain script tests (Rust; use WSL on Windows)
 cd scripts/sudden-death && cargo test -p tests --release
 
-# A whole match on a local devnet, through the app's own chain code
+# End-to-end tests on a local devnet
 offckb node
 pnpm exec tsx scripts/crowns-devnet/deploy.ts
-pnpm exec tsx scripts/crowns-devnet/e2e.ts
+pnpm exec tsx scripts/crowns-devnet/e2e.ts        # a full crown
+pnpm exec tsx scripts/crowns-devnet/duel-e2e.ts   # duels: artillery, race, skips, payout
 ```
 
-## Deploy the scripts
+## Deploying the scripts
 
-The testnet scripts are deployed with `ckb-cli deploy` from `scripts/sudden-death/deployment/testnet-v2/crowns/`:
-`gen-txs`, then `sign-txs`, then `apply-txs`. A new migrations folder deploys new cells; an
-existing one upgrades them in place, keeping their type ids. Then:
+From `scripts/sudden-death/deployment/testnet-v5/crowns/`, run `ckb-cli deploy gen-txs`, then `sign-txs`, then `apply-txs`. A new migrations folder creates new cells. An existing one upgrades them and keeps their type IDs.
+
+After deploying:
 
 ```bash
-# Print the env values for the new deployment
+# Print the environment values for the deployment
 pnpm exec tsx scripts/crowns-testnet/env-from-migration.ts
 
-# Check the app config against the chain
+# Check the app configuration against the chain
 pnpm exec tsx scripts/crowns-testnet/check-config.ts
 
-# Fill player stats from the chain (also runs on the first profile view)
+# Rebuild player stats from the chain
 pnpm exec tsx --env-file=.env.local scripts/crowns-testnet/backfill-steals.ts
 ```
 
-## Credits
-
-The home page character is "Character Animated" by [Quaternius](https://quaternius.com), released as CC0 (public domain), via [poly.pizza](https://poly.pizza/m/DgOCW9ZCRJ). Everything else is drawn in code.
+`NEXT_PUBLIC_` values are built into the app, so redeploy the site after changing them.

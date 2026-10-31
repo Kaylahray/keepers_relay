@@ -154,12 +154,12 @@ export function HomeView() {
       <section className="mx-auto mt-24 max-w-7xl px-4 md:px-8" aria-labelledby="friends">
         <div className="relative overflow-hidden rounded-3xl">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={ART.friends} alt="Friends on a couch cheering at a crown on the big screen" className="aspect-[4/5] w-full object-cover sm:aspect-[21/9]" />
+          <img src={ART.friends} alt="Friends on a couch cheering at a crown" className="aspect-[4/5] w-full object-cover sm:aspect-[21/9]" />
           <div className="absolute inset-x-0 bottom-0 bg-ink/85 p-6 backdrop-blur-sm md:inset-y-0 md:left-0 md:right-auto md:flex md:w-[440px] md:flex-col md:justify-center md:p-10">
             <h2 id="friends" className="font-poster text-2xl font-extrabold uppercase md:text-3xl">
               Play with your friends
             </h2>
-            <p className="mt-3 text-mute">Put a crown on the big screen and let the room scan in. Or send one friend a duel link.</p>
+            <p className="mt-3 text-mute">Host a crown and drop the link in your group chat. Or send one friend a duel link.</p>
             <div className="mt-6 flex flex-col gap-3 sm:flex-row md:flex-col lg:flex-row">
               <Button href="/create">Host a crown</Button>
               <Button href="/duels/new" variant="pink">

@@ -33,6 +33,9 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 .env.local
+.env.local.example
+
+
 
 # local durable store when DATABASE_URL is unset
 .data/
@@ -52,3 +55,6 @@ next-env.d.ts
 # local notes, not committed
 /docs/
 !.env.local.example
+
+# personal one-off tools (database cleanup, quick chain checks), never pushed
+/scripts/local/

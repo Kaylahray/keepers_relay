@@ -58,11 +58,7 @@ function lockHashOf(who: string): Promise<string | null> {
   return found;
 }
 
-/**
- * Each player's own profile picture, straight from the chain like their name: their on-chain
- * profile names a Spore, and the Spore holds the image. Players are given by lock hash or by CKB
- * address. Null for a player without one, who keeps their drawn face.
- */
+/** Each player's own profile picture, straight from the chain like their name: their on-chain profile names a Spore, and the Spore holds the image. */
 export function useChainPictures(players: (string | null | undefined)[]): (string | null)[] {
   const key = players.map((who) => who?.toLowerCase() ?? '').join(',');
   const [found, setFound] = useState<Map<string, string>>(new Map());

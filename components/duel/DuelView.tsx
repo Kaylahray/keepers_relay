@@ -23,7 +23,7 @@ import { newSessionKey, returnKeyCell } from '@/lib/crown/chain';
 import { fire, replay, type ArtilleryState, type ShotRecord } from '@/lib/duel/artillery';
 import { acceptDuel, cancelDuel, finishDuel, fireShot, skipTurns } from '@/lib/duel/chain';
 import { KIND_ARTILLERY, KIND_RACE, STATUS_OPEN, timerShrinkMs, turnMs } from '@/lib/duel/codec';
-import { forgetDuelKey, loadDuelKey, saveDuelKey } from '@/lib/duel/keys';
+import { forgetDuelKey, loadDuelKey, pendingKeys, rememberPendingKey, saveDuelKey } from '@/lib/duel/keys';
 import { nameOf } from '@/lib/registry/chain-names';
 import { bytesToHex } from '@/lib/sudden-death/codec';
 
@@ -66,8 +66,7 @@ export function DuelView({ id }: { id: string }) {
   const [error, setError] = useState<string | null>(null);
   const now = useTick(true, 500);
   const [replaying, setReplaying] = useState(false);
-  // A cancel or accept that was signed and sent, until the chain shows it: the duel cell it spent
-  // is still the one on screen, so say what is happening instead of looking stuck.
+  // A cancel or accept that was signed and sent, until the chain shows it: the duel cell it spent is still the one on screen, so say what is happening instead of looking stuck.
   const [landing, setLanding] = useState<{ what: 'cancel' | 'accept'; point: string } | null>(null);
 
   const snapshot = chain.snapshot;
@@ -117,6 +116,28 @@ export function DuelView({ id }: { id: string }) {
   const shotInFlight = Boolean(pending && shots.length < pending.count);
   const timeLeft = deadline != null && !shotInFlight ? deadline - now : null;
 
+  // No key saved for this duel: look among the keys made before a wallet approval, in case the wallet reloaded the page before the key could be filed under the duel.
+  const myKeyHash = duel && side !== null ? bytesToHex(side === 0 ? duel.key0 : duel.key1).toLowerCase() : null;
+  useEffect(() => {
+    if (sessionKey || !myKeyHash || /^0x0+$/.test(myKeyHash)) return;
+    let stop = false;
+    void (async () => {
+      for (const secret of pendingKeys()) {
+        const signer = new ccc.SignerCkbPrivateKey(getCkbClient(), secret);
+        const hash = (await signer.getRecommendedAddressObj()).script.hash().toLowerCase();
+        if (stop) return;
+        if (hash === myKeyHash) {
+          saveDuelKey(duelId, secret);
+          setKeyVersion((v) => v + 1);
+          return;
+        }
+      }
+    })().catch(() => undefined);
+    return () => {
+      stop = true;
+    };
+  }, [sessionKey, myKeyHash, duelId]);
+
   // When the duel ends, this browser's key cell goes back to its player.
   useEffect(() => {
     if (!chain.gone || !sessionKey || !signer) return;
@@ -146,6 +167,7 @@ export function DuelView({ id }: { id: string }) {
       'Approve in your wallet to lock your stake…',
       async () => {
         const session = await newSessionKey(getCkbClient());
+        rememberPendingKey(session.secret);
         await acceptDuel(signer, snapshot.point, session);
         saveDuelKey(duelId, session.secret);
         setKeyVersion((v) => v + 1);
@@ -178,15 +200,12 @@ export function DuelView({ id }: { id: string }) {
   const canCollect = !chain.gone && snapshot && duel?.status === 1 && (result !== null || raceDone);
   // A race whose time is up is decided too: a racer who never handed in scores 0.
   const raceTimeUp = !chain.gone && duel?.kind === KIND_RACE && duel.status === 1 && !raceDone && timeLeft != null && timeLeft <= 0;
-  // Artillery: the other player's clock ran out. Their shot may still be on its way to the chain, so
-  // this browser waits a little; if nothing lands, it passes their turn for them.
+  // Artillery: the other player's clock ran out.
   const theirClockOut =
     !chain.gone && duel?.kind === KIND_ARTILLERY && side !== null && Boolean(sessionKey) && turnSide !== null && turnSide !== side && timeLeft != null && timeLeft <= 0;
   const theirTimeUp = theirClockOut && timeLeft != null && timeLeft <= -LANDING_GRACE_MS;
 
-  // Nobody taps anything to end a turn or a duel: this browser sends the skip or the payout itself,
-  // with no wallet. The chain only accepts it once it is due (its clock runs a little behind), so a
-  // refusal just means trying again a little later. Either player's browser may get there first.
+  // Nobody taps anything to end a turn or a duel: this browser sends the skip or the payout itself, with no wallet.
   const sent = useRef<{ what: string; at: number } | null>(null);
   const refresh = chain.refresh;
   useEffect(() => {

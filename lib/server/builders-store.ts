@@ -64,12 +64,7 @@ function toProfile(row: typeof builders.$inferSelect): BuilderProfile {
   };
 }
 
-/**
- * Everyone who has claimed a username. Names come from the username cells on chain; the table adds
- * pictures and bios. A name claimed on chain that the table never heard of is saved to it here, so
- * the list and the seat check agree with the chain. If the chain cannot be read, the table alone is
- * used.
- */
+/** Everyone who has claimed a username. */
 export async function listBuilderProfiles(): Promise<BuilderProfile[]> {
   if (!databaseConfigured()) return [];
   await ensureBuilders();
@@ -146,11 +141,7 @@ export async function upsertBuilder(input: {
   return saved;
 }
 
-/**
- * The name a player goes by in lobbies. Every player claims a username before taking a seat or
- * hosting, so a wallet without one is refused here. The name comes from the profile, never from
- * what the browser sends.
- */
+/** The name a player goes by in lobbies. */
 export async function requirePlayerName(address: string): Promise<string> {
   if (!databaseConfigured()) return `${address.slice(0, 10)}…`;
   const player = await getBuilder(address);

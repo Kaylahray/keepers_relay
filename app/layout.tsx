@@ -38,7 +38,7 @@ export default function RootLayout({
         <div aria-hidden className="pointer-events-none fixed inset-0 z-0 bg-gradient-to-b from-ink/10 via-ink/40 to-ink/70" />
         <Providers>
           <SiteHeader />
-          <main className="relative z-[1] min-h-[calc(100vh-4rem)]">{children}</main>
+          <main className="relative min-h-[calc(100vh-4rem)]">{children}</main>
           <SiteFooter />
           <BottomTabs />
         </Providers>

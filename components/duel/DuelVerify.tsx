@@ -22,10 +22,7 @@ function windText(wind: number): string {
   return wind === 0 ? 'calm' : `${Math.abs(wind)} ${wind < 0 ? '←' : '→'}`;
 }
 
-/**
- * A duel checked from chain: played back first, like a video, then what the chain shows, rule by
- * rule, then every move with the block it landed in. Everything here was read from the chain.
- */
+/** A duel checked from chain: played back first, like a video, then what the chain shows, rule by rule, then every move with the block it landed in. */
 export function DuelVerify({ replay }: { replay: DuelReplay }) {
   const [names, setNames] = useState<Map<string, string>>(new Map());
   useEffect(() => {

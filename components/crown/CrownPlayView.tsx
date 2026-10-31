@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
-import { Crown, Monitor, ShieldCheck, Timer } from 'lucide-react';
+import { Crown, ShieldCheck, Timer } from 'lucide-react';
 import { ArenaCta } from '@/components/arena/ArenaPrimitives';
 import { ChainLoader } from '@/components/arena/ChainLoader';
 import { Avatar } from '@/components/duel/Avatar';
@@ -72,11 +72,7 @@ function scriptHash(lock: { codeHash: string; hashType: 'type' | 'data' | 'data1
   return ccc.Script.from({ codeHash: lock.codeHash, hashType: lock.hashType, args: lock.args }).hash();
 }
 
-/**
- * Font size for a number in the pot / crown / clock row. As large as the design allows on a wide
- * screen; on a phone it shrinks with the number's length so it always fits a third of the row,
- * whether it is "0" or "1250000" or "47:59:59".
- */
+/** Font size for a number in the pot / crown / clock row. */
 function fitFont(text: string, maxRem: number): string {
   const chars = Math.max(3, text.length);
   return `min(${maxRem}rem, calc((100vw - 64px) / 3 / ${(chars * 0.82).toFixed(2)}))`;
@@ -131,8 +127,7 @@ export function CrownPlayView({ id }: { id: string }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [chainError, setChainError] = useState<string | null>(null);
   const myLockHash = useMyLockHash();
-  // Live crowns to play next. Only fetched once this crown is over; during a match the page keeps
-  // players here.
+  // Live crowns to play next.
   const [nextCrowns, setNextCrowns] = useState<CrownRoom[]>([]);
   const [committed, setCommitted] = useState<{ txHash: string; ok: boolean } | null>(null);
   // The chain's median time and when this page read it, so the wait can count down between reads.
@@ -162,12 +157,10 @@ export function CrownPlayView({ id }: { id: string }) {
   const settling = useRef(false);
   const seenDeadline = useRef<number | null>(null);
 
-  // A live match is ready once its newest transaction is committed. Without a chain there is
-  // nothing to wait for; a crown that is not live has no match to wait on.
+  // A live match is ready once its newest transaction is committed.
   const matchTx = chain && room?.status === 'live' ? room.matchOutPoint?.txHash ?? null : null;
   const matchReady = matchTx ? committed?.txHash === matchTx && committed.ok : !chain;
-  // Only a confirmed "not yet" counts as waiting. Before the first answer arrives the page does not
-  // know, and showing a wait then flashes a timer on every page load.
+  // Only a confirmed "not yet" counts as waiting.
   const matchPending = Boolean(matchTx && committed?.txHash === matchTx && !committed.ok);
 
   useEffect(() => {
@@ -196,7 +189,6 @@ export function CrownPlayView({ id }: { id: string }) {
   }, [matchTx]);
 
   // Closing is gated on the chain's median time, which runs a few minutes behind the wall clock.
-  // Reading starts the moment the on-screen clock hits zero, not only when the page loads after it.
   const pastDeadline = room?.deadlineAt != null && room.deadlineAt <= now;
   useEffect(() => {
     if (!chain || room?.status !== 'live' || !pastDeadline) return;
@@ -235,9 +227,7 @@ export function CrownPlayView({ id }: { id: string }) {
     };
   }, [chain, room?.status, pastDeadline]);
 
-  // Once the chain allows a close, every open page sends one, so a crown pays out without anyone
-  // pressing a button or signing anything. The king has the most to lose, so their page goes
-  // first; the others wait a little and only send if the crown is still open by then.
+  // Once the chain allows a close, every open page sends one, so a crown pays out without anyone pressing a button or signing anything.
   const autoClosed = useRef<number | null>(null);
   const holdsCrown = Boolean(myLockHash && room?.kingHash && room.kingHash.toLowerCase() === myLockHash.toLowerCase());
   const closeOpen = Boolean(
@@ -274,9 +264,7 @@ export function CrownPlayView({ id }: { id: string }) {
   const savedBid = room ? rememberedBid(room.id, address) : null;
   const entryBid = room?.bidOutPoint ?? seatBid ?? savedBid;
 
-  // The run, lap by lap. Each lap's road is hidden until the chain hands it out: lap 1 when the
-  // entry lands, each later lap once the lap before it is sealed. The entry moves with every seal,
-  // so this follows its current out point; until the next lap appears the player is at the pit stop.
+  // The next lap the chain has revealed for this entry.
   const [lapFound, setLapFound] = useState<{ entry: string; next: EntryLap } | null>(null);
   const entryKey = entryBid ? `${entryBid.txHash}:${entryBid.index}` : null;
   const matchIdForRoad = room?.matchId ?? null;
@@ -321,7 +309,6 @@ export function CrownPlayView({ id }: { id: string }) {
     };
   }, [matchIdForRoad, myLockHash, nextLap, lapRun, inSync, runOver, sealedLaps]);
   // A run that can no longer be sent (its window shut, or the game ended) gives its key cell back.
-  // The laps stay remembered so the panel can still show them.
   const runDone =
     lapRun != null &&
     !lapRun.keyReturned &&
@@ -357,8 +344,7 @@ export function CrownPlayView({ id }: { id: string }) {
     return () => window.removeEventListener('online', retryReturn);
   }, [runDone]);
 
-  // The best try at the lap being played. Only the lap's own moves are sealed.
-  // A crashed try only matters while it beats the best clean one: sealing it ends the run.
+  // The best try at the lap being played.
   const [lapTry, setLapTry] = useState<{ lap: number; clean: FinishedRun | null; crash: FinishedRun | null } | null>(null);
   const [stamp, setStamp] = useState<{ lap: number; at: number } | null>(null);
 
@@ -384,9 +370,7 @@ export function CrownPlayView({ id }: { id: string }) {
     return floorSeed(room.id, address.trim().toLowerCase());
   }, [room, chain, myLockHash, address, lapPlan]);
 
-  // The best finished run counts only on the course it was played on. A new course (another
-  // wallet, the match cell arriving) starts the player over.
-  // A run played before leaving the page (to Watch, say) is still here when the player comes back.
+  // The best finished run counts only on the course it was played on.
   const roomId = room?.id ?? null;
   const storedBest = useMemo(
     () => (roomId && seed != null && typeof window !== 'undefined' ? loadBestRun(roomId, seed) : null),
@@ -469,8 +453,7 @@ export function CrownPlayView({ id }: { id: string }) {
     );
   }
 
-  // The chain records the king as a lock hash; compare against ours. The full lock, when the
-  // server has it, is a fallback for rooms saved before the hash was recorded.
+  // The chain records the king as a lock hash; compare against ours.
   let iHold = false;
   if (myLockHash && room.kingHash) {
     iHold = room.kingHash.toLowerCase() === myLockHash.toLowerCase();
@@ -509,8 +492,7 @@ export function CrownPlayView({ id }: { id: string }) {
   const lapMode = onChain && Boolean(entryBid);
   const runScore = sealedLaps.at(-1)?.score ?? 0;
   const beats = lapMode ? sealedLaps.length > 0 && runScore > room.kingScore : best != null && best.score > room.kingScore;
-  // Time up means time up. The chain can only enforce "not before", so a better run would still
-  // be accepted until someone closes; the app stops offering it the moment the clock hits zero.
+  // Stop offering steals once the clock hits zero, even before the chain enforces it.
   const timeUp = live && room.deadlineAt != null && !clock.counting;
   const roadLeft = nextLap ? nextLap.windowEndsMs - now : null;
   const roadOpen = roadLeft != null && roadLeft > SEND_MARGIN_MS;
@@ -633,9 +615,7 @@ export function CrownPlayView({ id }: { id: string }) {
         score: runScore,
       };
       const client = signer.client;
-      // Sends the run, and if another player's steal got there in the same few seconds, sends it
-      // again on top of their round. The chain re-checks every try, so a resend can only win what
-      // the run still earns: once it no longer beats the crown, stealCrown says so and this stops.
+      // Sends the run, and if another player's steal got there in the same few seconds, sends it again on top of their round.
       const send = async (from: CrownRoom) => {
         for (let attempt = 1; ; attempt += 1) {
           try {
@@ -655,8 +635,7 @@ export function CrownPlayView({ id }: { id: string }) {
         result = await send(current);
       } catch (error) {
         if (!(error instanceof EntryGoneError)) throw error;
-        // The entry this phone remembered was used by an earlier steal (or never landed). A run only
-        // counts on the road its own entry revealed, so a new entry means playing a new road.
+        // The entry this phone remembered was used by an earlier steal (or never landed).
         forgetEntry();
         throw new Error('That entry was already used. Pay a new entry for a new road.');
       }
@@ -809,9 +788,6 @@ export function CrownPlayView({ id }: { id: string }) {
           <h1 className="mt-3 truncate font-poster text-3xl font-black uppercase md:text-5xl">{room.title}</h1>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button href={`/watch/${room.id}`} variant="outline" size="sm">
-            <Monitor className="h-4 w-4" aria-hidden="true" /> Big screen
-          </Button>
           {iHost && live ? (
             <Button href={`/host/${room.id}`} variant="outline" size="sm">
               <Crown className="h-4 w-4" aria-hidden="true" /> Your game
@@ -936,6 +912,7 @@ export function CrownPlayView({ id }: { id: string }) {
             <div>
               <LaneRunnerGame
                 title={room.title}
+                sealLeftMs={lapMode && lapPlan && !entryWindow && roadLeft != null ? Math.max(0, roadLeft - SEND_MARGIN_MS) : null}
                 seed={seed}
                 toBeat={room.kingScore}
                 onFinish={onFinish}

@@ -2,10 +2,7 @@ import { ccc } from '@ckb-ccc/core';
 import { registryConfigured, usernameType } from '@/lib/registry/config';
 import { decodeUsername, isValidUsername } from '@/lib/registry/encoding';
 
-/**
- * Usernames by owner lock hash, read straight from the username cells on chain. Pages that promise
- * not to ask our server (/verify, duels) name players with this.
- */
+/** Usernames by owner lock hash, read straight from the username cells on chain. */
 export async function chainNames(client: ccc.Client, lockHashes: string[]): Promise<Map<string, string>> {
   const names = new Map<string, string>();
   const wanted = new Set(lockHashes.map((hash) => hash.toLowerCase()));

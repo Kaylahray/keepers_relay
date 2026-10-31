@@ -14,9 +14,6 @@ function ahead(local: CrownRoom, remote: CrownRoom, at: number): boolean {
   if (local.matchId && !remote.matchId) return true;
   if (remote.matchId && remote.deadlineAt != null) {
     // A live match cell is the clock, and no browser keeps its own time against it.
-    // The single exception is the player whose steal is still in the mempool: they see the
-    // crown they just took, for as long as that steal has a chance of confirming. Everyone
-    // else — and they too, once it lands or expires — reads the round out of the cell.
     if (local.round <= remote.round) return false;
     const sent = local.stealPendingAt ?? 0;
     return sent > 0 && at - sent < OPTIMISTIC_STEAL_MS;
@@ -47,7 +44,6 @@ function mergeCrown(
     };
   }
   // The server's room is read from the chain, and nothing about it is secret, so it wins.
-  // This browser only adds what is its own: the entry it locked.
   return {
     ...remote,
     bidOutPoint: keptBid(local, seatBid),
@@ -119,8 +115,6 @@ export function useCrown(id: string) {
     };
     void read();
     // The clock has to stay shared, so a live match really is polled every two seconds.
-    // A lobby is not a clock, and a tab nobody is looking at is not either — both used to
-    // poll just as hard, which is what filled the network tab.
     let tick = 0;
     const poll = window.setInterval(() => {
       tick += 1;

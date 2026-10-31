@@ -17,10 +17,7 @@ function clock(ms: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-/**
- * One player's side of a lane race: play each lap on the road the chain reveals, seal it (no wallet),
- * and hand the run in. The other player races at the same time on roads of their own.
- */
+/** One player's side of a lane race: play each lap on the road the chain reveals, seal it (no wallet), and hand the run in. */
 export function RacePanel({
   snapshot,
   side,
@@ -171,6 +168,7 @@ export function RacePanel({
           <LaneRunnerGame
             tone="pink"
             title="Lane race"
+            sealLeftMs={plan ? windowLeft : null}
             seed={lap?.seed ?? 1n}
             toBeat={0}
             onFinish={(finished) =>
@@ -202,7 +200,7 @@ export function RacePanel({
           ) : null}
           {lap?.late && run.laps.length > 0 ? (
             <Button variant="pink" size="lg" onClick={() => void handIn()} disabled={Boolean(busy)} className="mt-3">
-              {busy ?? 'Hand in what I have'}
+              {busy ?? 'Hand in (scores 0)'}
             </Button>
           ) : null}
         </>

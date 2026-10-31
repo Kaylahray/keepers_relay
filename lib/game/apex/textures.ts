@@ -1,13 +1,7 @@
-/**
- * Procedural canvas textures for the 3D sports car studio.
- * Zero external image dependencies.
- */
+/** Procedural canvas textures for the 3D sports car studio. */
 import * as THREE from 'three';
 
-/**
- * Procedural tire tread texture (bump / roughness)
- * Features sports asymmetric tread with deep longitudinal evacuation channels and angled lateral sipes.
- */
+/** Procedural tire tread texture (bump / roughness) Features sports asymmetric tread with deep longitudinal evacuation channels and angled lateral sipes. */
 export function createTireTreadTexture(): THREE.CanvasTexture {
   const size = 512;
   const canvas = document.createElement('canvas');
@@ -82,9 +76,7 @@ export function createTireTreadTexture(): THREE.CanvasTexture {
   return texture;
 }
 
-/**
- * Procedural carbon fiber texture (2x2 twill weave pattern)
- */
+/** Procedural carbon fiber texture (2x2 twill weave pattern) */
 export function createCarbonFiberTexture(): THREE.CanvasTexture {
   const size = 128;
   const canvas = document.createElement('canvas');
@@ -124,10 +116,7 @@ export function createCarbonFiberTexture(): THREE.CanvasTexture {
   return texture;
 }
 
-/**
- * Procedural carbon-ceramic / vented brake disc texture
- * Concentric friction grooves with cross-drilled cooling holes.
- */
+/** Procedural carbon-ceramic / vented brake disc texture Concentric friction grooves with cross-drilled cooling holes. */
 export function createBrakeDiscTexture(): THREE.CanvasTexture {
   const size = 512;
   const canvas = document.createElement('canvas');
@@ -209,10 +198,7 @@ export function createBrakeDiscTexture(): THREE.CanvasTexture {
   return texture;
 }
 
-/**
- * Procedural wet dark asphalt texture for turntable ground
- * Produces deep glossy puddles reflecting city/neon lights with textured asphalt grain.
- */
+/** Procedural wet dark asphalt texture for turntable ground Produces deep glossy puddles reflecting city/neon lights with textured asphalt grain. */
 export function createWetAsphaltTexture(): {
   map: THREE.CanvasTexture;
   roughnessMap: THREE.CanvasTexture;
@@ -282,7 +268,7 @@ export function createWetAsphaltTexture(): {
       cctx.fill();
       cctx.restore();
 
-      // Roughness map: puddles are ultra-smooth mirror surfaces (~0.04 to 0.15)
+      // Roughness map: puddles are smooth mirror surfaces (~0.04 to 0.15)
       rctx.save();
       rctx.translate(p.x, p.y);
       rctx.rotate(p.rot);
@@ -315,9 +301,7 @@ export function createWetAsphaltTexture(): {
   return { map, roughnessMap };
 }
 
-/**
- * Procedural hexagonal grille mesh texture for aerodynamic intakes
- */
+/** Procedural hexagonal grille mesh texture for aerodynamic intakes */
 export function createGrilleTexture(): THREE.CanvasTexture {
   const size = 128;
   const canvas = document.createElement('canvas');

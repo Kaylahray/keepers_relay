@@ -35,10 +35,7 @@ function seenOnThisDevice(): boolean {
   }
 }
 
-/**
- * The first visit to the home page: three swipeable cards saying what Crowns is. Skippable, and it
- * does not come back on this device. The server renders nothing, so nobody sees a flash.
- */
+/** The first visit to the home page: three swipeable cards saying what Crowns is. */
 export function Onboarding() {
   const seen = useSyncExternalStore(subscribe, seenOnThisDevice, () => true);
   const [i, setI] = useState(0);

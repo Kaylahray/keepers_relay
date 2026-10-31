@@ -9,8 +9,7 @@ import {
   usernameType,
 } from "./config";
 
-// Crowns scripts live in `lib/crown/scripts.ts`, which is core-only so the chain code can run
-// outside a browser.
+// Crowns scripts live in `lib/crown/scripts.ts`, which is core-only so the chain code can run outside a browser.
 
 function toScript(s: ScriptConfig): ccc.Script {
   return ccc.Script.from({

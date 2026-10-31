@@ -12,11 +12,7 @@ const TICK_MS = 1000 / LANE.TICK_HZ;
 /** A recorded run: each lap's road seed and its lane changes (`tick u16 ‖ lane`), as the chain stores them. */
 export type RecordedRun = { laps: { seed: bigint; tape: Uint8Array }[]; /** One tape for the whole run (before laps existed). */ whole?: boolean };
 
-/**
- * Plays a recorded run back on the real game, like a video: the same roads, the same lane changes
- * at the same ticks, scored by the same rules the chain replayed. Nothing is steered here; the
- * recording drives the car.
- */
+/** Plays a recorded run back on the real game, like a video: the same roads, the same lane changes at the same ticks, scored by the same rules the chain replayed. */
 export function RunPlayback({ run, title }: { run: RecordedRun; title?: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const runnerRef = useRef<LaneRunner | null>(null);

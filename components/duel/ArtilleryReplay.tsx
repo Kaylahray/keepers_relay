@@ -10,11 +10,7 @@ import { replay, type ShotRecord } from '@/lib/duel/artillery';
 const FIRST_MS = 900;
 const BETWEEN_MS = 1_100;
 
-/**
- * A duel played again, shot by shot: the field the duel started on, then every stored shot
- * (angle, power and the wind it flew in) fired in order on the same board, with the same arcs,
- * blasts and craters. The rules are exact, so this is the duel the chain judged, not a picture of it.
- */
+/** A duel played again, shot by shot: the field the duel started on, then every stored shot (angle, power and the wind it flew in) fired in order on the same board, with the same arcs, blasts and craters. */
 export function ArtilleryReplay({
   seed,
   shots,

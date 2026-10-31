@@ -15,10 +15,7 @@ import { normalizeUsername } from '@/lib/rewards/milestones';
 import { registryConfigured } from '@/lib/registry/config';
 import { estimateUsernameCapacityCkb } from '@/lib/registry/capacity';
 
-/**
- * Joining in three steps: connect (JoinID, no password), claim @handle in one on-chain action, then
- * a picture. The handle is the only thing you sign here; a bio and picture come later from the profile.
- */
+/** Joining in three steps: connect (JoinID, no password), claim @handle in one on-chain action, then a picture. */
 export function JoinHandleForm({ nextHref = '/' }: { nextHref?: string }) {
   const router = useRouter();
   const { isConnected, address, formattedAddress, isReady } = useWallet();

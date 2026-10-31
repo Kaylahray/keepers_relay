@@ -3,10 +3,7 @@ import { Avatar } from '@/components/duel/Avatar';
 import { SIDE_COLORS } from '@/components/duel/colors';
 import { Ckb, HpBlocks } from '@/components/ui/kit';
 
-/**
- * The face-off at the top of every duel: both players, what each put in, and what the winner takes.
- * `active` lights up the player whose move it is.
- */
+/** The face-off at the top of every duel: both players, what each put in, and what the winner takes. */
 export function VsBanner({
   names,
   stakeCkb,

@@ -1,7 +1,4 @@
-/**
- * Pure mathematical, kinematic, and dimensional calculations for the Car Rig.
- * Decoupled from UI rendering so it can be thoroughly unit-tested.
- */
+/** Pure mathematical, kinematic, and dimensional calculations for the Car Rig. */
 import * as THREE from 'three';
 
 export interface CarDimensions {
@@ -24,27 +21,19 @@ export const CAR_SPECS: CarDimensions = {
   curbWeightKg: 1390,
 };
 
-/**
- * Clamps steering input to realistic mechanical lock limits (in radians).
- * Standard high-performance sports car max lock is ~35 degrees (~0.61 rad).
- */
+/** Clamps steering input to realistic mechanical lock limits (in radians). */
 export function clampSteeringAngle(angleRad: number, maxDegrees = 35): number {
   const maxRad = (maxDegrees * Math.PI) / 180;
   return Math.max(-maxRad, Math.min(maxRad, angleRad));
 }
 
-/**
- * Clamps body roll to realistic suspension deflection limits (in radians).
- * Sports car roll angle typically stays within ±8 degrees under cornering loads.
- */
+/** Clamps body roll to realistic suspension deflection limits (in radians). */
 export function clampBodyRoll(rollRad: number, maxDegrees = 8): number {
   const maxRad = (maxDegrees * Math.PI) / 180;
   return Math.max(-maxRad, Math.min(maxRad, rollRad));
 }
 
-/**
- * Normalizes an angle into the range [0, 2*PI).
- */
+/** Normalizes an angle into the range [0, 2*PI). */
 export function normalizeAngle(angle: number): number {
   const twoPi = Math.PI * 2;
   let a = angle % twoPi;
@@ -52,20 +41,14 @@ export function normalizeAngle(angle: number): number {
   return a;
 }
 
-/**
- * Computes wheel spin rotation based on vehicle velocity (m/s) or angular speed,
- * delta time, and tire radius.
- * Tire radius is ~0.33m.
- */
+/** Computes wheel spin rotation based on vehicle velocity (m/s) or angular speed, delta time, and tire radius. */
 export function computeWheelSpinDelta(linearSpeedMps: number, dtSeconds: number, tireRadiusMeters = 0.33): number {
   if (tireRadiusMeters <= 0 || dtSeconds <= 0) return 0;
   const angularSpeed = linearSpeedMps / tireRadiusMeters;
   return angularSpeed * dtSeconds;
 }
 
-/**
- * Recursively tallies triangle count for all BufferGeometry meshes in an Object3D hierarchy.
- */
+/** Recursively tallies triangle count for all BufferGeometry meshes in an Object3D hierarchy. */
 export function calculateObjectTriangles(root: THREE.Object3D): number {
   let triangles = 0;
 
@@ -87,9 +70,7 @@ export function calculateObjectTriangles(root: THREE.Object3D): number {
   return Math.round(triangles);
 }
 
-/**
- * Converts a hex or string color into a normalized THREE.Color.
- */
+/** Converts a hex or string color into a normalized THREE.Color. */
 export function parseColor(colorInput: string | number): THREE.Color {
   const c = new THREE.Color();
   if (typeof colorInput === 'number') {

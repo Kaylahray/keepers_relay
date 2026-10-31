@@ -47,10 +47,7 @@ type Props = {
   wind?: number;
   /** Shown over the field while firing is not possible. */
   idleNote?: string;
-  /**
-   * A shot the other player made, to play out on this screen: `from` is the board before it. Each
-   * new `id` plays once. `state` should already be the board after it.
-   */
+  /** A shot the other player made, to play out on this screen: `from` is the board before it. */
   incoming?: { id: string; from: ArtilleryState; shot: ShotRecord } | null;
   /** Something that went wrong (a shot the chain refused), shown over the field even in full screen. */
   alert?: string | null;
@@ -62,11 +59,7 @@ type Props = {
 
 type Flight = { shot: ShotRecord; result: ShotResult; from: ArtilleryState; incoming: boolean };
 
-/**
- * The playable duel, laid out like a phone game: both players and their health across the top, the
- * wind in the middle, drag on the field to aim, power and fire under your thumbs. Upright it is tall
- * with sky over the field; sideways it fills the screen.
- */
+/** The playable duel, laid out like a phone game: both players and their health across the top, the wind in the middle, drag on the field to aim, power and fire under your thumbs. */
 export function DuelBoard({
   state: latest,
   names,
@@ -82,8 +75,7 @@ export function DuelBoard({
   onIncomingDone,
   immersive = true,
 }: Props) {
-  // A live duel fills the screen on every device. On a phone held upright it asks to be turned,
-  // and the player can choose to play upright anyway.
+  // A live duel fills the screen on every device.
   const phone = usePhoneOrientation();
   const [leftGame, setLeftGame] = useState(false);
   const [upright, setUpright] = useState(false);
@@ -103,8 +95,7 @@ export function DuelBoard({
   const wind = givenWind ?? windFor(state.seed, state.turn);
   const ready = canFire && latest.winner === null && !flight;
 
-  // The other player's shot, played out once when it arrives. A skipped turn has nothing to fly:
-  // it is only announced.
+  // The other player's shot, played out once when it arrives.
   const played = useRef<string | null>(null);
   const incomingDone = useRef(onIncomingDone);
   useEffect(() => {

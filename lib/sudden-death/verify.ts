@@ -19,18 +19,7 @@ import {
   type MatchCell,
 } from '@/lib/sudden-death/codec';
 
-/**
- * An independent replay of a match, straight from chain.
- *
- * Nothing in this file talks to our server, our database or our lobby API. It takes one
- * transaction hash, finds the match behind it, walks the whole chain of steals, and re-checks
- * every rule `match-type` enforces. It replays each winning run itself, in the browser's build of
- * the game, on the course of the player it crowned, and checks the round, the pot, the clock, and
- * the fields that are supposed to be immutable.
- *
- * The point is that a sceptic can run it. If this file and the script ever disagree, the script
- * wins and we have a bug worth knowing about.
- */
+/** An independent replay of a match, straight from chain. */
 
 function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
   if (left.length !== right.length) return false;
@@ -49,7 +38,7 @@ export type StealCheck = {
   kingAfter: string;
   /** Score this steal wrote into the match cell. */
   score: number;
-  /** What the run in the witness scores when replayed here, or null if it could not be replayed. */
+  /** What the run in the witness scores when replayed here, or null if it could not be replayed (an older game build). */
   replayed: number | null;
   /** Lane changes in the run. */
   moves: number;
@@ -99,11 +88,7 @@ export type MatchReplay = {
   ok: boolean;
 };
 
-/**
- * Every match-type script Crowns has deployed on testnet, newest first. Each upgrade was a fresh
- * deployment with its own type id, so a crown played on an older version carries that version's
- * code hash. The verifier reads them all: an old crown's record is still on chain.
- */
+/** Every match-type script Crowns has deployed on testnet, newest first. */
 const MATCH_CODE_HASHES = [
   suddenDeathMatchType.codeHash,
   '0xfc9bfc29b98557d1edc2612a16631c16cc79b6d60c84ce78f48d9c41a7f9b834', // v4
@@ -166,12 +151,7 @@ async function entryRunOf(client: ccc.Client, tx: ccc.Transaction, bidCode: Uint
   return null;
 }
 
-/**
- * Walk a match back to the transaction that opened it.
- *
- * Every steal spends the previous match cell as input 0, so the history is a straight chain and
- * no indexer is needed to follow it — just the transactions themselves.
- */
+/** Walk a match back to the transaction that opened it. */
 export async function replayMatch(client: ccc.Client, startTxHash: string, game: LaneRunner): Promise<MatchReplay> {
   if (suddenDeathMatchType.codeHash.length <= 2) {
     throw new VerifyError('This build has no Sudden Death match script configured.');
@@ -184,8 +164,7 @@ export async function replayMatch(client: ccc.Client, startTxHash: string, game:
   const start = await loadTx(client, hash);
   if (!start) throw new VerifyError('That transaction is not on this network.');
 
-  // Find the match cell this transaction touches — as an output (open or steal), or as an
-  // input (the close, which consumes the match and produces none).
+  // Find the match cell this transaction touches — as an output (open or steal), or as an input (the close, which consumes the match and produces none).
   let anchorTx = start;
   let anchorIndex = matchOutputIndex(start);
   if (anchorIndex < 0) {
@@ -211,8 +190,7 @@ export async function replayMatch(client: ccc.Client, startTxHash: string, game:
   const typeScript = matchTypeOf(anchorTx.outputs[anchorIndex]!.type!.codeHash, matchId, hostLockHash);
   const typeHash = typeScript.hash().toLowerCase();
 
-  // If the match is still live, its newest cell is the true tip. Start the walk there so the
-  // replay covers the present, not just whatever transaction happened to be pasted in.
+  // If the match is still live, its newest cell is the true tip.
   let live = false;
   let tipTx = anchorTx;
   let tipIndex = anchorIndex;
@@ -244,8 +222,7 @@ export async function replayMatch(client: ccc.Client, startTxHash: string, game:
     if (hops.length > 128) throw new VerifyError('This match has more rounds than the verifier will walk.');
 
     const first = cursor.tx.inputs[0];
-    // `getCell` reads a cell out of the transaction that created it, which is exactly what a
-    // historical lookup wants: these cells are all long spent.
+    // `getCell` reads a cell out of the transaction that created it, which is exactly what a historical lookup wants: these cells are all long spent.
     const previous = first ? (await client.getCell(first.previousOutput)) ?? null : null;
     const isSteal = Boolean(previous && previous.cellOutput.type?.hash().toLowerCase() === typeHash);
     hops.push({ tx: cursor.tx, index: cursor.index, previous: isSteal ? previous : null });
@@ -292,8 +269,9 @@ export async function replayMatch(client: ccc.Client, startTxHash: string, game:
     } else if (gameKnown && tape) {
       replayed = game.replay(runSeedV1(matchId, state.king), tape);
     }
-    const runOk =
-      replayed === score && score > Number(before.kingScore) && !sameBytes(state.king, before.king);
+    // A crown played on an older build of the game cannot be replayed by this page's build.
+    const beatsKing = score > Number(before.kingScore) && !sameBytes(state.king, before.king);
+    const runOk = gameKnown ? replayed === score && beatsKing : beatsKing;
 
     const roundOk = state.round === before.round + 1;
     const potOk = state.pot === before.pot + before.fee;
@@ -305,8 +283,7 @@ export async function replayMatch(client: ccc.Client, startTxHash: string, game:
       sameBytes(state.treasury, before.treasury) &&
       sameBytes(state.bidCode, before.bidCode);
 
-    // The postmark rule. This steal spent a cell that landed at `landed[step]`, which decides whether
-    // the king before it is certified; its own cell landed at `landed[step + 1]`.
+    // The steal counts only if it landed before the deadline it was sent under.
     const landedHere = landed[step + 1] ?? null;
     const landedBefore = landed[step] ?? null;
     const onTime = postmarked && landedHere != null ? landedHere <= state.landByMs : null;

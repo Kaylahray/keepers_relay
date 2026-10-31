@@ -51,22 +51,18 @@ export function CrownsLobby() {
       const remote = await fetchCrownList().catch(() => null);
       if (stop) return;
       setListFailed(remote == null);
+      // The shared list decides which crowns exist.
       const byId = new Map((remote ?? []).map((room) => [room.id, room]));
       for (const room of local) {
         const shared = byId.get(room.id);
-        byId.set(
-          room.id,
-          shared
-            ? { ...room, status: shared.status, potShannons: shared.potShannons, king: shared.king }
-            : room,
-        );
+        if (shared) byId.set(room.id, { ...room, status: shared.status, potShannons: shared.potShannons, king: shared.king });
+        else if (remote == null) byId.set(room.id, room);
       }
       setRooms([...byId.values()]);
       setListedAt(Date.now());
     };
     void read();
-    // A list of lobbies is not a live clock. Polling it every three seconds filled the
-    // network tab with requests nobody was waiting on.
+    // Refresh the list every 15 seconds while the tab is visible.
     const poll = window.setInterval(() => {
       if (document.hidden) return;
       void read();

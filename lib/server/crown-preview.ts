@@ -30,11 +30,7 @@ function clockWords(ms: number): string {
   return `${hours} h ${minutes % 60} min left`;
 }
 
-/**
- * What a shared crown link says about itself. Read from the stored room only, never the chain:
- * link previews are fetched by chat apps that give up after a few seconds. The stored room is
- * kept in step with the chain whenever anyone has the crown open.
- */
+/** What a shared crown link says about itself. */
 export async function crownPreview(id: string): Promise<CrownPreview | null> {
   const vault = await readVault(id).catch(() => null);
   if (!vault) return null;

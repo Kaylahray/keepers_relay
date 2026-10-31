@@ -9,11 +9,7 @@ const LIME = '#99ee2d';
 const GOLD = '#e1bf47';
 const MAGENTA = '#ff56f6';
 
-/**
- * The card a shared crown link shows: game, pot, score to beat and time left, in the app's colours.
- * A plain route rather than the opengraph-image file, so the page can add the round to its address
- * and chat apps that remember images by address fetch a fresh one each round.
- */
+/** The card a shared crown link shows: game, pot, score to beat and time left, in the app's colours. */
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const preview = await crownPreview(id);

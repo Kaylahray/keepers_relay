@@ -46,11 +46,7 @@ import {
 
 const SHANNONS_PER_CKB = 100_000_000n;
 const SINCE_ABSOLUTE = 0x4000_0000_0000_0000n;
-/**
- * What unsigned transactions actually pay: 0.01 CKB per KB. Well above the node's minimum, so a
- * steal is picked up fast, and well below its maximum of 0.1 CKB per KB. Paying the whole
- * `MAX_TX_FEE` breaks that maximum on any transaction under 1 KB, which a refund always is.
- */
+/** What unsigned transactions actually pay: 0.01 CKB per KB. */
 const FEE_PER_KB = 1_000_000n;
 const ZERO_32 = new Uint8Array(32);
 
@@ -80,14 +76,9 @@ export class MatchMovedError extends Error {
   }
 }
 
-/**
- * The node turned a steal away because the match cell it spends is already being spent: another
- * player's steal got there in the same few seconds. Nothing moved, the entry is untouched, and the
- * same run can be sent again on top of the new round. Any other failure is not a lost race.
- */
+/** The node turned a steal away because the match cell it spends is already being spent: another player's steal got there in the same few seconds. */
 export function isLostRace(error: unknown): boolean {
-  // CCC turns the node's double-spend replies into these: an input already spent ("Unknown"), the
-  // same transaction twice, or a replacement the pool refused.
+  // CCC turns the node's double-spend replies into these: an input already spent ("Unknown"), the same transaction twice, or a replacement the pool refused.
   if (
     error instanceof ccc.ErrorClientResolveUnknown ||
     error instanceof ccc.ErrorClientDuplicatedTransaction ||
@@ -121,10 +112,7 @@ export class RunBeatenError extends Error {
 type Signer = ccc.Signer;
 
 /** A finished run: its tape, and the score the wasm build gave it on the player's own course. */
-/**
- * A finished run: every sealed lap (the block that seeded its road, and its moves), and the score
- * the wasm build gave the whole run.
- */
+/** A finished run: every sealed lap (the block that seeded its road, and its moves), and the score the wasm build gave the whole run. */
 export type PlayedRun = { laps: SealedLap[]; score: number };
 
 function minCapacity(lock: ccc.Script, type: ccc.Script | undefined, data: Uint8Array): bigint {
@@ -148,8 +136,7 @@ async function lockOf(signer: Signer): Promise<ccc.Script> {
 }
 
 async function liveCell(client: ccc.Client, point: OutPointRef): Promise<ccc.Cell> {
-  // `getCell` would answer for a cell that has already been spent, and the transaction
-  // built on top of that answer dies at the node. Ask whether the cell is live.
+  // `getCell` would answer for a cell that has already been spent, and the transaction built on top of that answer dies at the node.
   const cell = await readLiveCell(client, point);
   if (!cell) {
     throw new Error('That cell is not on chain yet. Wait for the last transaction to confirm.');
@@ -165,18 +152,10 @@ function lockRef(script: ccc.Script): LockRef {
   return { codeHash: script.codeHash, hashType, args: script.args };
 }
 
-// The pad lives in `phase.ts` so the server and the screens can both read it without importing
-// this file. Re-exported so nothing that imported it here breaks.
+// The pad lives in `phase.ts` so the server and the screens can both read it without importing this file.
 export { CONFIRM_PAD_MS };
 
-/**
- * Wait for a cell this browser just sent to become live.
- *
- * An output is not live until its transaction is committed, which takes a few blocks, so an
- * entry locked a moment ago cannot be spent in the same breath. Waiting turns a confusing error
- * into a visible countdown. It gives up early when the transaction is rejected, or committed
- * with the cell already spent, because waiting longer cannot change either answer.
- */
+/** Wait for a cell this browser just sent to become live. */
 async function waitLive(
   client: ccc.Client,
   point: OutPointRef,
@@ -214,11 +193,7 @@ function readMatch(cell: ccc.Cell): MatchCell {
   return decodeMatchCell(raw);
 }
 
-/**
- * A cell's postmark: the block it landed in, and that block's time. Steals and closes list the
- * block in `header_deps`, so the scripts can read when the last steal, or an entry, really landed.
- * Null while the transaction that made it is still confirming.
- */
+/** A cell's postmark: the block it landed in, and that block's time. */
 async function landedBlock(
   client: ccc.Client,
   txHash: string,
@@ -234,20 +209,13 @@ async function postmarkOf(client: ccc.Client, cell: ccc.Cell): Promise<{ blockHa
   return landed;
 }
 
-/**
- * A throwaway key the player's browser seals laps with, so laps need no wallet popup. It owns one
- * small "key cell" under CKB's built-in secp256k1 lock; every seal spends that cell, so CKB's own
- * lock checks the signature and the entry script only checks the key cell is there.
- */
+/** A throwaway key the player's browser seals laps with, so laps need no wallet popup. */
 export type SessionKey = { secret: ccc.Hex; lock: ccc.Script };
 
 /** What the key cell keeps for the miner fees of every seal and of its return. */
 export const KEY_CELL_FEES = 1n * SHANNONS_PER_CKB;
 
-/**
- * The key cell's capacity. It must hold itself, and once the run is over it goes back to the owner
- * as one plain cell, so it must also hold a cell under the owner's lock (JoyID's needs 63 CKB).
- */
+/** The key cell's capacity. */
 export function keyCellCapacity(session: ccc.Script, owner: ccc.Script): bigint {
   const own = minCapacity(session, undefined, new Uint8Array());
   const back = minCapacity(owner, undefined, new Uint8Array());
@@ -269,10 +237,7 @@ async function keyCellOf(signer: ccc.SignerCkbPrivateKey): Promise<ccc.Cell | nu
   return null;
 }
 
-/**
- * Sends a run's key cell back to its owner, signed by the session key. Nothing to return gives
- * null. Called once the run is over; the entry itself is returned by the grab or the close.
- */
+/** Sends a run's key cell back to its owner, signed by the session key. */
 export async function returnKeyCell(client: ccc.Client, session: ccc.Hex, owner: ccc.Script): Promise<string | null> {
   const signer = new ccc.SignerCkbPrivateKey(client, session);
   const key = await keyCellOf(signer);
@@ -294,20 +259,13 @@ export type EntryLap = {
   block: ccc.Hex;
   /** The next lap's seed. Mirrors the scripts: match, player and that block's hash. */
   seed: bigint;
-  /**
-   * When the current lap's window closes: the next seal, or a grab, must land by then (the match
-   * deadline may close it sooner). Each lap's window opens with the block its road came from.
-   */
+  /** When the current lap's window closes: the next seal, or a grab, must land by then (the match deadline may close it sooner). */
   windowEndsMs: number;
   /** The last lap was sealed after its window closed: the run can't go on, and the entry waits for its refund. */
   late: boolean;
 };
 
-/**
- * The next lap an entry reveals, or null while the entry is still confirming (or already spent).
- * Lap 1's road comes from the block the entry landed in; each later lap's from the block where the
- * lap before it was sealed.
- */
+/** The next lap an entry reveals, or null while the entry is still confirming (or already spent). */
 export async function entryLap(
   client: ccc.Client,
   matchId: string,
@@ -328,12 +286,7 @@ export async function entryLap(
   };
 }
 
-/**
- * Seals a finished lap into the player's entry. No wallet signs it: the browser's session key does,
- * and the entry script checks that key, folds this lap's block and moves into the lap chain, and
- * takes at most the miner fee. The block this seal lands in seeds the next lap. Returns the
- * entry's new out point.
- */
+/** Seals a finished lap into the player's entry. */
 export async function sealLap(
   client: ccc.Client,
   entry: OutPointRef,
@@ -360,8 +313,7 @@ export async function sealLap(
   const witness = new Uint8Array(1 + 32);
   witness[0] = SEAL_VERSION;
   witness.set(movesHash, 1);
-  // The key cell rides along: CKB's built-in lock checks the session key signed this whole
-  // transaction, new lap chain included, and the key cell pays the miner fee.
+  // The key cell rides along: CKB's built-in lock checks the session key signed this whole transaction, new lap chain included, and the key cell pays the miner fee.
   const signer = new ccc.SignerCkbPrivateKey(client, session);
   const key = await keyCellOf(signer);
   if (!key) throw new Error('This run’s key cell is missing, so its laps can’t be sealed.');
@@ -420,9 +372,7 @@ async function locateMatch(
   if (!room.matchOutPoint || !room.matchId || !room.hostLockHash) {
     throw new Error('Start the clock before locking an entry.');
   }
-  // The saved point is right until someone else's steal spends it. `getCell` cannot tell the
-  // difference, so this asks the node whether the cell is still live. A dead one means the
-  // match moved, and the search below finds where it moved to.
+  // The saved point is right until someone else's steal spends it.
   const stored = await readLiveCell(client, room.matchOutPoint);
   if (stored?.cellOutput.type) return { room, cell: stored, moved: false };
   const type = getSuddenDeathMatchScript(concatArgs(room.matchId, room.hostLockHash));
@@ -452,8 +402,7 @@ async function payFee(signer: Signer, tx: ccc.Transaction): Promise<ccc.Transact
 export async function openMatch(signer: Signer, room: CrownRoom): Promise<CrownRoom> {
   const host = await lockOf(signer);
   const hostHash = host.hash();
-  // The cell's deadline is fixed at send time and confirmation takes a minute or more. The pad
-  // keeps that wait out of the length the host chose; `phase.ts` turns it into the entry window.
+  // The cell's deadline is fixed at send time and confirmation takes a minute or more.
   const deadlineMs = BigInt(Date.now() + (room.durationMs || DEFAULT_DURATION_MS) + CONFIRM_PAD_MS);
   const game = suddenDeathGameHash();
   const cellFor = (matchId: Uint8Array, treasury: ccc.Script) =>
@@ -473,8 +422,7 @@ export async function openMatch(signer: Signer, room: CrownRoom): Promise<CrownR
       certifiedScore: 0n,
       powBits: DEFAULT_POW_BITS,
     });
-  // The type id depends on the first input, which is only known once the wallet funds the
-  // transaction. Size it with placeholders, fund it, then write the real scripts in.
+  // The type id depends on the first input, which is only known once the wallet funds the transaction.
   const matchScript = getSuddenDeathMatchScript(concatArgs(ccc.hexFrom(ZERO_32), hostHash));
   const treasuryScript = getSuddenDeathTreasuryScript(ccc.hexFrom(ZERO_32));
   const placeholderGuard = getSuddenDeathProxyLock(ccc.hexFrom(ZERO_32));
@@ -525,12 +473,7 @@ export async function openMatch(signer: Signer, room: CrownRoom): Promise<CrownR
   };
 }
 
-/**
- * Locks the entry fee in a bid cell. It locks to itself, records when it may be refunded, and
- * is spent by the steal without another signature. Before it is sent, the player's device solves
- * the crown's proof of work for this exact transaction, so every entry (and so every road) costs
- * some computing.
- */
+/** Locks the entry fee in a bid cell. */
 export async function lockBid(
   signer: Signer,
   room: CrownRoom,
@@ -598,11 +541,7 @@ export async function lockBid(
   };
 }
 
-/**
- * Submits a run as a steal. Nobody signs it: the match cell, treasury and bid are all proxy
- * locked, and the match script replays the tape to decide. `run.score` is what the wasm build
- * said; the chain recomputes it and rejects the transaction if they differ.
- */
+/** Submits a run as a steal. */
 export async function stealCrown(
   client: ccc.Client,
   room: CrownRoom,
@@ -621,8 +560,7 @@ export async function stealCrown(
   const postmark = await postmarkOf(client, match);
   // The king this steal replaces is certified if their steal landed on time. The script checks it.
   const certified = certifiedAfter(current, postmark.landedMs);
-  // The run sealed into the entry: the laps the script will replay. The entry landed when the last
-  // lap was sealed, which closes that lap's window and opens the grab's.
+  // The run sealed into the entry: the laps the script will replay.
   const sealed = decodeEntryRun(hexToBytes(bid.outputData));
   if (sealed.laps === 0 || sealed.laps !== run.laps.length) {
     throw new Error('Seal your laps before grabbing the crown.');
@@ -704,15 +642,7 @@ export async function stealCrown(
   };
 }
 
-/**
- * Pays the crown out. Anyone may send it once the chain's median time passes the deadline, and
- * nobody signs it: the match, the pot and the entries are all unlocked by their scripts, and the
- * fee comes out of the host's share. The pot goes to the last king whose steal landed on time,
- * every entry included here goes back to its owner, and the host gets the rest.
- *
- * `closerLockHash` is whoever sends it. When they are already paid by this close (the king, or an
- * entry owner), the close adds the closer's reward to their payout, from the host's share.
- */
+/** Pays the crown out. */
 export async function closeCrown(
   client: ccc.Client,
   room: CrownRoom,
@@ -801,11 +731,7 @@ export async function closeCrown(
   };
 }
 
-/**
- * A full lock script, from its hash. The match cell only stores hashes, but every steal paid the
- * stealer's change to their lock and the open paid the host's change to theirs, so walking the
- * match back through its own transactions finds anyone it names.
- */
+/** A full lock script, from its hash. */
 async function lockFromHistory(
   client: ccc.Client,
   match: ccc.Cell,
@@ -847,11 +773,7 @@ async function findBids(client: ccc.Client, matchTypeHash: string): Promise<ccc.
   return bids;
 }
 
-/**
- * Returns an unused entry to its owner after its refund time. Needs no signature and no match
- * cell, so it works for an entry left out of the close, or for a crown nobody ever closed.
- * The chain only allows it once its median time has passed the refund time.
- */
+/** Returns an unused entry to its owner after its refund time. */
 export async function expireBid(client: ccc.Client, point: OutPointRef): Promise<string> {
   const bid = await liveCell(client, point);
   const { owner, refundAfterMs } = decodeBidData(hexToBytes(bid.outputData));

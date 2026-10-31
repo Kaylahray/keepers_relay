@@ -45,11 +45,7 @@ import {
 } from '@/lib/registry/config';
 import { requestWalletRefresh } from '@/lib/wallet-refresh';
 
-/**
- * Duels on chain: the app's side of `duel-type`. Opening, cancelling and accepting are signed by
- * the players' wallets; shots and race laps by their browsers' session keys (no popup); finishing
- * by nobody at all, since the chain decides where the money goes.
- */
+/** Duels on chain: the app's side of `duel-type`. */
 
 export type OutPointRef = { txHash: string; index: string };
 type Signer = ccc.Signer;
@@ -122,11 +118,7 @@ function racerCapacity(session: ccc.Script, owner: ccc.Script, racer: ccc.Script
   return (own > back ? own : back) + RACER_FEES;
 }
 
-/**
- * Opens a challenge. The challenger's wallet locks their stake in the duel cell, with room for the
- * cell at its largest, and makes their session key's cell: a plain key cell for artillery, a racer
- * cell for a race. Returns the duel's id and where it is.
- */
+/** Opens a challenge. */
 export async function openDuel(
   signer: Signer,
   input: { kind: DuelKind; stake: bigint; timerMs: bigint; opponentLockHash: string | null; session: SessionKey },
@@ -145,8 +137,7 @@ export async function openDuel(
     }),
   );
   const fullLength = input.kind === KIND_RACE ? RACE_LEN : ARTILLERY_MAX_LEN;
-  // The type id comes from the first input, known only once the wallet funds the transaction. Size
-  // everything with placeholders of the same length, fund it, then write the real scripts in.
+  // The type id comes from the first input, known only once the wallet funds the transaction.
   const placeholder = duelScript(ZERO_32);
   const placeholderGuard = getSuddenDeathProxyLock(ccc.hexFrom(ZERO_32));
   const keyOutput =
@@ -201,10 +192,7 @@ export async function cancelDuel(signer: Signer, point: OutPointRef): Promise<st
   return txHash;
 }
 
-/**
- * Accepts a challenge: the opponent's wallet adds the same stake and makes their session key's cell.
- * The block this lands in seeds the duel. Returns where the duel now is.
- */
+/** Accepts a challenge: the opponent's wallet adds the same stake and makes their session key's cell. */
 export async function acceptDuel(signer: Signer, point: OutPointRef, session: SessionKey): Promise<OutPointRef> {
   const client = signer.client;
   const { cell, duel, duelId } = await liveDuel(client, point);
@@ -240,10 +228,7 @@ export async function acceptDuel(signer: Signer, point: OutPointRef, session: Se
   return { txHash, index: '0x0' };
 }
 
-/**
- * Where an artillery duel stands: the board as the chain would replay it, and the wind the next shot
- * will fire in (from the block the duel last landed in). Null while the duel's last move confirms.
- */
+/** Where an artillery duel stands: the board as the chain would replay it, and the wind the next shot will fire in (from the block the duel last landed in). */
 export async function artilleryBoard(
   client: ccc.Client,
   point: OutPointRef,
@@ -262,10 +247,7 @@ export async function artilleryBoard(
   };
 }
 
-/**
- * Fires one artillery shot, signed by the player's session key: no wallet popup. The wind is the
- * one the chain gives for the block the duel last landed in. Returns where the duel now is.
- */
+/** Fires one artillery shot, signed by the player's session key: no wallet popup. */
 export async function fireShot(client: ccc.Client, point: OutPointRef, session: ccc.Hex, aim: Shot): Promise<OutPointRef> {
   return addMoves(client, point, session, (duelId, block) => ({
     moves: [{ angle: aim.angle, power: aim.power, wind: duelWind(hexToBytes(duelId), hexToBytes(block)) }],
@@ -273,12 +255,7 @@ export async function fireShot(client: ccc.Client, point: OutPointRef, session: 
   }));
 }
 
-/**
- * Passes turns the player to move let run out, so the duel goes on without them. No wallet pops up:
- * the waiting player's key cell pays the fee, and the chain only lets the skip through once every
- * skipped turn's time has passed since the duel last moved, shown by naming the newest block (stamped
- * after the time ran out). Several overdue turns can pass at once.
- */
+/** Passes turns the player to move let run out, so the duel goes on without them. */
 export async function skipTurns(client: ccc.Client, point: OutPointRef, session: ccc.Hex, turns = 1): Promise<OutPointRef> {
   return addMoves(client, point, session, (_duelId, _block, duel) => {
     const passes = Math.max(1, Math.min(turns, MAX_SHOTS - duel.shots.length));
@@ -335,10 +312,7 @@ export type RaceLap = {
   late: boolean;
 };
 
-/**
- * The next lap of a player's race. Lap 1's road comes from the block the duel was accepted in, for
- * both players; each later lap's from the block the player's last seal landed in.
- */
+/** The next lap of a player's race. */
 export async function raceLap(client: ccc.Client, duelPoint: OutPointRef, session: ccc.Hex, ownerLockHash: string): Promise<RaceLap | null> {
   const { duelId } = await liveDuel(client, duelPoint);
   const signer = new ccc.SignerCkbPrivateKey(client, session);
@@ -387,11 +361,7 @@ export async function sealRaceLap(client: ccc.Client, duelPoint: OutPointRef, se
   return { txHash, index: '0x0' };
 }
 
-/**
- * Hands in a player's race: their racer cell is spent (only their session key can), the chain
- * replays the laps, and the score is recorded in the duel. The racer cell's capacity goes back to
- * the player. `score` is what the wasm build gave the run; the chain checks it. Returns where the duel is.
- */
+/** Hands in a player's race: their racer cell is spent (only their session key can), the chain replays the laps, and the score is recorded in the duel. */
 export async function submitRace(
   client: ccc.Client,
   duelPoint: OutPointRef,
@@ -411,11 +381,14 @@ export async function submitRace(
   if (!racer?.cellOutput.type) throw new Error('This race’s racer cell is missing.');
   const racerLanded = await landedBlock(client, racer.outPoint.txHash);
   if (!racerLanded) throw new Error('Your last lap is still confirming. Give it a few seconds.');
+  // A last lap sealed outside its window scores 0, and the script then expects no run at all: the witness is just version and zero laps.
+  const sealed = decodeRacer(hexToBytes(racer.outputData));
+  const late = sealed.laps === 0 || !lapOnTime(sealed.lapStartMs, racerLanded.landedMs);
   const scores: [bigint, bigint] = [...duel.scores];
-  scores[side] = BigInt(score);
+  scores[side] = late ? 0n : BigInt(score);
   const next = encodeDuel({ ...duel, scores, submitted: duel.submitted | (1 << side) });
   // The submit witness: version 1, then the run as a steal carries it.
-  const run = runWitness(laps);
+  const run = late ? new Uint8Array([1, 0]) : runWitness(laps);
   run[0] = 1;
   const tx = ccc.Transaction.from({
     inputs: [
@@ -439,11 +412,7 @@ export async function submitRace(
 /** Who a duel pays, as the chain will judge it: a side, a draw, or nobody yet. */
 export type DuelResult = { kind: 'side'; side: 0 | 1; byTimeout: boolean } | { kind: 'draw' } | { kind: 'pending' };
 
-/**
- * The result a finish sent now would get. An artillery duel has one only once the game is over (a
- * tank destroyed, or every turn played); a turn left to run out is skipped, not lost. A race also
- * ends once its time is up (`waited`), a racer who never handed in scoring 0.
- */
+/** The result a finish sent now would get. */
 export async function duelResult(client: ccc.Client, point: OutPointRef, waited: boolean): Promise<DuelResult> {
   const { duel, duelId } = await liveDuel(client, point);
   if (duel.status !== STATUS_LIVE) return { kind: 'pending' };
@@ -463,11 +432,7 @@ export async function duelResult(client: ccc.Client, point: OutPointRef, waited:
   return { kind: 'side', side: a > b ? 0 : 1, byTimeout: duel.submitted !== 0b11 };
 }
 
-/**
- * Ends a duel and pays it out. Nobody signs: the duel script only lets the money go where the
- * result says, so anyone may send this. `waited` (races only) adds the race's time as a relative
- * \`since\`, for a race a player never handed in.
- */
+/** Ends a duel and pays it out. */
 export async function finishDuel(client: ccc.Client, point: OutPointRef, waited = false): Promise<string> {
   const { cell, duel } = await liveDuel(client, point);
   const result = await duelResult(client, point, waited);
@@ -475,8 +440,7 @@ export async function finishDuel(client: ccc.Client, point: OutPointRef, waited 
   const total = BigInt(cell.cellOutput.capacity);
   const challenger = await lockFromHistory(client, cell, bytesToHex(duel.challenger));
   const opponent = await lockFromHistory(client, cell, bytesToHex(duel.opponent));
-  // The cell holds both stakes and the challenger's storage deposit. The deposit always goes back to
-  // the challenger (output 0, which also pays the fee); the stakes go to the winner, or back on a draw.
+  // The cell holds both stakes and the challenger's storage deposit.
   const outputs =
     result.kind === 'draw'
       ? [
@@ -506,11 +470,7 @@ export async function finishDuel(client: ccc.Client, point: OutPointRef, waited 
   return txHash;
 }
 
-/**
- * A player's full lock from its hash. The duel only stores hashes, but the open paid the
- * challenger's change and the accept the opponent's, so walking the duel back through its own
- * transactions finds both.
- */
+/** A player's full lock from its hash. */
 async function lockFromHistory(client: ccc.Client, duel: ccc.Cell, hash: string): Promise<ccc.Script> {
   let txHash: string | undefined = duel.outPoint.txHash;
   for (let hop = 0; txHash && hop < 80; hop += 1) {
@@ -555,11 +515,7 @@ export async function findDuel(client: ccc.Client, duelId: string): Promise<Duel
   return null;
 }
 
-/**
- * A duel that is no longer live (finished or cancelled): its last state, read back from the
- * transaction that wrote it, so a finished duel can still be shown and replayed. Null when the
- * chain has never seen this duel.
- */
+/** A duel that is no longer live (finished or cancelled): its last state, read back from the transaction that wrote it, so a finished duel can still be shown and replayed. */
 export async function findPastDuel(client: ccc.Client, duelId: string): Promise<DuelSnapshot | null> {
   for await (const item of client.findTransactionsByType(duelScript(duelId), false, 'desc', 20)) {
     if (item.isInput) continue;
@@ -573,10 +529,7 @@ export async function findPastDuel(client: ccc.Client, duelId: string): Promise<
   return null;
 }
 
-/**
- * Every live duel on this network (racer cells left out), newest first. The screens pick out the
- * ones a player is in, and the open challenges anyone may take.
- */
+/** Every live duel on this network (racer cells left out), newest first. */
 export async function listDuels(client: ccc.Client, limit = 60): Promise<DuelSnapshot[]> {
   const prefix = ccc.Script.from({ codeHash: duelType.codeHash, hashType: duelType.hashType, args: '0x' });
   const found: DuelSnapshot[] = [];
@@ -589,4 +542,71 @@ export async function listDuels(client: ccc.Client, limit = 60): Promise<DuelSna
     }
   }
   return found;
+}
+
+/** A duel that has ended: paid out, or cancelled before anyone accepted. */
+export type FinishedDuel = {
+  duelId: ccc.Hex;
+  /** The transaction that ended it: the payout (or the cancel). Check it on `/verify`. */
+  txHash: ccc.Hex;
+  /** When that transaction landed, in ms. */
+  endedMs: number | null;
+  /** The duel as it stood just before it ended. */
+  duel: DuelCell;
+  /** Who it paid: a side, both (a draw), or nobody (cancelled). */
+  outcome: 0 | 1 | 'draw' | 'cancelled';
+};
+
+/** Duels that have ended, newest first, read from the chain's history: every transaction that spent a duel cell without making a new one is a payout or a cancel. */
+export async function listFinishedDuels(client: ccc.Client, limit = 40): Promise<FinishedDuel[]> {
+  const prefix = ccc.Script.from({ codeHash: duelType.codeHash, hashType: duelType.hashType, args: '0x' });
+  const isDuelCell = (type: ccc.Script | undefined) =>
+    Boolean(type && type.codeHash === prefix.codeHash && type.hashType === prefix.hashType && ccc.bytesFrom(type.args).length === 32);
+
+  // Shots, laps and accepts all spend a duel-script cell and make a new one.
+  const spent = new Map<string, number>();
+  const made = new Set<string>();
+  for await (const item of client.findTransactions(
+    { script: prefix, scriptType: 'type', scriptSearchMode: 'prefix', groupByTransaction: false },
+    'desc',
+    400,
+  )) {
+    if (item.isInput) {
+      if (!spent.has(item.txHash)) spent.set(item.txHash, Number(item.cellIndex));
+    } else made.add(item.txHash);
+  }
+  const candidates = [...spent].filter(([hash]) => !made.has(hash)).slice(0, limit * 2);
+
+  const read = async ([txHash, inputIndex]: [string, number]): Promise<FinishedDuel | null> => {
+    try {
+      const response = await client.getTransaction(txHash);
+      const tx = response?.transaction;
+      if (!tx || tx.outputs.some((output) => isDuelCell(output.type))) return null;
+      // The duel cell is whichever duel-script input has 32-byte args (a race's racer cells have 33).
+      for (const input of [tx.inputs[inputIndex], ...tx.inputs]) {
+        const cell = input ? await client.getCell(input.previousOutput) : undefined;
+        if (!cell || !isDuelCell(cell.cellOutput.type)) continue;
+        const duelId = cell.cellOutput.type!.args;
+        const duel = decodeDuel(hexToBytes(cell.outputData));
+        let outcome: FinishedDuel['outcome'] = 'cancelled';
+        if (duel.status === STATUS_LIVE) {
+          if (duel.kind === KIND_ARTILLERY) {
+            const winner = replay(duelSeed(hexToBytes(duelId), duel.seedBlock), duel.shots).winner;
+            outcome = winner === null ? 'draw' : winner;
+          } else {
+            // A racer who never handed in scores 0.
+            const score = (side: 0 | 1) => ((duel.submitted >> side) & 1 ? duel.scores[side] : 0n);
+            outcome = score(0) === score(1) ? 'draw' : score(0) > score(1) ? 0 : 1;
+          }
+        }
+        const header = response.blockHash ? await client.getHeaderByHash(response.blockHash) : undefined;
+        return { duelId, txHash: txHash as ccc.Hex, endedMs: header ? Number(header.timestamp) : null, duel, outcome };
+      }
+    } catch {
+      // A duel this app cannot read (an older layout): leave it out.
+    }
+    return null;
+  };
+  const found = (await Promise.all(candidates.map(read))).filter((item): item is FinishedDuel => item !== null);
+  return found.sort((a, b) => (b.endedMs ?? 0) - (a.endedMs ?? 0)).slice(0, limit);
 }

@@ -4,17 +4,7 @@ import { registryConfigured, usernameType } from '@/lib/registry/config';
 import { decodeUsername, isValidUsername } from '@/lib/registry/encoding';
 import { normalizeAddress } from '@/lib/server/auth';
 
-/**
- * Every username claimed on chain, by owner address.
- *
- * The username cells are the source of truth for who has a name. The profiles table only adds
- * pictures and bios, and it misses anyone whose claim was never saved there (another device, an
- * older version of the app, a failed save). So the players list and the seat check read names
- * from here.
- *
- * One scan of the registry is shared for 30 seconds; a claim shows up within about that window.
- * After the first scan, readers never wait: an old answer is served while a new scan runs.
- */
+/** Every username claimed on chain, by owner address. */
 const TTL_MS = 30_000;
 
 type Registry = { byAddress: Map<string, string>; byLockHash: Map<string, string> };
@@ -46,8 +36,7 @@ function registry(): Promise<Registry> {
   const fresh = cached && Date.now() - cached.at < TTL_MS;
   if (cached && (fresh || refreshing)) return cached.task;
   if (cached) {
-    // Stale: answer with the last scan straight away and refresh behind it, so no request waits
-    // on a registry scan once the first one has finished.
+    // Stale: answer with the last scan straight away and refresh behind it, so no request waits on a registry scan once the first one has finished.
     const previous = cached.task;
     refreshing = true;
     const task = scan();

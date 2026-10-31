@@ -1,7 +1,4 @@
-/**
- * This browser's race in a duel: every lap it has sealed (the block that seeded it, and its moves).
- * Handing the run in needs the moves, which only this browser has, so they are kept across reloads.
- */
+/** This browser's race in a duel: every lap it has sealed (the block that seeded it, and its moves). */
 
 export type RaceLapRecord = { block: string; tape: string; score: number; crashed: boolean };
 export type RaceRun = { laps: RaceLapRecord[]; handedIn: boolean };

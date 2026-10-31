@@ -9,10 +9,7 @@ import { LapBoxes, type LapState } from '@/components/ui/kit';
 
 export type FinishedRun = { tape: Uint8Array; score: number; seed: bigint; crashed: boolean };
 
-/**
- * Lap mode: the run so far. `seeds` holds every lap's seed up to and including the lap to play now,
- * `sealed` the moves of the laps already sealed. A play covers just the next lap.
- */
+/** The run so far in lap mode: each lap's seed and its sealed moves. */
 export type LapPlan = { seeds: bigint[]; sealed: Uint8Array[] };
 
 type Props = {
@@ -25,16 +22,15 @@ type Props = {
   startLabel?: string;
   /** Plays only the next lap of a run, starting where its sealed laps left off. */
   lap?: LapPlan;
+  /** Time left to seal this lap on chain (its 3-minute window), or null when there is none. Retries use it up. */
+  sealLeftMs?: number | null;
   /** The mode's colour: lime for a crown, pink for a duel. */
   tone?: 'lime' | 'pink';
-  /** Shown beside the road on a big screen. */
+  /** Shown beside the road on wide screens. */
   title?: string;
 };
 
-/**
- * Puts the runner where the next lap starts: replays the sealed laps, each on its own seed, then
- * seeds the lap about to be played. Without a lap plan it simply starts a whole run on `seed`.
- */
+/** Puts the runner where the next lap starts: replays the sealed laps, each on its own seed, then seeds the lap about to be played. */
 function prepare(runner: LaneRunner, seed: bigint, lap?: LapPlan) {
   if (!lap) {
     runner.start(seed);
@@ -64,12 +60,8 @@ function prepare(runner: LaneRunner, seed: bigint, lap?: LapPlan) {
 }
 
 const TICK_MS = 1000 / LANE.TICK_HZ;
-/**
- * Plays the lane runner on the same wasm rules the chain replays. Input is a lane target, applied
- * on the next tick and recorded as `tick ‖ lane`, which is exactly the tape the game script reads,
- * so the score here is the score the chain will compute.
- */
-export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run', lap, tone = 'lime', title = 'Lane runner' }: Props) {
+/** Plays the lane runner on the same wasm rules the chain replays. */
+export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run', lap, tone = 'lime', title = 'Lane runner', sealLeftMs = null }: Props) {
   // A lap plays to the end of its own ticks; a whole run to the end of the run.
   const endTick = lap ? (lap.sealed.length + 1) * LANE.LAP_TICKS : LANE.MAX_TICKS;
   const canvasRef = useRef<HTMLDivElement | null>(null);
@@ -136,9 +128,7 @@ export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run', lap
     // A run fills the screen on every device, like a game app.
     setImmersive(true);
     if (window.matchMedia('(max-width: 767px)').matches) {
-      // Hides the browser bars where the phone allows it (Android). iOS keeps them; the fixed
-      // layer still fills the screen. The whole document goes full screen, because the game layer
-      // itself is about to move to the end of <body>.
+      // Hides the browser bars where the phone allows it (Android).
       if (!document.fullscreenElement) void document.documentElement.requestFullscreen?.().catch(() => undefined);
     }
     prepare(runner, seed, lap);
@@ -249,6 +239,22 @@ export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run', lap
   const shown = phase === 'playing' || phase === 'over' ? hud.score : 0;
   const carLeft = (frame.x / LANE.LANE_W) * 33.333 + 16.666;
   const accent = tone === 'lime' ? 'text-lime' : 'text-pink';
+  // The lap's real deadline: its 3-minute window on chain, not the 24 seconds of driving. Every retry spends it.
+  const sealFace =
+    sealLeftMs == null
+      ? null
+      : sealLeftMs <= 0
+        ? 'closed'
+        : `${Math.floor(sealLeftMs / 60_000)}:${String(Math.floor((sealLeftMs % 60_000) / 1000)).padStart(2, '0')}`;
+  const sealUrgent = sealLeftMs != null && sealLeftMs < 45_000;
+  const sealNote =
+    sealFace == null ? null : sealFace === 'closed' ? (
+      <p className="mt-3 rounded-lg bg-danger/15 px-3 py-2 text-xs font-semibold text-danger">This lap&apos;s seal window has closed.</p>
+    ) : (
+      <p className={`mt-3 rounded-lg px-3 py-2 text-xs font-semibold ${sealUrgent ? 'bg-danger/15 text-danger' : 'bg-gold/10 text-gold'}`}>
+        {sealFace} left to seal this lap. Every try uses that time.
+      </p>
+    );
 
   const road = (
     <div
@@ -314,6 +320,7 @@ export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run', lap
                 <p className="mt-2 text-sm text-mute">
                   {lap ? 'Seal it, or try this lap again.' : beats ? `That beats ${toBeat}.` : `${toBeat} still stands. Same course, run it again.`}
                 </p>
+                {lap ? sealNote : null}
                 {immersive ? (
                   <Button variant={beats || lap ? tone : 'ghost'} size="lg" block className="mt-6" onClick={leave}>
                     {lap ? 'Back to seal' : beats ? 'Take the crown with this run' : 'Exit'}
@@ -337,6 +344,7 @@ export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run', lap
                 <p className="mt-2 text-sm text-mute">
                   {sealed === 0 ? 'Swipe or tap left and right to switch lanes. Grab the coins.' : 'Same road rules, a little faster.'}
                 </p>
+                {lap ? sealNote : null}
                 <Button
                   variant={tone}
                   size="lg"
@@ -378,6 +386,13 @@ export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run', lap
       </div>
       <div className="flex items-center justify-between gap-2">
         {lap ? <LapBoxes states={lapStates} tone={tone} size="sm" label="Your laps" /> : <span />}
+        {lap && sealFace ? (
+          <span
+            className={`rounded-md px-2 py-1 font-mono text-[10px] font-bold ${sealFace === 'closed' || sealUrgent ? 'bg-danger/20 text-danger' : 'bg-gold/15 text-gold'}`}
+          >
+            {sealFace === 'closed' ? 'seal closed' : `seal in ${sealFace}`}
+          </span>
+        ) : null}
         {toBeat > 0 ? (
           <span className="rounded-md bg-ink-3 px-2 py-1 font-mono text-[10px] text-mute">
             beat <span className="font-bold text-white">{toBeat}</span>
@@ -403,8 +418,7 @@ export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run', lap
     return <div className="flex h-[min(62vh,520px)] flex-col overflow-hidden rounded-2xl bg-ink-2">{road}</div>;
   }
 
-  // Full screen, like a game app: the road in the middle, the run's numbers on the sides on a big screen.
-  // The layer goes to the end of <body>, outside the page's own layers, so nothing stacks over it.
+  // Full screen, like a game app: the road in the middle, the run's numbers beside it on wide screens.
   const game = (
     <div className="fixed inset-0 z-[80] flex bg-ink" style={{ height: '100dvh' }}>
       <aside className="hidden w-80 flex-col justify-between border-r border-white/5 p-8 lg:flex">

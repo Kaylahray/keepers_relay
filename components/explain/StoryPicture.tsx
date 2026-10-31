@@ -1,9 +1,6 @@
 import { LaneArt } from '@/components/game/LaneArt';
 
-/**
- * Four small drawings that each carry one idea of the game, used on the home page, the first-visit
- * intro and How it works. Our own art: shapes in the app's colours, no image files.
- */
+/** Four small drawings that each carry one idea of the game, used on the home page, the first-visit intro and How it works. */
 
 export type StoryKind = 'race' | 'grab' | 'win' | 'fair' | 'stake' | 'fight' | 'collect';
 

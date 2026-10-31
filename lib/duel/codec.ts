@@ -1,14 +1,7 @@
 import { ccc } from '@ckb-ccc/core';
 import { MAX_WIND, type ShotRecord } from '@/lib/duel/artillery';
 
-/**
- * Duel cell and racer cell data, mirroring `duel-type` (scripts/sudden-death/contracts/duel-type).
- *
- * Duel cell, version 1: `version ‖ kind ‖ status ‖ stake u64 ‖ timer ms u64 ‖ challenger lock hash ‖
- * opponent lock hash ‖ challenger key ‖ opponent key ‖ game data hash`, then for artillery
- * `seed block ‖ shot count ‖ shots (angle ‖ power ‖ wind)`, or for a race `score ‖ score ‖ submitted`.
- * Racer cell, version 1: `version ‖ laps ‖ lap start ms u64 ‖ lap chain`.
- */
+/** Duel cell and racer cell data, mirroring `duel-type` (scripts/sudden-death/contracts/duel-type). */
 
 export const DUEL_VERSION = 1;
 export const KIND_ARTILLERY = 1;
@@ -40,10 +33,7 @@ export const MIN_RACE_MS = 5 * 3 * 60 * 1000;
 /** A Pressure turn never gets shorter than this: a shot still needs a block to land in. */
 export const PRESSURE_FLOOR_MS = 30_000;
 
-/**
- * An artillery timer: the first turn's ms (low 32 bits) and how many ms each later turn loses (high
- * 32 bits). A shrink of 0 is Classic, every turn the same; anything else is Pressure.
- */
+/** An artillery timer: the first turn's ms (low 32 bits) and how many ms each later turn loses (high 32 bits). */
 export function artilleryTimer(firstMs: number, shrinkMs = 0): bigint {
   return BigInt(firstMs) | (BigInt(shrinkMs) << 32n);
 }

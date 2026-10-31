@@ -1,10 +1,4 @@
-/**
- * Apex GT - Original High-Performance Sports Car 3D Rig
- * Built 100% in code with Three.js r170 procedural geometries & PBR materials.
- * 
- * Real-world scale (meters), Y-up, ground level at Y=0, car facing +Z.
- * Budget: < 30,000 triangles.
- */
+/** The 3D sports car used in run playback, built in code with Three.js. */
 import * as THREE from 'three';
 import {
   createTireTreadTexture,
@@ -91,14 +85,9 @@ export interface CarRig {
   dispose: () => void;
 }
 
-/**
- * Procedurally generates an ultra-smooth, continuous aerodynamic sports car monocoque
- * using cross-sectional curve rings along the vehicle's length (Z-axis).
- */
+/** Builds the car body from cross-section rings along its length (Z axis). */
 function createAerodynamicCarBodyGeometry(): THREE.BufferGeometry {
-  // Cross-sections along Z (front to rear)
-  // Each profile defines symmetric half-rings from center top (X=0) down to the sill/undertray (Y=bottom)
-  // [z, [ [x, y], [x, y], ... ]] from center-top to side-bottom
+  // Cross-sections along Z (front to rear) Each profile defines symmetric half-rings from center top (X=0) down to the sill/undertray (Y=bottom) [z, [ [x, y], [x, y], ... ]] from center-top to side-bottom
   const crossSections = [
     // 0. Front Splitter tip (low sharp nose)
     {
@@ -264,8 +253,7 @@ function createAerodynamicCarBodyGeometry(): THREE.BufferGeometry {
 
   const numZ = crossSections.length;
   const ptsPerSide = crossSections[0].pts.length;
-  // Full ring: left side (from bottom to top) + right side (from top to bottom)
-  // Left: x > 0, Right: x < 0
+  // Full ring: left side (from bottom to top) + right side (from top to bottom) Left: x > 0, Right: x < 0
   const vertsPerRing = (ptsPerSide - 1) * 2 + 1; // e.g. 5*2 + 1 = 11 vertices
 
   for (let zi = 0; zi < numZ; zi++) {
@@ -322,9 +310,7 @@ function createAerodynamicCarBodyGeometry(): THREE.BufferGeometry {
   return geom;
 }
 
-/**
- * Creates the complete procedural Car Rig.
- */
+/** Creates the complete procedural Car Rig. */
 export function createCarRig(options: CarRigOptions = {}): CarRig {
   const initialPaintColor = options.paintColor ?? 0x08080a; // Deep glossy obsidian black
   const initialAccentColor = options.accentColor ?? 0x39ff14; // Lime green neon glow
@@ -352,8 +338,7 @@ export function createCarRig(options: CarRigOptions = {}): CarRig {
   const brakeDiscTex = createBrakeDiscTexture();
   const grilleTex = createGrilleTexture();
 
-  // Materials initialization
-  // 1. Paint: Glossy deep obsidian black with ultra-rich clearcoat
+  // Materials.
   const paintMat = new THREE.MeshPhysicalMaterial({
     color: parseColor(initialPaintColor),
     metalness: 0.04,
@@ -481,9 +466,7 @@ export function createCarRig(options: CarRigOptions = {}): CarRig {
     exhaust: exhaustMat,
   };
 
-  // -------------------------------------------------------------
   // 1. SCULPTED AERODYNAMIC BODYWORK (Main Monocoque)
-  // -------------------------------------------------------------
   const bodyGeom = createAerodynamicCarBodyGeometry();
   const mainBodyMesh = new THREE.Mesh(bodyGeom, paintMat);
   mainBodyMesh.castShadow = true;
@@ -497,10 +480,7 @@ export function createCarRig(options: CarRigOptions = {}): CarRig {
   floorMesh.position.set(0, 0.10, 0.05);
   bodyMeshGroup.add(floorMesh);
 
-  // -------------------------------------------------------------
-  // 2. TINTED GLASS CANOPY (Windshield, Roof & Side Windows)
-  // -------------------------------------------------------------
-  // Windshield (Raked aerodynamic curved glass)
+  // 2. TINTED GLASS CANOPY (Windshield, Roof & Side Windows) Windshield (Raked aerodynamic curved glass)
   const windshieldShape = new THREE.Shape();
   windshieldShape.moveTo(-0.58, 0);
   windshieldShape.lineTo(0.58, 0);
@@ -573,9 +553,7 @@ export function createCarRig(options: CarRigOptions = {}): CarRig {
   rightSideWin.rotation.y = -Math.PI / 2;
   bodyMeshGroup.add(leftSideWin, rightSideWin);
 
-  // -------------------------------------------------------------
   // 3. FRONT SPLITTER & GLOWING LIME-GREEN ACCENT STRIP
-  // -------------------------------------------------------------
   const splitterShape = new THREE.Shape();
   splitterShape.moveTo(-1.02, 0);
   splitterShape.lineTo(1.02, 0);
@@ -623,10 +601,7 @@ export function createCarRig(options: CarRigOptions = {}): CarRig {
   rightIntake.rotation.y = 0.25;
   bodyMeshGroup.add(leftIntake, rightIntake);
 
-  // -------------------------------------------------------------
-  // 4. GLOWING LIME-GREEN SIDE ACCENTS & CARBON SIDE SKIRTS
-  // -------------------------------------------------------------
-  // Carbon Fiber Side Skirts
+  // 4. GLOWING LIME-GREEN SIDE ACCENTS & CARBON SIDE SKIRTS Carbon Fiber Side Skirts
   const skirtGeom = new THREE.BoxGeometry(0.12, 0.04, 2.15);
   const leftSkirt = new THREE.Mesh(skirtGeom, carbonMat);
   leftSkirt.position.set(0.92, 0.11, 0.0);
@@ -650,9 +625,7 @@ export function createCarRig(options: CarRigOptions = {}): CarRig {
   rightShoulderAccent.position.x = -0.93;
   bodyMeshGroup.add(leftShoulderAccent, rightShoulderAccent);
 
-  // -------------------------------------------------------------
   // 5. AERODYNAMIC SIDE MIRRORS
-  // -------------------------------------------------------------
   const mirrorCapGeom = new THREE.BoxGeometry(0.16, 0.07, 0.10);
   const leftMirrorCap = new THREE.Mesh(mirrorCapGeom, carbonMat);
   leftMirrorCap.position.set(0.88, 0.72, 0.54);
@@ -673,9 +646,7 @@ export function createCarRig(options: CarRigOptions = {}): CarRig {
   rightMirrorGroup.scale.x = -1;
   bodyMeshGroup.add(leftMirrorGroup, rightMirrorGroup);
 
-  // -------------------------------------------------------------
   // 6. COCKPIT INTERIOR DETAILS (Sports bucket seats & steering wheel)
-  // -------------------------------------------------------------
   const interiorGroup = new THREE.Group();
   // Cockpit Tub
   const tubGeom = new THREE.BoxGeometry(1.22, 0.32, 1.4);
@@ -711,9 +682,7 @@ export function createCarRig(options: CarRigOptions = {}): CarRig {
   interiorGroup.add(leftSeat, rightSeat, leftHeadrest, rightHeadrest, steeringWheel, dash);
   bodyMeshGroup.add(interiorGroup);
 
-  // -------------------------------------------------------------
   // 7. ACTIVE-STYLE CARBON FIBER REAR SPOILER / WING
-  // -------------------------------------------------------------
   const spoilerShape = new THREE.Shape();
   spoilerShape.moveTo(-0.94, 0);
   spoilerShape.lineTo(0.94, 0);
@@ -750,9 +719,7 @@ export function createCarRig(options: CarRigOptions = {}): CarRig {
 
   bodyMeshGroup.add(spoiler, leftEndplate, rightEndplate, leftStanchion, rightStanchion);
 
-  // -------------------------------------------------------------
   // 8. REAR DIFFUSER WITH QUAD FINS & LIME ACCENT EDGES
-  // -------------------------------------------------------------
   const diffuserBaseGeom = new THREE.BoxGeometry(1.68, 0.05, 0.60);
   const diffuserBase = new THREE.Mesh(diffuserBaseGeom, carbonMat);
   diffuserBase.position.set(0, 0.15, -2.08);
@@ -788,9 +755,7 @@ export function createCarRig(options: CarRigOptions = {}): CarRig {
     bodyMeshGroup.add(exhaust);
   });
 
-  // -------------------------------------------------------------
   // 9. HEADLIGHTS & TAILLIGHTS (With Actual Light Emission)
-  // -------------------------------------------------------------
   const headlightMeshes: THREE.Mesh[] = [];
   const taillightMeshes: THREE.Mesh[] = [];
   const headlightPointLights: THREE.PointLight[] = [];
@@ -878,13 +843,7 @@ export function createCarRig(options: CarRigOptions = {}): CarRig {
   bodyMeshGroup.add(leftTlPoint, rightTlPoint);
   taillightPointLights.push(leftTlPoint, rightTlPoint);
 
-  // -------------------------------------------------------------
-  // 10. DETAILED WHEEL ASSEMBLIES (4 Separate Parts)
-  // -------------------------------------------------------------
-  // Wheel Specs:
-  // Radius: 0.33m (Y=0.33m sits flush on ground Y=0)
-  // Width: 0.28m
-  // Rim Radius: 0.25m (20-inch rim)
+  // 10. DETAILED WHEEL ASSEMBLIES (4 Separate Parts) Wheel Specs: Radius: 0.33m (Y=0.33m sits flush on ground Y=0) Width: 0.28m Rim Radius: 0.25m (20-inch rim)
 
   function createWheelAssembly(isFront: boolean, isLeft: boolean): {
     wheelGroup: THREE.Group;
@@ -901,8 +860,7 @@ export function createCarRig(options: CarRigOptions = {}): CarRig {
     spinGroup.name = 'SpinGroup';
     steerGroup.add(spinGroup);
 
-    // 1. TIRE (Low profile sport tire with open ends)
-    // Cylinder is open-ended so rim, spokes, and brake disc are visible inside
+    // 1. TIRE (Low profile sport tire with open ends) Cylinder is open-ended so rim, spokes, and brake disc are visible inside
     const tireGeom = new THREE.CylinderGeometry(0.33, 0.33, 0.26, 32, 2, true);
     tireGeom.rotateZ(Math.PI / 2);
     const tireMesh = new THREE.Mesh(tireGeom, tireMat);
@@ -917,8 +875,7 @@ export function createCarRig(options: CarRigOptions = {}): CarRig {
     innerShoulder.position.x = isLeft ? -0.13 : 0.13;
     spinGroup.add(outerShoulder, innerShoulder);
 
-    // 2. RIM (Detailed 10-Spoke Forged Alloy Turbine Wheel)
-    // Rim barrel
+    // 2. RIM (Detailed 10-Spoke Forged Alloy Turbine Wheel) Rim barrel
     const rimBarrelGeom = new THREE.CylinderGeometry(0.245, 0.245, 0.25, 28, 1, true);
     rimBarrelGeom.rotateZ(Math.PI / 2);
     const rimBarrel = new THREE.Mesh(rimBarrelGeom, rimMat);
@@ -1018,9 +975,7 @@ export function createCarRig(options: CarRigOptions = {}): CarRig {
     fr.wheelGroup.getObjectByName('SteerGroup') as THREE.Group,
   ];
 
-  // -------------------------------------------------------------
   // CONTROLS & UPDATES
-  // -------------------------------------------------------------
   let currentSteeringAngle = 0;
   let currentWheelSpin = 0;
   let currentBodyRoll = 0;

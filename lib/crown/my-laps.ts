@@ -1,9 +1,4 @@
-/**
- * This browser's run in a crown: the session key that seals its laps, and every lap sealed so far.
- * The grab needs each lap's moves, which only this browser has, so they are kept across refreshes.
- * Keyed by crown and wallet. Browser storage can be unavailable (private windows, blocked storage);
- * then the run lasts as long as the page.
- */
+/** This browser's run in a crown: the session key that seals its laps, and every lap sealed so far. */
 
 export type SealedLapRecord = {
   /** The block the lap was seeded by (hex). */

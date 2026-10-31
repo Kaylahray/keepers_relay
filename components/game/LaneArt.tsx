@@ -1,8 +1,4 @@
-/**
- * The lane runner as players see it: the daytime highway from behind the car, with the road blocks
- * and coins of the real game. Our own SVG drawing in the game's colours, so it always matches the
- * game. Wide for cards, tall for side panels (the same scene, cropped round the car).
- */
+/** The lane runner as players see it: the daytime highway from behind the car, with the road blocks and coins of the real game. */
 export function LaneArt({ className = '', shape = 'wide' }: { className?: string; shape?: 'wide' | 'tall' }) {
   const id = shape === 'tall' ? 'lane-tall' : 'lane-wide';
   return (

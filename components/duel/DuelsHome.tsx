@@ -10,7 +10,7 @@ import { EmptyState, PageTitle, Tabs } from '@/components/ui/kit';
 import { ART } from '@/lib/art';
 import { useMyLockHash } from '@/hooks/useMyLockHash';
 import { getCkbClient } from '@/lib/ckb/client';
-import { listDuels, type DuelSnapshot } from '@/lib/duel/chain';
+import { listDuels, listFinishedDuels, type DuelSnapshot, type FinishedDuel } from '@/lib/duel/chain';
 import { KIND_ARTILLERY, STATUS_LIVE, STATUS_OPEN, timerShrinkMs } from '@/lib/duel/codec';
 import { chainNames, nameOf } from '@/lib/registry/chain-names';
 import { duelsConfigured } from '@/lib/registry/config';
@@ -19,7 +19,7 @@ import { bytesToHex } from '@/lib/sudden-death/codec';
 const ZERO = `0x${'0'.repeat(64)}`;
 const CKB = 100_000_000n;
 
-type Tab = 'live' | 'waiting';
+type Tab = 'live' | 'waiting' | 'finished';
 
 /** Duels: what they are, which games, and every duel waiting on you. */
 export function DuelsHome() {
@@ -28,6 +28,26 @@ export function DuelsHome() {
   const [duels, setDuels] = useState<DuelSnapshot[] | null>(null);
   const [names, setNames] = useState<Map<string, string>>(new Map());
   const [tab, setTab] = useState<Tab>('live');
+  // Ended duels are no longer live cells, so they are read from the chain's history, once per visit.
+  const [finished, setFinished] = useState<FinishedDuel[] | null>(null);
+  const [finishedNames, setFinishedNames] = useState<Map<string, string>>(new Map());
+
+  useEffect(() => {
+    if (!live || finished !== null) return;
+    let stop = false;
+    void listFinishedDuels(getCkbClient())
+      .catch(() => [] as FinishedDuel[])
+      .then(async (found) => {
+        if (stop) return;
+        setFinished(found);
+        const hashes = found.flatMap((f) => [bytesToHex(f.duel.challenger), bytesToHex(f.duel.opponent)]).filter((h) => h !== ZERO);
+        const named = await chainNames(getCkbClient(), [...new Set(hashes)]).catch(() => null);
+        if (!stop && named) setFinishedNames(named);
+      });
+    return () => {
+      stop = true;
+    };
+  }, [live, finished]);
 
   useEffect(() => {
     if (!live) return;
@@ -58,7 +78,10 @@ export function DuelsHome() {
   // Open to anyone, from someone else.
   const open = all.filter((d) => d.duel.status === STATUS_OPEN && bytesToHex(d.duel.opponent) === ZERO && bytesToHex(d.duel.challenger).toLowerCase() !== me);
   const mine = all.filter(isMine).filter((d) => !invites.includes(d));
-  const inTab = (d: DuelSnapshot, t: Tab) => (t === 'live' ? d.duel.status === STATUS_LIVE : d.duel.status === STATUS_OPEN);
+  const inTab = (d: DuelSnapshot, t: Tab) => (t === 'live' ? d.duel.status === STATUS_LIVE : t === 'waiting' ? d.duel.status === STATUS_OPEN : false);
+  const myFinished = (finished ?? []).filter(
+    (f) => me != null && (bytesToHex(f.duel.challenger).toLowerCase() === me || bytesToHex(f.duel.opponent).toLowerCase() === me),
+  );
   const tabList = mine.filter((d) => inTab(d, tab));
   const count = (t: Tab) => mine.filter((d) => inTab(d, t)).length;
   const looking = duels === null && live;
@@ -112,11 +135,32 @@ export function DuelsHome() {
                 options={[
                   { id: 'live', label: 'Live', count: count('live') },
                   { id: 'waiting', label: 'Waiting', count: count('waiting') },
+                  { id: 'finished', label: 'Finished', count: finished === null ? undefined : myFinished.length },
                 ]}
               />
             </div>
             <div className="mt-4">
-              {looking ? (
+              {tab === 'finished' ? (
+                finished === null ? (
+                  <ChainLoader compact title="Reading finished duels from the chain…" />
+                ) : myFinished.length ? (
+                  <ul className="space-y-3">
+                    {myFinished.map((f) => (
+                      <FinishedRow key={f.txHash} item={f} names={new Map([...names, ...finishedNames])} me={me} />
+                    ))}
+                  </ul>
+                ) : (
+                  <EmptyState
+                    title="No finished duels"
+                    body={me ? 'Duels you played show up here once they are paid out, with a link to check each one.' : 'Connect your wallet to see the duels you played.'}
+                    action={
+                      <Button href="/duels/new" variant="pink">
+                        Challenge someone
+                      </Button>
+                    }
+                  />
+                )
+              ) : looking ? (
                 <ChainLoader compact title="Reading duels from the chain…" />
               ) : tabList.length ? (
                 <ul className="space-y-3">
@@ -155,6 +199,29 @@ export function DuelsHome() {
               <p className="mt-4 rounded-2xl bg-ink-2 p-5 text-sm text-mute">{looking ? 'Looking…' : 'No open challenges right now.'}</p>
             )}
           </section>
+
+          {live ? (
+            <section aria-labelledby="results">
+              <h2 id="results" className="font-poster text-lg font-bold uppercase">
+                Recent results
+              </h2>
+              <p className="mt-1 text-sm text-mute">Every duel is paid by the chain. Check any of them.</p>
+              {finished === null ? (
+                <p className="mt-4 rounded-2xl bg-ink-2 p-5 text-sm text-mute">Looking…</p>
+              ) : finished.some((f) => f.outcome !== 'cancelled') ? (
+                <ul className="mt-4 space-y-3">
+                  {finished
+                    .filter((f) => f.outcome !== 'cancelled')
+                    .slice(0, 6)
+                    .map((f) => (
+                      <FinishedRow key={f.txHash} item={f} names={new Map([...names, ...finishedNames])} me={me} />
+                    ))}
+                </ul>
+              ) : (
+                <p className="mt-4 rounded-2xl bg-ink-2 p-5 text-sm text-mute">No duels have been played to the end yet.</p>
+              )}
+            </section>
+          ) : null}
 
           <section aria-labelledby="games">
             <h2 id="games" className="font-poster text-lg font-bold uppercase">
@@ -232,6 +299,64 @@ function DuelRow({ duel: snap, names, me }: { duel: DuelSnapshot; names: Map<str
         </div>
         <Button href={`/duels/${snap.duelId}`} variant={label === 'Watch' || label === 'View' ? 'ghost' : 'pink'} size="sm">
           {label}
+        </Button>
+      </div>
+    </li>
+  );
+}
+
+/** One ended duel: both faces, the game, how it ended for this player, and the way to check it. */
+function FinishedRow({ item, names, me }: { item: FinishedDuel; names: Map<string, string>; me: string | null }) {
+  const { duel } = item;
+  const challengerHash = bytesToHex(duel.challenger).toLowerCase();
+  const opponentHash = bytesToHex(duel.opponent).toLowerCase();
+  const sides: [string, string | null] = [nameOf(names, challengerHash), opponentHash === ZERO ? null : nameOf(names, opponentHash)];
+  const [pictureA, pictureB] = useChainPictures([challengerHash, sides[1] ? opponentHash : null]);
+  const artillery = duel.kind === KIND_ARTILLERY;
+  const GameIcon = artillery ? Crosshair : CarFront;
+  const stake = Number(duel.stake / CKB);
+  const mySide = me === challengerHash ? 0 : me === opponentHash ? 1 : null;
+  const result =
+    item.outcome === 'cancelled'
+      ? { text: 'Cancelled · stake returned', tone: 'text-mute' }
+      : item.outcome === 'draw'
+        ? { text: `Draw · ${stake} CKB back each`, tone: 'text-white' }
+        : item.outcome === mySide
+          ? { text: `You won ${stake * 2} CKB`, tone: 'text-lime' }
+          : { text: `${sides[item.outcome] ?? 'They'} won ${stake * 2} CKB`, tone: 'text-danger' };
+  const when = item.endedMs ? new Date(item.endedMs).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : null;
+
+  return (
+    <li className="flex flex-col gap-4 rounded-2xl bg-ink-2 p-4 sm:flex-row sm:items-center">
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <div className="flex shrink-0 -space-x-2">
+          <Avatar name={sides[0]} tone="#99ee2d" size={40} src={pictureA} />
+          {sides[1] ? (
+            <Avatar name={sides[1]} tone="#ff56f6" size={40} src={pictureB} />
+          ) : (
+            <span className="grid h-10 w-10 place-items-center rounded-xl border-2 border-dashed border-pink/60 bg-ink font-poster text-xs text-pink">?</span>
+          )}
+        </div>
+        <div className="min-w-0">
+          <p className="truncate font-semibold">
+            {sides[0]} <span className="text-mute">vs</span> {sides[1] ?? <span className="text-mute">nobody</span>}
+          </p>
+          <p className="mt-0.5 flex items-center gap-1.5 truncate text-xs text-mute">
+            <GameIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            {artillery ? 'Artillery' : 'Lane race'}
+            {when ? ` · ${when}` : ''}
+          </p>
+          <p className={`mt-1 text-sm font-semibold ${result.tone}`}>{result.text}</p>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+        {item.outcome !== 'cancelled' ? (
+          <Button href={`/duels/${item.duelId}`} variant="ghost" size="sm">
+            Replay
+          </Button>
+        ) : null}
+        <Button href={`/verify/${item.txHash}`} variant="pink" size="sm">
+          Check it
         </Button>
       </div>
     </li>

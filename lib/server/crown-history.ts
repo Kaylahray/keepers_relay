@@ -9,14 +9,7 @@ import type { CrownSeat } from '@/lib/crown/seats';
 import { suddenDeathMatchType } from '@/lib/registry/config';
 import { bytesToHex, decodeMatchCell, hexToBytes } from '@/lib/sudden-death/codec';
 
-/**
- * Every crown ever taken, one row per steal transaction.
- *
- * The crowns table only keeps the current king, so a crown someone took and then lost leaves no
- * trace there. Each steal is a committed transaction that writes a new match cell, so the full
- * history can always be read back from the chain; this table is that read, kept so a profile
- * does not walk every match on every view. Rows only come from committed chain data.
- */
+/** Every crown ever taken, one row per steal transaction. */
 
 let ready = false;
 
@@ -103,11 +96,7 @@ async function allCrowns(): Promise<{ room: CrownRoom; hostAddress: string | nul
     .filter((entry) => !entry.room.legacy);
 }
 
-/**
- * Brings the steals table up to date with the chain. A crown is read again only when the round
- * the crowns table holds is ahead of the last steal recorded for it, so a quiet table costs one
- * query. The first call after this ships fills in every crown played before it: the backfill.
- */
+/** Brings the steals table up to date with the chain. */
 export async function syncStealHistory(): Promise<{ scanned: number; added: number }> {
   if (!databaseConfigured()) return { scanned: 0, added: 0 };
   await ensureStealsTable();

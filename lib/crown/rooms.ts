@@ -61,11 +61,7 @@ export type CrownRoom = {
   /** The king's lock hash as the match cell records it. The server names the king from this. */
   kingHash?: string | null;
   hostAddress: string | null;
-  /**
-   * When this browser sent a steal that the chain has not confirmed yet. It lets the player who
-   * took the crown see it straight away, and nothing more: the moment the server reads the new
-   * round, the shared clock takes over again.
-   */
+  /** When this browser sent a steal that the chain has not confirmed yet. */
   stealPendingAt?: number | null;
   /** A quiz crown from before version 2. The current scripts cannot play or close it. */
   legacy?: boolean;
@@ -166,11 +162,7 @@ export function forgetCrown(id: string) {
   emit();
 }
 
-/**
- * The link to share for a crown. The marker after "?r=" changes whenever the crown does (lobby, each
- * round, the end), so chat apps that remember previews by link build a fresh card with the current
- * score instead of showing an old one. The page itself ignores it.
- */
+/** The link to share for a crown. */
 export function crownShareUrl(room: Pick<CrownRoom, 'id' | 'status' | 'round'>): string {
   return `/play/${room.id}?r=${crownStage(room)}`;
 }

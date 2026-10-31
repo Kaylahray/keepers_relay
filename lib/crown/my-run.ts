@@ -1,8 +1,4 @@
-/**
- * This browser's best run on a course, kept across navigation and refreshes. A run is only worth
- * anything on the course it was played on, so it is keyed by crown and seed. Browser storage can
- * be unavailable (private windows, blocked storage); then runs simply last as long as the page.
- */
+/** This browser's best run on a course, kept across navigation and refreshes. */
 
 export type StoredRun = { tape: Uint8Array; score: number; seed: bigint };
 

@@ -21,10 +21,7 @@ export interface Character {
   seed: string;
 }
 
-/**
- * Curated cast for Keepers Relay.
- * Portraits are fixed SVG silhouettes (select, never generate).
- */
+/** Curated cast for Keepers Relay. */
 export const CHARACTERS: Character[] = [
   {
     id: 'nova',
@@ -105,10 +102,7 @@ export function getCharacter(id: CharacterId | string | null | undefined): Chara
   return CHARACTERS.find((character) => character.id === id);
 }
 
-/**
- * A fixed SVG plate in the character's colours, drawn here.
- * Never a random face generator.
- */
+/** A fixed SVG plate in the character's colours, drawn here. */
 export function characterPortraitUrl(character: Character, size = 256): string {
   const accent = character.accent;
   const fill = character.fill;

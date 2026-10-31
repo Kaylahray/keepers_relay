@@ -28,10 +28,7 @@ type Props = {
   formatWait: (ms: number) => string;
 };
 
-/**
- * Where the player's run stands, lap by lap: the five laps across the top, then the pit stop while
- * the chain forges the next lap, the lap being raced with its seal button, or the finished run.
- */
+/** Where the player's run stands, lap by lap: the five laps across the top, then the pit stop while the chain forges the next lap, the lap being raced with its seal button, or the finished run. */
 export function LapPanel({
   laps,
   current,

@@ -26,10 +26,7 @@ type SignerLike = {
   }>;
 };
 
-/**
- * One “Connect” path: wallet + session signature.
- * Callers should never show a separate “Sign in” control.
- */
+/** One “Connect” path: wallet + session signature. */
 /** The current session as the server sees it. A failed read counts as signed out. */
 async function readSession(): Promise<{ authenticated: boolean; address: string | null }> {
   try {
@@ -137,12 +134,7 @@ export function useAuthSession(): SessionState {
     [],
   );
 
-  /**
-   * JoyID restores the address with no prompt. That is only the wallet.
-   * The session is a second signature, "Connect to Crowns", and without it
-   * the header shows an address that cannot publish, join, or take a proof.
-   * Ask for that signature once when a restored wallet has no session.
-   */
+  /** JoyID restores the address with no prompt. */
   useEffect(() => {
     if (!isReady || !checked || !isConnected || !address || !signer || busy) return;
     const normalized = address.trim().toLowerCase();
@@ -199,11 +191,7 @@ export function useAuthSession(): SessionState {
     signer,
   ]);
 
-  /**
-   * A successful pick closes the modal, then the wallet appears.
-   * A dismiss closes it and nothing arrives. Drop the waiter so
-   * Connect is clickable again instead of sitting on “Connecting…”.
-   */
+  /** A successful pick closes the modal, then the wallet appears. */
   useEffect(() => {
     if (isOpen || !waiterRef.current) return;
     const timer = setTimeout(() => {

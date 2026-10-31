@@ -8,9 +8,7 @@ export type ScriptConfig = {
   depType: "code" | "depGroup";
 };
 
-// IMPORTANT: Next.js / Turbopack only inlines `process.env.NEXT_PUBLIC_*`
-// for the browser bundle when accessed via static property syntax. Dynamic
-// access like `process.env[key]` resolves to `undefined` client-side.
+// IMPORTANT: Next.js / Turbopack only inlines `process.env.NEXT_PUBLIC_*` for the browser bundle when accessed via static property syntax.
 function pick(value: string | undefined, fallback = ""): string {
   return (value ?? fallback).trim();
 }
@@ -119,11 +117,7 @@ export const suddenDeathTreasuryLock: ScriptConfig = {
   depType: asDepType(process.env.NEXT_PUBLIC_SD_TREASURY_DEP_TYPE),
 };
 
-/**
- * The game script match-type spawns to score a run. It is never a lock or type script, so it
- * only needs a code cell: `codeHash` is the data hash of that cell, which is also what the match
- * cell records as its game.
- */
+/** The game script match-type spawns to score a run. */
 export const suddenDeathGame: ScriptConfig = {
   codeHash: pick(process.env.NEXT_PUBLIC_SD_GAME_CODE_HASH),
   hashType: "data2",
@@ -212,7 +206,6 @@ export function assertSuddenDeathConfigured(): void {
 }
 
 // CKB tx fee estimation (shannons per kB) — passed to `completeFeeBy`.
-// This is unrelated to locked cell capacity; it only pays miners.
 export const REGISTRY_FEE_RATE = BigInt(2000);
 
 export const USERNAME_RULES = {

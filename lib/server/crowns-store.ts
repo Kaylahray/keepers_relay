@@ -49,12 +49,7 @@ function asVault(raw: unknown): Vault {
   };
 }
 
-/**
- * Nothing in a v2 room is secret: the winner is whoever the chain says, by score.
- *
- * A practice crown has no match cell, so nothing on chain ever closes it. Once its clock has run
- * out it is over, whatever the stored row says; otherwise it would show as live forever.
- */
+/** Nothing in a v2 room is secret: the winner is whoever the chain says, by score. */
 export function publicRoom(room: CrownRoom): CrownRoom {
   if (!room.matchId && room.status === 'live' && room.deadlineAt != null && room.deadlineAt < Date.now()) {
     return { ...room, status: 'settled' };
@@ -111,26 +106,8 @@ function pointIndex(index: unknown): string {
   return '0x0';
 }
 
-/**
- * The stored outpoint is spent on every steal. The live cell is the one with this match type.
- *
- * The stored point has to be read with `readLiveCell`, not `getCell`: `getCell` rebuilds a cell
- * from the transaction that created it, so a spent match cell answers happily with the round it
- * was written in. That answer is the whole reason a steal used to show up on one screen only —
- * the fast path never missed, the type search below never ran, and the server kept serving the
- * round the match opened on.
- */
-/**
- * Read a steal out of the transaction a player says they just sent.
- *
- * Other screens need the new round before the indexer has the new cell, so something has to be
- * believed early. The transaction itself can be believed; the player's JSON cannot. This fetches
- * the transaction — mempool is fine — and checks it really is a steal of *this* match before
- * taking the new state from the cell bytes it writes, never from the request body.
- *
- * Without this check a seated player could PUT any round, deadline, pot and king they liked
- * alongside a transaction hash that does not exist, and every other screen would follow it.
- */
+/** The stored outpoint is spent on every steal. */
+/** Read a steal out of the transaction a player says they just sent. */
 async function stealFromTransaction(txHash: string, current: CrownRoom): Promise<CrownRoom | null> {
   if (!current.matchOutPoint) return null;
   const script = matchTypeScript(current);
@@ -160,8 +137,7 @@ async function stealFromTransaction(txHash: string, current: CrownRoom): Promise
     return null;
   }
 
-  // Exactly one round forward, with a higher score. The match script checks the rest when the
-  // transaction lands; a pending one that would fail it is rejected and the room reads back.
+  // Exactly one round forward, with a higher score.
   if (decoded.round !== current.round + 1) return null;
   if (Number(decoded.kingScore) <= current.kingScore) return null;
 
@@ -198,20 +174,12 @@ async function outpointPhase(txHash: string): Promise<'committed' | 'pending' | 
   }
 }
 
-/**
- * The live match cell, and whether the room's own pointer turned out to be wrong.
- *
- * `reset` is true when the transaction the room points at was rejected: a steal that lost a race
- * for the same cell, or one whose run the script refused. Every screen followed it while it was
- * pending; now the room has to go back to whatever the chain really holds, even if that is an
- * earlier round.
- */
+/** The live match cell, and whether the room's own pointer turned out to be wrong. */
 async function loadMatchCell(room: CrownRoom): Promise<{ cell: ccc.Cell; reset: boolean } | null> {
   const client = getServerCkbClient();
   let reset = false;
   if (room.matchOutPoint) {
-    // A steal's new outpoint is shared before it confirms. Searching by type here would
-    // find the previous live cell and rewind every other screen to the old clock.
+    // A steal's new outpoint is shared before it confirms.
     const phase = await outpointPhase(room.matchOutPoint.txHash);
     if (phase === 'rejected') {
       reset = true;
@@ -250,11 +218,7 @@ function matchTypeScript(room: CrownRoom): ccc.Script | null {
   });
 }
 
-/**
- * Cleanup spends the match cell and does not create another one.
- * A steal spends it and writes a new one, so the latest transaction still has an output.
- * No live cell plus a latest transaction that only spends this type means the crown is closed.
- */
+/** Cleanup spends the match cell and does not create another one. */
 async function matchWasClosed(room: CrownRoom): Promise<boolean> {
   const script = matchTypeScript(room);
   if (!script) return false;
@@ -287,8 +251,7 @@ async function refreshFromChain(room: CrownRoom): Promise<{ room: CrownRoom; see
       // Not a version 2 match cell, so not one this app can play.
       return { room, seen: 'reject' };
     }
-    // Rounds only ever climb. A lower one means a stale read, and taking it would hand every
-    // screen back a king who has already lost the crown.
+    // Rounds only ever climb.
     if (decoded.round < room.round && !reset) return { room, seen: 'pending' };
     const kingHex = bytesToHex(decoded.king);
     const kingEmpty = decoded.king.every((byte) => byte === 0);
@@ -322,14 +285,7 @@ async function refreshFromChain(room: CrownRoom): Promise<{ room: CrownRoom; see
   }
 }
 
-/**
- * How long one chain read is shared across requests.
- *
- * Every player polls this room twice a second. Without this, a thirty-seat lobby is sixty CKB
- * RPC calls a second, all asking the same question about the same cell, and the node starts
- * refusing exactly when the room is busiest. Holding the answer for a second turns the whole
- * lobby into one read. The poll is 2s, so nobody waits longer for a steal than they already did.
- */
+/** How long one chain read is shared across requests. */
 const CHAIN_TTL_MS = 1_000;
 
 const chainReads = new Map<string, { at: number; task: Promise<ChainLook> }>();
@@ -383,10 +339,7 @@ async function lockHashOf(address: string): Promise<string | null> {
   return hash;
 }
 
-/**
- * The king's name, from the chain's king hash and the lobby's seats. A seat whose address locks to
- * that hash names the king; anyone else shows as a short hash. Nothing a browser sends sets it.
- */
+/** The king's name, from the chain's king hash and the lobby's seats. */
 async function nameKing(room: CrownRoom, seats: CrownSeat[]): Promise<CrownRoom> {
   if (!room.kingHash) return room;
   // The king's username on chain is the name, whether or not they ever sat in this lobby.
@@ -400,12 +353,7 @@ async function nameKing(room: CrownRoom, seats: CrownSeat[]): Promise<CrownRoom>
   return { ...room, king: shortHash(room.kingHash) };
 }
 
-/**
- * Seats as the lobby should show them: each player under their on-chain username. A seat keeps
- * the name it was saved with when the player joined, which for older seats is a short address;
- * this puts the real name on every seat each time the lobby is read. If the chain cannot be read,
- * the saved names stand.
- */
+/** Seats as the lobby should show them: each player under their on-chain username. */
 async function nameSeats(seats: CrownSeat[]): Promise<CrownSeat[]> {
   const names = await chainUsernames().catch(() => null);
   if (!names) return seats;
@@ -415,10 +363,7 @@ async function nameSeats(seats: CrownSeat[]): Promise<CrownSeat[]> {
   });
 }
 
-/**
- * Older feed lines name players by a short address ("ckt1qrfr…rk7p9f joined the lobby"). Swap
- * those for usernames when the line is read; the stored line is left as it was.
- */
+/** Older feed lines name players by a short address ("ckt1qrfr…rk7p9f joined the lobby"). */
 async function nameFeed(room: CrownRoom): Promise<CrownRoom> {
   const names = await chainUsernames().catch(() => null);
   if (!names || room.feed.length === 0) return room;
@@ -455,8 +400,7 @@ export async function readPublicCrown(id: string): Promise<{ room: CrownRoom; se
   if (!existing) return null;
   const current = roomFromStored(existing.room);
   const refreshed = await refreshCached(current);
-  // Only write when the chain actually moved. This used to run on every poll from every
-  // player, so a full lobby wrote the same row to Neon dozens of times a second.
+  // Only write when the chain actually moved.
   if (refreshed.seen === 'match' && !sameLiveState(current, refreshed.room)) {
     const named = await announce(current, refreshed.room, existing.seats);
     await writeVault({ ...existing, room: roomToStored(named) });
@@ -490,12 +434,10 @@ export async function syncCrown(incoming: CrownRoom, sessionAddress: string): Pr
     hostAddress: host,
   };
   const fromHost = session === host;
-  // Only the host opens the match, and only once. After that the host is a player like any
-  // other: their steals are read from the transaction like everyone's.
+  // Only the host opens the match, and only once.
   const opening = fromHost && !current.matchId;
   if (incoming.matchOutPoint) {
     // Identity — which match, whose host lock — is set by the open and never again.
-    // Anyone may point the room at a newer cell of that same match, which is what a steal produces.
     const trial: CrownRoom = {
       ...next,
       matchOutPoint: incoming.matchOutPoint,
@@ -510,10 +452,7 @@ export async function syncCrown(incoming: CrownRoom, sessionAddress: string): Pr
       if (checked.seen === 'reject') {
         throw new ApiError('That is not a version 2 match cell for this crown.', 400);
       }
-      // The open is still in the mempool, so the host's deadline is taken on trust; everything
-      // else about a fresh match is fixed (round 1, empty pot, nobody crowned) and is set here,
-      // not copied from the request. A steal, from anyone, is read out of its transaction so the
-      // other screens get the new clock before the indexer has the new cell.
+      // The open is still in the mempool, so the host's deadline is taken on trust; everything else about a fresh match is fixed (round 1, empty pot, nobody crowned) and is set here, not copied from the request.
       if (checked.seen === 'match') {
         next = checked.room;
       } else if (opening) {
@@ -529,8 +468,7 @@ export async function syncCrown(incoming: CrownRoom, sessionAddress: string): Pr
           deadlineAt: incoming.deadlineAt ?? trial.deadlineAt,
         };
       } else {
-        // The new state comes out of the transaction, not out of the request. A player who
-        // sends a real steal moves the room; a player who sends a story does not.
+        // The new state comes out of the transaction, not out of the request.
         const stolen = await stealFromTransaction(incoming.matchOutPoint.txHash, current);
         if (stolen) {
           next = { ...stolen, kingLock: incoming.kingLock ?? trial.kingLock };
@@ -539,16 +477,13 @@ export async function syncCrown(incoming: CrownRoom, sessionAddress: string): Pr
     }
   }
   if (incoming.kingLock) {
-    // The full lock is kept only when it hashes to the king the chain recorded. The name shown
-    // for the king never comes from a browser; `nameKing` takes it from the seats.
+    // The full lock is kept only when it hashes to the king the chain recorded.
     const claimed = ccc.Script.from(incoming.kingLock).hash();
     if (next.kingHash && sameHex(claimed, next.kingHash)) next = { ...next, kingLock: incoming.kingLock };
     const checked = await refreshFromChain(next);
     if (checked.seen === 'match') next = checked.room;
   }
   // A room with no match cell has no chain to read, so the clock and the crown live here.
-  // Nothing is at stake in that mode — it is the demo floor, not a pot. Only the host may
-  // start such a room; a player may move one the host has already started.
   if (!next.matchId && (fromHost || current.status === 'live')) {
     next = {
       ...next,
