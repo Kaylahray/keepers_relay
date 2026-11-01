@@ -18,7 +18,7 @@ The winner takes both stakes. In a draw, each player gets their stake back.
 1. **Open.** The host sets the entry fee, the clock and a title, then starts the crown. This creates a match cell and a treasury cell. A 3-minute entry window lets players join before play begins.
 2. **Practise.** Practice runs are free and use the same rules as the chain.
 3. **Enter.** The player pays the entry fee. The app creates a temporary session key, so laps can be sent without a wallet prompt each time.
-4. **Drive.** Each lap's road comes from the block in which the previous lap was saved, so no one can see a lap in advance. Each lap must be saved within 3 minutes.
+4. **Drive.** Each lap's road comes from the block in which the previous lap was saved, so no one can see a lap in advance. Each lap is 30 seconds, with two tries, and must be saved within 2 minutes. A grab can never cut the clock below 5 minutes after its run's last save.
 5. **Take the crown.** A finished run that beats the current score takes the crown. The match script replays every lap and accepts only a higher score. The clock starts at 10 minutes, halves every two takeovers, and never drops below 72 seconds.
 6. **Close.** After the deadline, anyone can close the crown without a signature. The pot goes to the last player who took the crown in time. Unused entries are refunded.
 
@@ -46,6 +46,8 @@ The scripts are written in Rust for CKB-VM v2 and live in `scripts/sudden-death/
 | `game-core` | Lane runner rules, shared by the chain and the browser (WebAssembly) |
 | `artillery-core` | Artillery rules, mirrored in `lib/duel/artillery.ts` and tested for matching results |
 | `common` | Shared cell layouts, clock rules and helpers |
+
+Each game script also declares its own lap count, seal window and clock floor. The chain checks them when a game opens, so a host can't pick easier ones.
 
 The scripts that hold money do not contain game rules. They run the game script and read its result, so the rules exist in one place. All game math uses integers, so the browser and the chain always get the same result.
 

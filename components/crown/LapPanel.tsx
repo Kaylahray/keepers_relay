@@ -105,9 +105,9 @@ export function LapPanel({
           </div>
           <p className="mt-2 max-w-xl text-sm text-mute">
             {windowLeft === 0
-              ? 'This lap’s window closed, so the run can’t go on. This entry comes back to you after the game.'
+              ? 'You missed the seal, so this run is over. Your entry comes back after the game, or you can pay a new entry for a fresh run.'
               : cleanScore == null && crashScore == null
-                ? 'Race the lap above. Try it as many times as you like, then seal your best try.'
+                ? 'Race the lap above. You get two tries, then seal your best one.'
                 : [
                     cleanScore != null ? `Best clean try: ${cleanScore}. Seal it to race on.` : null,
                     crashScore != null ? `Best crashed try: ${crashScore}. Sealing a crash ends your run.` : null,
@@ -115,6 +115,9 @@ export function LapPanel({
                     .filter(Boolean)
                     .join(' ')}
           </p>
+          {windowLeft != null && windowLeft > 0 && windowLeft <= 30_000 ? (
+            <p className="mt-3 rounded-lg bg-danger/15 px-3 py-2 text-sm font-semibold text-danger">Seal now or you’re out of this run.</p>
+          ) : null}
           {windowLeft !== 0 && (cleanScore != null || crashScore != null) ? (
             <div className="mt-4 flex flex-wrap gap-3">
               {cleanScore != null ? (

@@ -1,14 +1,26 @@
 import { ccc } from '@ckb-ccc/core';
 
-/** Match cell data, version 5. Same offsets as `sudden-death-common`. */
-export const MATCH_DATA_LEN = 215;
-export const MATCH_VERSION = 5;
+/** Match cell data, version 6. Same offsets as `sudden-death-common`. */
+export const MATCH_DATA_LEN = 224;
+export const MATCH_VERSION = 6;
+/** What version 4 and 5 match cells measure. */
+const V5_DATA_LEN = 215;
 /** Version 2 cells: the first 166 bytes of v4, with no postmark or work fields. Still readable for history. */
 const V2_DATA_LEN = 166;
 /** v4 only: a run counted if it landed within this long after the entry's block. Kept to verify old matches. */
 export const RUN_WINDOW_MS = 10 * 60 * 1000;
 /** Each lap's window, from the block its road came from to the block its seal lands in. */
-export const LAP_WINDOW_MS = 3 * 60 * 1000;
+export const LAP_WINDOW_MS = 2 * 60 * 1000;
+/** v5 and older gave each lap this long. Kept to verify old matches. */
+export const V5_LAP_WINDOW_MS = 3 * 60 * 1000;
+/** A game's rules, as its script declares them and the chain holds it to. */
+export type GameRules = { laps: number; lapWindowMs: number; minLeftMs: number };
+/** The least a steal can leave on the clock in the lane runner, counted from its run's last seal. */
+export const MIN_LEFT_MS = 5 * 60 * 1000;
+/** The lane runner's rules. The chain refuses a match or race that names anything else for it. */
+export const LANE_RULES: GameRules = { laps: 5, lapWindowMs: LAP_WINDOW_MS, minLeftMs: MIN_LEFT_MS };
+/** What every match before per-game rules ran on. Kept to verify old matches. */
+const OLD_RULES: GameRules = { laps: 5, lapWindowMs: V5_LAP_WINDOW_MS, minLeftMs: 0 };
 /** Laps in a full run. */
 export const LAPS = 5;
 /** Proof of work a new crown asks of each entry: about 65,000 hashes, a second or two on a phone. */
@@ -21,19 +33,19 @@ export const CLOSER_REWARD = 100_000_000n;
 export const HOST_ALLOWANCE = CLOSER_REWARD + MAX_TX_FEE;
 /** Bid data: `version ‖ refund_after_ms u64 ‖ pow nonce u64 ‖ owner lock script`. */
 /** Bid data, version 5. The entry is also the player's run, one sealed lap at a time: `version ‖ refund_after_ms ‖ pow nonce ‖ laps ‖ key lock hash ‖ lap start ms ‖ lap chain ‖ owner`. */
-export const BID_VERSION = 5;
-export const BID_HEADER_LEN = 90;
+export const BID_VERSION = 6;
+export const BID_HEADER_LEN = 95;
 const OFF_LAPS = 17;
 const OFF_KEY = 18;
 const OFF_LAP_START = 50;
 const OFF_CHAIN = 58;
 /** Older entries, still readable so they can be shown and returned: v2 had no nonce, v3 no run, v4 one window. */
-const OLD_BID_HEADER_LEN: Record<number, number> = { 2: 9, 3: 17, 4: 90 };
+const OLD_BID_HEADER_LEN: Record<number, number> = { 2: 9, 3: 17, 4: 90, 5: 90 };
 /** Seal witness (`input_type` of the entry): `version ‖ moves hash`. The key cell's signature covers the rest. */
 export const SEAL_VERSION = 1;
 const LAP_DOMAIN = new TextEncoder().encode('crowns/lap/v1');
 /** An unused bid can be refunded this long after the deadline it was locked against. */
-export const REFUND_GRACE_MS = 60 * 60 * 1000;
+export const REFUND_GRACE_MS = 30 * 60 * 1000;
 /** Steal witness (`input_type` of the match cell): `version ‖ lap count ‖ per lap: block ‖ length ‖ tape`. */
 export const RUN_VERSION = 2;
 const SEED_DOMAIN = new TextEncoder().encode('crowns/run-seed/v2');
@@ -47,7 +59,14 @@ export function shrinkMs(round: number): number {
   return cut < 72_000 ? 72_000 : cut;
 }
 
-export function shrunkDeadline(currentMs: number, round: number): number {
+/** The deadline after a steal, its run's last seal having landed at `sealedMs`. Mirrors `shrunk_deadline`: never later, never under the floor. */
+export function shrunkDeadline(currentMs: number, round: number, sealedMs: number, minLeftMs: number): number {
+  const floor = Math.min(sealedMs + minLeftMs, currentMs);
+  return Math.max(currentMs - shrinkMs(round), floor, 1_000);
+}
+
+/** v5 and older had no floor. Kept to verify old matches. */
+export function shrunkDeadlineV5(currentMs: number, round: number): number {
   const cut = shrinkMs(round);
   return currentMs <= cut ? 1_000 : currentMs - cut;
 }
@@ -87,8 +106,8 @@ export function runSeedV1(matchId: string | Uint8Array, ownerLockHash: string | 
 }
 
 /** When a steal must land to count, its entry's last lap sealed at `sealedMs`. Mirrors `land_by`. */
-export function landBy(deadlineMs: bigint, sealedMs: bigint): bigint {
-  const windowEnds = sealedMs + BigInt(LAP_WINDOW_MS);
+export function landBy(deadlineMs: bigint, sealedMs: bigint, windowMs: number): bigint {
+  const windowEnds = sealedMs + BigInt(windowMs);
   return deadlineMs < windowEnds ? deadlineMs : windowEnds;
 }
 
@@ -99,8 +118,8 @@ export function landByV4(deadlineMs: bigint, entryMs: bigint): bigint {
 }
 
 /** Whether a lap whose road appeared at `lapStartMs` was sealed in time. Mirrors `lap_on_time`. */
-export function lapOnTime(lapStartMs: bigint, sealedMs: bigint): boolean {
-  return sealedMs <= lapStartMs + BigInt(LAP_WINDOW_MS);
+export function lapOnTime(lapStartMs: bigint, sealedMs: bigint, windowMs: number): boolean {
+  return sealedMs <= lapStartMs + BigInt(windowMs);
 }
 
 /** Leading zero bits of an entry's proof of work. Mirrors `pow_bits` in the scripts. */
@@ -205,6 +224,7 @@ export type MatchCell = {
   certifiedScore: bigint;
   /** Leading zero bits each entry's proof of work needs. Fixed when the crown opens. */
   powBits: number;
+  rules: GameRules;
 };
 
 const ZERO = new Uint8Array(32);
@@ -249,11 +269,15 @@ export function encodeMatchCell(cell: MatchCell): Uint8Array {
   data.set(cell.certified, 174);
   view.setBigUint64(206, cell.certifiedScore, true);
   data[214] = cell.powBits;
+  data[215] = cell.rules.laps;
+  view.setUint32(216, cell.rules.lapWindowMs, true);
+  view.setUint32(220, cell.rules.minLeftMs, true);
   return data;
 }
 
 export function decodeMatchCell(raw: Uint8Array): MatchCell {
-  const v4 = raw.length === MATCH_DATA_LEN && (raw[0] === 4 || raw[0] === MATCH_VERSION);
+  const current = raw.length === MATCH_DATA_LEN && raw[0] === MATCH_VERSION;
+  const v4 = current || (raw.length === V5_DATA_LEN && (raw[0] === 4 || raw[0] === 5));
   const v2 = raw.length === V2_DATA_LEN && raw[0] === 2;
   if (!v4 && !v2) {
     throw new Error('This is not a Crowns match cell.');
@@ -274,17 +298,20 @@ export function decodeMatchCell(raw: Uint8Array): MatchCell {
     certified: v4 ? read32(raw, 174) : ZERO.slice(),
     certifiedScore: v4 ? view.getBigUint64(206, true) : 0n,
     powBits: v4 ? raw[214]! : 0,
+    rules: current ? { laps: raw[215]!, lapWindowMs: view.getUint32(216, true), minLeftMs: view.getUint32(220, true) } : OLD_RULES,
   };
 }
 
 /** A new entry: no laps sealed yet, and the lock hash of the key cell that will seal them. */
-export function encodeBidData(owner: ccc.Script, refundAfterMs: bigint, nonce = 0n, key: Uint8Array = new Uint8Array(32)): Uint8Array {
+export function encodeBidData(owner: ccc.Script, refundAfterMs: bigint, nonce = 0n, key: Uint8Array = new Uint8Array(32), rules: GameRules = LANE_RULES): Uint8Array {
   const script = owner.toBytes();
   const data = new Uint8Array(BID_HEADER_LEN + script.length);
   data[0] = BID_VERSION;
   viewOf(data).setBigUint64(1, refundAfterMs, true);
   viewOf(data).setBigUint64(9, nonce, true);
   data.set(key, OFF_KEY);
+  data[90] = rules.laps;
+  viewOf(data).setUint32(91, rules.lapWindowMs, true);
   data.set(script, BID_HEADER_LEN);
   return data;
 }
@@ -299,16 +326,18 @@ export function sealedBidData(raw: Uint8Array, laps: number, lapStartMs: bigint,
 }
 
 /** An entry's run so far. */
-export type EntryRun = { version: number; laps: number; key: Uint8Array; lapStartMs: bigint; chain: Uint8Array };
+export type EntryRun = { version: number; laps: number; runLaps: number; lapWindowMs: number; key: Uint8Array; lapStartMs: bigint; chain: Uint8Array };
 
 export function decodeEntryRun(raw: Uint8Array): EntryRun {
   const version = raw[0] ?? 0;
-  if ((version !== BID_VERSION && version !== 4) || raw.length <= BID_HEADER_LEN) {
-    return { version, laps: 0, key: new Uint8Array(32), lapStartMs: 0n, chain: new Uint8Array(32) };
+  if ((version !== BID_VERSION && version !== 5 && version !== 4) || raw.length <= 90) {
+    return { version, laps: 0, runLaps: OLD_RULES.laps, lapWindowMs: OLD_RULES.lapWindowMs, key: new Uint8Array(32), lapStartMs: 0n, chain: new Uint8Array(32) };
   }
   return {
     version,
     laps: raw[OFF_LAPS]!,
+    runLaps: version === BID_VERSION ? raw[90]! : OLD_RULES.laps,
+    lapWindowMs: version === BID_VERSION ? viewOf(raw).getUint32(91, true) : OLD_RULES.lapWindowMs,
     key: raw.slice(OFF_KEY, OFF_KEY + 32),
     lapStartMs: viewOf(raw).getBigUint64(OFF_LAP_START, true),
     chain: raw.slice(OFF_CHAIN, OFF_CHAIN + 32),

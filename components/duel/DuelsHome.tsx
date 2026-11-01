@@ -37,17 +37,32 @@ export function DuelsHome() {
     let stop = false;
     void listFinishedDuels(getCkbClient())
       .catch(() => [] as FinishedDuel[])
-      .then(async (found) => {
-        if (stop) return;
-        setFinished(found);
-        const hashes = found.flatMap((f) => [bytesToHex(f.duel.challenger), bytesToHex(f.duel.opponent)]).filter((h) => h !== ZERO);
-        const named = await chainNames(getCkbClient(), [...new Set(hashes)]).catch(() => null);
-        if (!stop && named) setFinishedNames(named);
+      .then((found) => {
+        if (!stop) setFinished(found);
       });
     return () => {
       stop = true;
     };
   }, [live, finished]);
+
+  // The finished duels' names, in their own effect so that setting the list above can't cancel them; retried until the read works.
+  useEffect(() => {
+    if (!finished?.length) return;
+    let stop = false;
+    let retry: number | undefined;
+    const hashes = finished.flatMap((f) => [bytesToHex(f.duel.challenger), bytesToHex(f.duel.opponent)]).filter((h) => h !== ZERO);
+    const read = async () => {
+      const named = await chainNames(getCkbClient(), [...new Set(hashes)]).catch(() => null);
+      if (stop) return;
+      if (named) setFinishedNames(named);
+      else retry = window.setTimeout(() => void read(), 5_000);
+    };
+    void read();
+    return () => {
+      stop = true;
+      window.clearTimeout(retry);
+    };
+  }, [finished]);
 
   useEffect(() => {
     if (!live) return;

@@ -25,7 +25,7 @@ const DETAILS = [
   },
   {
     title: 'Your road',
-    body: 'A run is 5 laps of 24 seconds. Each lap’s road is made from the block where your last lap was sealed, so nobody, not even you, sees a lap before the one before it is locked in. Practise a lap as often as you like, then seal it: your browser signs, no wallet pops up. The road also reacts to your moves, and someone copying your moves would crash on their own road.',
+    body: 'A run is 5 laps of 30 seconds. Each lap’s road is made from the block where your last lap was sealed, so nobody, not even you, sees a lap before the one before it is locked in. You get two tries at each lap, then you seal your best within 2 minutes: your browser signs, no wallet pops up. The road also reacts to your moves, and someone copying your moves would crash on their own road.',
   },
   {
     title: 'Holding the crown',

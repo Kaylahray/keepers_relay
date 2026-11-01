@@ -4,13 +4,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Play, RotateCcw } from 'lucide-react';
 import { ChainLoader } from '@/components/arena/ChainLoader';
 import { Button } from '@/components/ui/Button';
-import { LANE, loadLaneRunner, type LaneRunner } from '@/lib/game/lane-runner';
+import { LANE, LEGACY_LANE, loadLaneRunner, loadLegacyLaneRunner, type LaneRunner } from '@/lib/game/lane-runner';
 import { createNightDrive, type NightDrive } from '@/lib/game/night-drive';
 
 const TICK_MS = 1000 / LANE.TICK_HZ;
 
 /** A recorded run: each lap's road seed and its lane changes (`tick u16 ‖ lane`), as the chain stores them. */
-export type RecordedRun = { laps: { seed: bigint; tape: Uint8Array }[]; /** One tape for the whole run (before laps existed). */ whole?: boolean };
+export type RecordedRun = { laps: { seed: bigint; tape: Uint8Array }[]; /** Played on the older build of the game, with its shorter laps. */ legacy?: boolean; /** One tape for the whole run (before laps existed). */ whole?: boolean };
 
 /** Plays a recorded run back on the real game, like a video: the same roads, the same lane changes at the same ticks, scored by the same rules the chain replayed. */
 export function RunPlayback({ run, title }: { run: RecordedRun; title?: string }) {
@@ -20,11 +20,14 @@ export function RunPlayback({ run, title }: { run: RecordedRun; title?: string }
   const frame = useRef(0);
   const [phase, setPhase] = useState<'loading' | 'ready' | 'playing' | 'done'>('loading');
   const [hud, setHud] = useState({ score: 0, lap: 1 });
-  const endTick = run.whole ? LANE.MAX_TICKS : run.laps.length * LANE.LAP_TICKS;
+  const legacy = Boolean(run.legacy);
+  const maxTicks = legacy ? LEGACY_LANE.maxTicks : LANE.MAX_TICKS;
+  const lapTicks = legacy ? LEGACY_LANE.lapTicks : LANE.LAP_TICKS;
+  const endTick = run.whole ? maxTicks : run.laps.length * lapTicks;
 
   useEffect(() => {
     let stop = false;
-    void loadLaneRunner().then((runner) => {
+    void (legacy ? loadLegacyLaneRunner() : loadLaneRunner()).then((runner) => {
       if (stop) return;
       runnerRef.current = runner;
       setPhase('ready');
@@ -35,7 +38,7 @@ export function RunPlayback({ run, title }: { run: RecordedRun; title?: string }
       driveRef.current?.dispose();
       driveRef.current = null;
     };
-  }, []);
+  }, [legacy]);
 
   const draw = useCallback(() => {
     const runner = runnerRef.current;
@@ -43,10 +46,10 @@ export function RunPlayback({ run, title }: { run: RecordedRun; title?: string }
     if (!runner || !canvas) return;
     if (!driveRef.current) driveRef.current = createNightDrive(canvas);
     driveRef.current?.render(
-      { x: runner.x(), rows: runner.rows(), tick: runner.tick(), crashed: runner.over() && runner.tick() < LANE.MAX_TICKS },
+      { x: runner.x(), rows: runner.rows(), tick: runner.tick(), crashed: runner.over() && runner.tick() < maxTicks },
       performance.now(),
     );
-  }, []);
+  }, [maxTicks]);
 
   const play = useCallback(() => {
     const runner = runnerRef.current;
@@ -65,7 +68,7 @@ export function RunPlayback({ run, title }: { run: RecordedRun; title?: string }
       while (carry >= TICK_MS && !runner.over() && runner.tick() < endTick) {
         carry -= TICK_MS;
         // Each lap drives its own road, exactly as the chain replayed it.
-        const index = run.whole ? 0 : Math.floor(runner.tick() / LANE.LAP_TICKS);
+        const index = run.whole ? 0 : Math.floor(runner.tick() / lapTicks);
         if (index !== lap) {
           lap = index;
           cursor = 0;
@@ -89,7 +92,7 @@ export function RunPlayback({ run, title }: { run: RecordedRun; title?: string }
       frame.current = requestAnimationFrame(loop);
     };
     frame.current = requestAnimationFrame(loop);
-  }, [run, endTick, draw]);
+  }, [run, endTick, lapTicks, draw]);
 
   return (
     <div className="relative overflow-hidden rounded-2xl bg-ink-2">

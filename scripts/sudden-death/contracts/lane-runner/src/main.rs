@@ -3,6 +3,7 @@
 //! Game ABI v2 (see `score_run` in sudden-death-common): one argument, the hex of
 //! `lap count u8` then per lap `seed u64 LE ‖ tape length u16 LE ‖ tape`, and one inherited fd.
 //! Writes the score as u64 LE to the fd and exits 0; exits non-zero for an illegal run.
+//! Spawned with an empty argument, it writes the game's rules to the fd instead.
 
 #![no_std]
 #![no_main]
@@ -28,17 +29,23 @@ fn program_entry() -> i8 {
     let Ok(raw) = decode_hex(&args[0]) else {
         return ERR_ARGS;
     };
-    let Ok(outcome) = crowns_game_core::replay_encoded(&raw) else {
-        return ERR_TAPE;
-    };
     let fds = inherited_fds();
     if fds.len() != 1 {
         return ERR_FD;
     }
-    let score = outcome.score.to_le_bytes();
+    if raw.is_empty() {
+        return send(fds[0], &crowns_game_core::rules());
+    }
+    let Ok(outcome) = crowns_game_core::replay_encoded(&raw) else {
+        return ERR_TAPE;
+    };
+    send(fds[0], &outcome.score.to_le_bytes())
+}
+
+fn send(fd: u64, bytes: &[u8]) -> i8 {
     let mut sent = 0;
-    while sent < score.len() {
-        match write(fds[0], &score[sent..]) {
+    while sent < bytes.len() {
+        match write(fd, &bytes[sent..]) {
             Ok(0) | Err(_) => return ERR_FD,
             Ok(n) => sent += n,
         }

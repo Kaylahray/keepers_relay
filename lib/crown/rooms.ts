@@ -1,4 +1,4 @@
-import { shrinkMs, shrunkDeadline } from '@/lib/sudden-death/codec';
+import { LANE_RULES, shrunkDeadline } from '@/lib/sudden-death/codec';
 
 const KEY = 'keepers-crowns';
 
@@ -11,7 +11,7 @@ export type GameId = 'lane-runner';
 export const GAMES: Record<GameId, { title: string; blurb: string }> = {
   'lane-runner': {
     title: 'Lane Runner',
-    blurb: 'Three lanes, rows of blocks, faster every few seconds. Survive and grab coins. Two minutes at most.',
+    blurb: 'Three lanes, rows of blocks, faster every few seconds. Survive and grab coins. Two and a half minutes at most.',
   },
 };
 
@@ -262,10 +262,11 @@ export function settleCrown(room: CrownRoom, reason: string): CrownRoom {
 
 /** A run took the crown. `king` is how the new holder is shown to everyone else. */
 export function applySteal(room: CrownRoom, score: number, king: string, note: string): CrownRoom {
-  const cut = shrinkMs(room.round);
   const fee = ckbWhole(room.feeShannons);
   const now = Date.now();
-  const deadlineAt = shrunkDeadline(room.deadlineAt ?? now, room.round);
+  const before = room.deadlineAt ?? now;
+  const deadlineAt = shrunkDeadline(before, room.round, now, LANE_RULES.minLeftMs);
+  const cut = before - deadlineAt;
   return {
     ...room,
     round: room.round + 1,
@@ -278,7 +279,7 @@ export function applySteal(room: CrownRoom, score: number, king: string, note: s
     feed: [
       {
         id: `${now}`,
-        text: `${king} took the crown with ${score} · +${fee} CKB · −${Math.round(cut / 6_000) / 10} min on the clock`,
+        text: `${king} took the crown with ${score} · +${fee} CKB ${cut > 0 ? ` · −${Math.round(cut / 6_000) / 10} min on the clock` : ''}`,
         good: true,
       },
       ...room.feed,

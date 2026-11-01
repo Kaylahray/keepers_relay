@@ -50,6 +50,8 @@
 //! 179 8   challenger's submitted score u64
 //! 187 8   opponent's submitted score u64
 //! 195 1   submitted: bit 0 the challenger, bit 1 the opponent
+//! 196 1   laps in a run, as the game script declares them
+//! 197 4   lap window ms u32, the same
 //! ```
 //!
 //! Racer cell data, version 1: `version ‖ laps u8 ‖ lap start ms u64 ‖ lap chain`, as in an entry.
@@ -109,7 +111,9 @@ const VERDICT_ON: u8 = 3;
 
 const OFF_SCORES: usize = 179;
 const OFF_SUBMITTED: usize = 195;
-const RACE_LEN: usize = 196;
+const RACE_LEN: usize = 201;
+const OFF_RACE_RULES: usize = 196;
+const RACE_RULES_LEN: usize = 5;
 
 const RACER_VERSION: u8 = 1;
 const RACER_LEN: usize = 42;
@@ -204,13 +208,26 @@ fn create() -> Result<(), i8> {
     if out.len() != start_len || out[OFF_STATUS] != STATUS_OPEN {
         return Err(ERR_DUEL);
     }
-    if out[DUEL_HEADER_LEN..].iter().any(|byte| *byte != 0) {
+    let tail_end = if kind == KIND_RACE { OFF_RACE_RULES } else { out.len() };
+    if out[DUEL_HEADER_LEN..tail_end].iter().any(|byte| *byte != 0) {
         return Err(ERR_DUEL);
     }
     let stake = read_u64(&out, OFF_STAKE)?;
     let timer = read_u64(&out, OFF_TIMER)?;
     let (first, shrink) = (timer & 0xffff_ffff, timer >> 32);
-    let min_timer = if kind == KIND_RACE { LAPS as u64 * LAP_WINDOW_MS } else { MIN_TIMER_MS };
+    let min_timer = if kind == KIND_RACE {
+        let game = bytes::<32>(&out, OFF_GAME)?;
+        if game == [0u8; 32] {
+            return Err(ERR_DUEL);
+        }
+        // The rules come from the game itself, and the race lasts at least every lap's window.
+        if out[OFF_RACE_RULES..] != game_rules(&game)?[..RACE_RULES_LEN] {
+            return Err(ERR_DUEL);
+        }
+        out[OFF_RACE_RULES] as u64 * read_u32(&out, OFF_RACE_RULES + 1)? as u64
+    } else {
+        MIN_TIMER_MS
+    };
     if stake == 0 || first < min_timer || first > MAX_TIMER_MS {
         return Err(ERR_DUEL);
     }
@@ -483,7 +500,7 @@ fn submit(duel_id: &[u8; 32], input: &[u8]) -> Result<(), i8> {
     }
     let run = &raw[1..];
     // No laps, or a last lap sealed late, scores 0: too late is too late.
-    let score = if laps == 0 || !lap_on_time(read_u64(&racer, OFF_RACER_LAP_START)?, postmark(index, Source::Input)?.1) {
+    let score = if laps == 0 || !lap_on_time(read_u64(&racer, OFF_RACER_LAP_START)?, postmark(index, Source::Input)?.1, read_u32(input, OFF_RACE_RULES + 1)? as u64) {
         if run != [0u8] {
             return Err(ERR_RUN);
         }
@@ -595,9 +612,6 @@ fn seal_lap(duel_id: &[u8; 32], side: usize) -> Result<(), i8> {
         return Err(ERR_LEN);
     }
     let laps = input[OFF_RACER_LAPS];
-    if laps >= LAPS || output[OFF_RACER_LAPS] != laps + 1 {
-        return Err(ERR_SEAL);
-    }
     let lock = load_cell_lock_hash(0, Source::GroupInput).map_err(|_| ERR_SEAL)?;
     if lock != load_cell_lock_hash(0, Source::GroupOutput).map_err(|_| ERR_SEAL)? {
         return Err(ERR_SEAL);
@@ -606,11 +620,14 @@ fn seal_lap(duel_id: &[u8; 32], side: usize) -> Result<(), i8> {
     if lock != key_of(&duel, side)? {
         return Err(ERR_AUTH);
     }
+    if laps >= duel[OFF_RACE_RULES] || output[OFF_RACER_LAPS] != laps + 1 {
+        return Err(ERR_SEAL);
+    }
     let (block, opened_ms) = if laps == 0 {
         postmark(duel_index, Source::CellDep)?
     } else {
         let (block, landed_ms) = postmark(0, Source::GroupInput)?;
-        if !lap_on_time(read_u64(&input, OFF_RACER_LAP_START)?, landed_ms) {
+        if !lap_on_time(read_u64(&input, OFF_RACER_LAP_START)?, landed_ms, read_u32(&duel, OFF_RACE_RULES + 1)? as u64) {
             return Err(ERR_CLOCK);
         }
         (block, landed_ms)

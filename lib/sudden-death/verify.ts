@@ -1,3 +1,4 @@
+import { LEGACY_LANE } from '@/lib/game/lane-runner';
 import { ccc } from '@ckb-ccc/core';
 import { suddenDeathGame, suddenDeathMatchType } from '@/lib/registry/config';
 import type { LaneRunner } from '@/lib/game/lane-runner';
@@ -10,7 +11,7 @@ import {
   landByV4,
   runSeed,
   runSeedV1,
-  shrinkMs,
+  shrunkDeadlineV5,
   shrunkDeadline,
   decodeEntryRun,
   lapsFromWitness,
@@ -43,7 +44,7 @@ export type StealCheck = {
   /** Lane changes in the run. */
   moves: number;
   /** The run as recorded: each lap's road seed and lane changes, to play it back. Null if unreadable. */
-  run: { laps: { seed: bigint; tape: Uint8Array }[]; whole?: boolean } | null;
+  run: { laps: { seed: bigint; tape: Uint8Array }[]; whole?: boolean; legacy?: boolean } | null;
   /** Replayed score equals the recorded one, beats the crown before it, and crowned someone new. */
   runOk: boolean;
   /** Round advanced by exactly one. */
@@ -152,7 +153,7 @@ async function entryRunOf(client: ccc.Client, tx: ccc.Transaction, bidCode: Uint
 }
 
 /** Walk a match back to the transaction that opened it. */
-export async function replayMatch(client: ccc.Client, startTxHash: string, game: LaneRunner): Promise<MatchReplay> {
+export async function replayMatch(client: ccc.Client, startTxHash: string, current: LaneRunner, older?: LaneRunner): Promise<MatchReplay> {
   if (suddenDeathMatchType.codeHash.length <= 2) {
     throw new VerifyError('This build has no Sudden Death match script configured.');
   }
@@ -238,7 +239,10 @@ export async function replayMatch(client: ccc.Client, startTxHash: string, game:
 
   const opened = decodeMatchCell(hexToBytes(open.tx.outputsData[open.index]!));
   const gameHex = bytesToHex(opened.game);
-  const gameKnown = gameHex.toLowerCase() === suddenDeathGame.codeHash.toLowerCase();
+  // Each game is replayed by the build it was played on.
+  const legacy = gameHex.toLowerCase() === LEGACY_LANE.gameHash;
+  const game = gameHex.toLowerCase() === suddenDeathGame.codeHash.toLowerCase() ? current : legacy ? older : undefined;
+  const gameKnown = game != null;
 
   const steals: StealCheck[] = [];
   let previousState: MatchCell = opened;
@@ -264,9 +268,9 @@ export async function replayMatch(client: ccc.Client, startTxHash: string, game:
         ? { laps: [{ seed: runSeedV1(matchId, state.king), tape }], whole: true }
         : null;
     let replayed: number | null = null;
-    if (gameKnown && laps && run) {
+    if (game && laps && run) {
       replayed = game.replayLaps(run.laps);
-    } else if (gameKnown && tape) {
+    } else if (game && tape) {
       replayed = game.replay(runSeedV1(matchId, state.king), tape);
     }
     // A crown played on an older build of the game cannot be replayed by this page's build.
@@ -275,7 +279,12 @@ export async function replayMatch(client: ccc.Client, startTxHash: string, game:
 
     const roundOk = state.round === before.round + 1;
     const potOk = state.pot === before.pot + before.fee;
-    const expectedDeadline = shrunkDeadline(Number(before.deadlineMs), before.round);
+    const expectedDeadline =
+      opened.version >= 6
+        ? entry?.landedMs != null
+          ? shrunkDeadline(Number(before.deadlineMs), before.round, Number(entry.landedMs), before.rules.minLeftMs)
+          : null
+        : shrunkDeadlineV5(Number(before.deadlineMs), before.round);
     const clockOk = Number(state.deadlineMs) === expectedDeadline;
     const immutableOk =
       sameBytes(state.game, before.game) &&
@@ -295,7 +304,7 @@ export async function replayMatch(client: ccc.Client, startTxHash: string, game:
         entry != null &&
         // v5 counts from the entry's last seal; v4 counted from the entry itself.
         (opened.version >= 5
-          ? entry.landedMs != null && state.landByMs === landBy(before.deadlineMs, entry.landedMs)
+          ? entry.landedMs != null && state.landByMs === landBy(before.deadlineMs, entry.landedMs, before.rules.lapWindowMs)
           : state.landByMs === landByV4(before.deadlineMs, entry.lapStartMs)) &&
         sameBytes(state.certified, expected.king) &&
         state.certifiedScore === expected.score;
@@ -307,12 +316,12 @@ export async function replayMatch(client: ccc.Client, startTxHash: string, game:
       potAfter: state.pot,
       deadlineBefore: Number(before.deadlineMs),
       deadlineAfter: Number(state.deadlineMs),
-      cutMs: shrinkMs(before.round),
+      cutMs: Number(before.deadlineMs) - Number(state.deadlineMs),
       kingAfter: bytesToHex(state.king),
       score,
       replayed,
       moves: laps ? laps.reduce((sum, lap) => sum + Math.floor(lap.tape.length / 3), 0) : tape ? Math.floor(tape.length / 3) : 0,
-      run: gameKnown ? run : null,
+      run: gameKnown && run ? { ...run, legacy } : null,
       runOk,
       roundOk,
       potOk,

@@ -2,7 +2,7 @@
 
 export const LANE = {
   TICK_HZ: 30,
-  MAX_TICKS: 30 * 120,
+  MAX_TICKS: 30 * 150,
   LANES: 3,
   LANE_W: 1000,
   VIEW_DEPTH: 6000,
@@ -10,7 +10,15 @@ export const LANE = {
   MAX_EVENTS: 4096,
   /** A run is played in laps; each lap after the first gets a fresh seed from the chain. */
   LAPS: 5,
-  LAP_TICKS: (30 * 120) / 5,
+  LAP_TICKS: (30 * 150) / 5,
+} as const;
+
+/** The build of the game played before laps went to 30 seconds, kept so those games still replay. */
+export const LEGACY_LANE = {
+  gameHash: '0xfb9dda098483d7d67fdbf4f26a8a65ca2e8d548a527b097c00f931a3f9040fb8',
+  wasmUrl: '/games/lane-runner-v5.wasm',
+  lapTicks: 720,
+  maxTicks: 3600,
 } as const;
 
 /** Served from `public/`. Rebuild with `cargo build --release --target wasm32-unknown-unknown` in game-wasm. */
@@ -69,6 +77,16 @@ function halves(seed: bigint): [number, number] {
 }
 
 let cached: Promise<LaneRunner> | null = null;
+
+let legacy: Promise<LaneRunner> | null = null;
+
+/** Loads the older build of the game, once per page. */
+export function loadLegacyLaneRunner(): Promise<LaneRunner> {
+  legacy ??= fetch(LEGACY_LANE.wasmUrl)
+    .then((response) => response.arrayBuffer())
+    .then((bytes) => loadLaneRunner(bytes));
+  return legacy;
+}
 
 /** Loads the wasm once per page. Pass bytes to load it outside a browser. */
 export function loadLaneRunner(bytes?: BufferSource): Promise<LaneRunner> {

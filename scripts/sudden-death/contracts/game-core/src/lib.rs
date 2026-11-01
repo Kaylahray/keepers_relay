@@ -22,7 +22,7 @@
 
 pub const TICK_HZ: u32 = 30;
 /// Two minutes. A run that survives this long ends; coins break ties at the cap.
-pub const MAX_TICKS: u32 = TICK_HZ * 120;
+pub const MAX_TICKS: u32 = TICK_HZ * 150;
 pub const LANES: u8 = 3;
 pub const LANE_W: i32 = 1_000;
 /// Rows spawn this far ahead, which is also how far ahead the browser draws.
@@ -33,6 +33,19 @@ pub const COIN_POINTS: u64 = 50;
 /// Laps in a full run, and the ticks in each (24 seconds).
 pub const LAPS: usize = 5;
 pub const LAP_TICKS: u32 = MAX_TICKS / LAPS as u32;
+/// How long a lap may take to seal, from the block its road came from.
+pub const LAP_WINDOW_MS: u32 = 2 * 60 * 1000;
+/// The least a steal can leave on the clock after its last seal: about a full run.
+pub const MIN_LEFT_MS: u32 = 5 * 60 * 1000;
+
+/// This game's rules for the money scripts: `laps u8 ‖ lap window ms u32 LE ‖ min left ms u32 LE`.
+pub fn rules() -> [u8; 9] {
+    let mut raw = [0u8; 9];
+    raw[0] = LAPS as u8;
+    raw[1..5].copy_from_slice(&LAP_WINDOW_MS.to_le_bytes());
+    raw[5..9].copy_from_slice(&MIN_LEFT_MS.to_le_bytes());
+    raw
+}
 
 const PLAYER_HALF: i32 = 280;
 const BLOCK_HALF: i32 = 440;

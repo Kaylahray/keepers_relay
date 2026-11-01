@@ -1,3 +1,37 @@
+# Upgrade to the 30-second lap rules and per-game settings
+
+Laps go to 30 seconds, the seal window to 2 minutes and the refund wait to 30 minutes. A grab can no longer cut the clock below 5 minutes after its run's last seal. Each game script now declares its own lap count, seal window and clock floor, and the chain checks them when a crown or race opens. New crowns, entries and races are longer cells, so this is only safe while no crown or race is in play, which step 1 checks. Match, bid, treasury and duel are upgraded in place with the same type ids, and the new lane runner is added as a new cell. Cost: about 40,000 CKB. The deploy account had 237,887 CKB free on 2026-11-01.
+
+## 1. Check
+
+Make sure no crown or race is in play. On 2026-11-01 there were none, only the two old artillery duels `0xef40…` and `0x6163…`, which this upgrade does not change.
+
+## 2. Upgrade (WSL, this folder)
+
+```bash
+cd /mnt/c/Users/chiom/Desktop/spore/keepers_relay/keepers_relay/scripts/sudden-death/deployment/testnet-v5/crowns
+export CKB_CLI_HOME=/mnt/c/Users/chiom/.ckb-cli
+cli="$HOME/ckb-cli/target/release/ckb-cli --url https://testnet.ckb.dev"
+from=ckt1qzda0cr08m85hc8jlnfp3zer7xulejywt49kt2rr0vthywaa50xwsqvu2rela8ce3j70u76uq3js967a3n07wlgf65e4e
+
+$cli deploy gen-txs --from-address $from --fee-rate 2000 \
+  --deployment-config deployment.toml --migration-dir migrations --info-file info.lap-rules.json
+$cli deploy sign-txs --from-account $from --info-file info.lap-rules.json --add-signatures
+$cli deploy apply-txs --migration-dir migrations --info-file info.lap-rules.json
+```
+
+## 3. Point the app at it
+
+```bash
+pnpm exec tsx scripts/crowns-testnet/env-from-migration.ts
+```
+
+Put the printed block in `.env.local` and in Vercel, then push the app. The type ids stay the same; the transaction hashes and `NEXT_PUBLIC_SD_GAME_*` change.
+
+## 4. Check it live
+
+Play a crown and a lane race on two phones, then open an old race and a new race on `/verify`. Both should say everything checks out.
+
 # Crowns v5 + Duels on Pudge: deploy runbook
 
 v5 does two jobs.

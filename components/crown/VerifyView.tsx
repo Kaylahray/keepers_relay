@@ -11,7 +11,7 @@ import { RunPlayback } from '@/components/game/RunPlayback';
 import { duelIdOf, replayDuel, type DuelReplay } from '@/lib/duel/verify';
 import { getCkbClient } from '@/lib/ckb/client';
 import { ckbWhole } from '@/lib/crown/rooms';
-import { loadLaneRunner } from '@/lib/game/lane-runner';
+import { loadLaneRunner, loadLegacyLaneRunner } from '@/lib/game/lane-runner';
 import { chainNames } from '@/lib/registry/chain-names';
 import { replayMatch, VerifyError, type MatchReplay, type StealCheck } from '@/lib/sudden-death/verify';
 
@@ -131,12 +131,13 @@ export function VerifyView({ initialTx }: { initialTx?: string }) {
     setReplay(null);
     setDuel(null);
     try {
+      const [game, older] = await Promise.all([loadLaneRunner(), loadLegacyLaneRunner()]);
       // A duel or a crown: whichever this transaction belongs to.
       if (await duelIdOf(getCkbClient(), target)) {
-        setDuel(await replayDuel(getCkbClient(), target, await loadLaneRunner()));
+        setDuel(await replayDuel(getCkbClient(), target, game, older));
         return;
       }
-      const result = await replayMatch(getCkbClient(), target, await loadLaneRunner());
+      const result = await replayMatch(getCkbClient(), target, game, older);
       setReplay(result);
       const kings = [...result.steals.map((steal) => steal.kingAfter), ...(result.winner ? [result.winner] : [])];
       void chainNames(getCkbClient(), kings)

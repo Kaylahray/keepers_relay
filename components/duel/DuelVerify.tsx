@@ -75,7 +75,11 @@ export function DuelVerify({ replay }: { replay: DuelReplay }) {
               <p className="mb-2 font-poster text-base font-bold uppercase">
                 {players[run.side]} · {String(run.score)} points
               </p>
-              <RunPlayback run={{ laps: run.laps }} title={`${players[run.side]}'s five laps`} />
+              {run.laps.length > 0 ? (
+                <RunPlayback run={{ laps: run.laps, legacy: run.legacy }} title={`${players[run.side]}'s five laps`} />
+              ) : (
+                <p className="text-sm text-mute">No laps were handed in, so there is nothing to watch.</p>
+              )}
             </div>
           ))}
         </div>

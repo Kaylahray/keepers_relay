@@ -1,3 +1,4 @@
+import { LANE_RULES, V5_LAP_WINDOW_MS } from '@/lib/sudden-death/codec';
 import { ccc } from '@ckb-ccc/core';
 import { MAX_WIND, type ShotRecord } from '@/lib/duel/artillery';
 
@@ -26,10 +27,13 @@ const OFF_SUBMITTED = 195;
 export const ARTILLERY_START_LEN = OFF_SHOTS;
 export const MAX_SHOTS = 30;
 export const ARTILLERY_MAX_LEN = OFF_SHOTS + MAX_SHOTS * 3;
-export const RACE_LEN = 196;
+export const RACE_LEN = 201;
+const OLD_RACE_LEN = 196;
+const OFF_RACE_LAPS = 196;
+const OFF_RACE_WINDOW = 197;
 export const RACER_LEN = 42;
 /** The race lasts at least five lap windows. */
-export const MIN_RACE_MS = 5 * 3 * 60 * 1000;
+export const MIN_RACE_MS = LANE_RULES.laps * LANE_RULES.lapWindowMs;
 /** A Pressure turn never gets shorter than this: a shot still needs a block to land in. */
 export const PRESSURE_FLOOR_MS = 30_000;
 
@@ -71,6 +75,9 @@ export type DuelCell = {
   /** Race: each side's submitted score, and who has submitted (bit 0 challenger, bit 1 opponent). */
   scores: [bigint, bigint];
   submitted: number;
+  /** Race: the game's laps and lap window, as its script declares them. */
+  runLaps: number;
+  lapWindowMs: number;
 };
 
 function hash(parts: Uint8Array[]): Uint8Array {
@@ -111,6 +118,8 @@ export function encodeDuel(cell: DuelCell): Uint8Array {
     dv.setBigUint64(OFF_SCORES, cell.scores[0], true);
     dv.setBigUint64(OFF_SCORES + 8, cell.scores[1], true);
     data[OFF_SUBMITTED] = cell.submitted;
+    data[OFF_RACE_LAPS] = cell.runLaps;
+    dv.setUint32(OFF_RACE_WINDOW, cell.lapWindowMs, true);
   } else {
     data.set(cell.seedBlock, OFF_SEED_BLOCK);
     data[OFF_SHOT_COUNT] = cell.shots.length;
@@ -149,6 +158,9 @@ export function decodeDuel(raw: Uint8Array): DuelCell {
     shots,
     scores: kind === KIND_RACE ? [dv.getBigUint64(OFF_SCORES, true), dv.getBigUint64(OFF_SCORES + 8, true)] : [0n, 0n],
     submitted: kind === KIND_RACE ? raw[OFF_SUBMITTED]! : 0,
+    // A race from before per-game rules ran on the old lap window.
+    runLaps: kind === KIND_RACE && raw.length > OLD_RACE_LEN ? raw[OFF_RACE_LAPS]! : LANE_RULES.laps,
+    lapWindowMs: kind === KIND_RACE ? (raw.length > OLD_RACE_LEN ? dv.getUint32(OFF_RACE_WINDOW, true) : V5_LAP_WINDOW_MS) : LANE_RULES.lapWindowMs,
   };
 }
 
@@ -176,6 +188,8 @@ export function newDuel(input: {
     shots: [],
     scores: [0n, 0n],
     submitted: 0,
+    runLaps: LANE_RULES.laps,
+    lapWindowMs: LANE_RULES.lapWindowMs,
   };
 }
 

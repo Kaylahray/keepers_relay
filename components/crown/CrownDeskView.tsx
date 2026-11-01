@@ -15,6 +15,7 @@ import { useMyLockHash } from '@/hooks/useMyLockHash';
 import { useAuth } from '@/context/auth-provider';
 import { closeCrown } from '@/lib/crown/chain';
 import { getCkbClient } from '@/lib/ckb/client';
+import { plainChainError } from '@/lib/ckb/errors';
 import { suddenDeathConfigured } from '@/lib/registry/config';
 import { isHostWallet } from '@/lib/crown/standing';
 import { deleteCrownRemote } from '@/lib/crown/remote';
@@ -40,7 +41,7 @@ export function CrownDeskView({ id }: { id: string }) {
       forgetCrown(id);
       router.push('/play');
     } catch (error) {
-      setChainError(error instanceof Error ? error.message : 'The game could not be deleted.');
+      setChainError(plainChainError(error, 'The game could not be deleted.'));
       setBusy(null);
     }
   }
@@ -54,7 +55,7 @@ export function CrownDeskView({ id }: { id: string }) {
       const result = await closeCrown(getCkbClient(), current, myLockHash);
       saveCrown(result.room);
     } catch (error) {
-      setChainError(error instanceof Error ? error.message : 'Cleanup was rejected.');
+      setChainError(plainChainError(error, 'Cleanup was rejected.'));
     } finally {
       setBusy(null);
     }

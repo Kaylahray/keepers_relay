@@ -27,7 +27,7 @@ const STAKE: u64 = 10 * CKB;
 const MAX_TX_FEE: u64 = 10_000_000;
 const TURN_MS: u64 = 60_000;
 const RACE_MS: u64 = 20 * 60 * 1000;
-const LAP_WINDOW_MS: u64 = 3 * 60 * 1000;
+const LAP_WINDOW_MS: u64 = 2 * 60 * 1000;
 const LAPS: usize = 5;
 /// The duel cell's capacity: room for its largest data and scripts, plus the challenger's stake.
 const DUEL_CAP: u64 = 600 * CKB;
@@ -192,6 +192,10 @@ impl Arena {
         raw.extend_from_slice(&key1.map(hash_of).unwrap_or([0u8; 32]));
         raw.extend_from_slice(if kind == KIND_RACE { &self.lane } else { &self.artillery });
         raw.extend(std::iter::repeat(0u8).take(if kind == KIND_RACE { 17 } else { 33 }));
+        if kind == KIND_RACE {
+            raw.push(LAPS as u8);
+            raw.extend_from_slice(&(LAP_WINDOW_MS as u32).to_le_bytes());
+        }
         raw
     }
 
@@ -1111,4 +1115,23 @@ fn a_winning_opponent_cannot_take_the_challengers_deposit() {
     // The opponent won the race, but this finish hands them the challenger's storage deposit too.
     let tx = race_finish_tx(&mut context, &arena, [900, 1200], 0b11, 0, &[(arena.opponent.clone(), DUEL_CAP + STAKE - MAX_TX_FEE)]);
     rejects_with(&context, &tx, -3);
+}
+
+#[test]
+fn a_race_on_the_rules_its_game_declares_opens() {
+    let mut context = Context::default();
+    let arena = Arena::new(&mut context);
+    let race = arena.data(KIND_RACE, OPEN, Some(&arena.opponent.clone()), None);
+    let tx = open_tx(&mut context, &arena, DUEL_CAP, |data| *data = race.clone());
+    verify_and_dump_failed_tx(&context, &tx, MAX_CYCLES).expect("open race");
+}
+
+#[test]
+fn a_race_with_rules_its_game_did_not_declare_is_rejected() {
+    let mut context = Context::default();
+    let arena = Arena::new(&mut context);
+    let mut race = arena.data(KIND_RACE, OPEN, Some(&arena.opponent.clone()), None);
+    race[197..201].copy_from_slice(&(60u32 * 60 * 1000).to_le_bytes());
+    let tx = open_tx(&mut context, &arena, DUEL_CAP, |data| *data = race.clone());
+    rejects_with(&context, &tx, -17);
 }

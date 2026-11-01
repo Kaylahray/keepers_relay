@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/Button';
+import { SEAL_WARNING_MS, TRY_NEEDS_MS } from '@/lib/game/lap-tries';
 import { LANE, loadLaneRunner, TapeRecorder, type LaneRow, type LaneRunner } from '@/lib/game/lane-runner';
 import { createNightDrive, type NightDrive } from '@/lib/game/night-drive';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
@@ -23,8 +24,12 @@ type Props = {
   startLabel?: string;
   /** Plays only the next lap of a run, starting where its sealed laps left off. */
   lap?: LapPlan;
-  /** Time left to seal this lap on chain (its 3-minute window), or null when there is none. Retries use it up. */
+  /** Time left to seal this lap on chain (its 2-minute window), or null when there is none. Retries use it up. */
   sealLeftMs?: number | null;
+  /** Tries left at this lap. */
+  triesLeft?: number;
+  /** The tries that can be sealed right now, each sealed by its one click. */
+  sealOptions?: { label: string; danger?: boolean; onClick: () => void }[];
   /** The mode's colour: lime for a crown, pink for a duel. */
   tone?: 'lime' | 'pink';
   /** Shown beside the road on wide screens. */
@@ -62,7 +67,8 @@ function prepare(runner: LaneRunner, seed: bigint, lap?: LapPlan) {
 
 const TICK_MS = 1000 / LANE.TICK_HZ;
 /** Plays the lane runner on the same wasm rules the chain replays. */
-export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run', lap, tone = 'lime', title = 'Lane runner', sealLeftMs = null }: Props) {
+export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run', lap, tone = 'lime', title = 'Lane runner', sealLeftMs = null, triesLeft = 1, sealOptions }: Props) {
+  const canTry = !lap || (triesLeft > 0 && (sealLeftMs == null || sealLeftMs > TRY_NEEDS_MS));
   // A lap plays to the end of its own ticks; a whole run to the end of the run.
   const endTick = lap ? (lap.sealed.length + 1) * LANE.LAP_TICKS : LANE.MAX_TICKS;
   const canvasRef = useRef<HTMLDivElement | null>(null);
@@ -206,7 +212,7 @@ export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run', lap
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (phase !== 'playing') {
-        if ((event.key === ' ' || event.key === 'Enter') && phase !== 'loading' && document.activeElement === canvasRef.current) {
+        if ((event.key === ' ' || event.key === 'Enter') && phase !== 'loading' && canTry && document.activeElement === canvasRef.current) {
           event.preventDefault();
           start();
         }
@@ -228,7 +234,7 @@ export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run', lap
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [phase, start, steer]);
+  }, [phase, start, steer, canTry]);
 
   useEffect(
     () => () => {
@@ -262,6 +268,16 @@ export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run', lap
     if (phase !== 'playing') requestAnimationFrame(() => draw());
   }, [immersive, phase, draw]);
 
+  // A newly sealed lap starts from its own start screen, not the last lap's result.
+  const [shownLap, setShownLap] = useState(lap?.sealed.length ?? null);
+  if (lap && lap.sealed.length !== shownLap) {
+    setShownLap(lap.sealed.length);
+    if (phase === 'over') {
+      setPhase('ready');
+      setLast(null);
+    }
+  }
+
   const beats = last != null && last > toBeat;
   const sealed = lap?.sealed.length ?? 0;
   const lapNo = lap ? sealed + 1 : null;
@@ -271,22 +287,41 @@ export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run', lap
   const shown = phase === 'playing' || phase === 'over' ? hud.score : 0;
   const carLeft = (frame.x / LANE.LANE_W) * 33.333 + 16.666;
   const accent = tone === 'lime' ? 'text-lime' : 'text-pink';
-  // The lap's real deadline: its 3-minute window on chain, not the 24 seconds of driving. Every retry spends it.
+  // The lap's real deadline: its 2-minute window on chain, not the 30 seconds of driving. Every retry spends it.
   const sealFace =
     sealLeftMs == null
       ? null
       : sealLeftMs <= 0
         ? 'closed'
         : `${Math.floor(sealLeftMs / 60_000)}:${String(Math.floor((sealLeftMs % 60_000) / 1000)).padStart(2, '0')}`;
-  const sealUrgent = sealLeftMs != null && sealLeftMs < 45_000;
+  const sealUrgent = sealLeftMs != null && sealLeftMs <= SEAL_WARNING_MS;
   const sealNote =
     sealFace == null ? null : sealFace === 'closed' ? (
-      <p className="mt-3 rounded-lg bg-danger/15 px-3 py-2 text-xs font-semibold text-danger">This lap&apos;s seal window has closed.</p>
+      <p className="mt-3 rounded-lg bg-danger/15 px-3 py-2 text-xs font-semibold text-danger">You missed the seal, so this run stops here.</p>
     ) : (
       <p className={`mt-3 rounded-lg px-3 py-2 text-xs font-semibold ${sealUrgent ? 'bg-danger/15 text-danger' : 'bg-gold/10 text-gold'}`}>
-        {sealFace} left to seal this lap. Every try uses that time.
+        {sealUrgent ? `Seal now or you’re out: ${sealFace} left.` : `${sealFace} left to seal this lap. Every try uses that time.`}
       </p>
     );
+
+  const sealButtons = (
+    <div className="mt-6 space-y-2">
+      {sealOptions?.map((option) => (
+        <Button
+          key={option.label}
+          variant={option.danger ? 'danger' : tone}
+          size="lg"
+          block
+          onClick={() => {
+            leave();
+            option.onClick();
+          }}
+        >
+          {option.label}
+        </Button>
+      ))}
+    </div>
+  );
 
   const road = (
     <div
@@ -358,14 +393,17 @@ export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run', lap
                 </p>
                 <p className={`mt-2 font-poster text-4xl font-black tabular-nums ${beats ? 'text-lime' : 'text-white'}`}>{last}</p>
                 <p className="mt-2 text-sm text-mute">
-                  {lap ? 'Seal it, or try this lap again.' : beats ? `That beats ${toBeat}.` : `${toBeat} still stands. Same course, run it again.`}
+                  {lap ? (canTry ? 'Seal your best try, or use your retry.' : 'Seal your best try.') : beats ? `That beats ${toBeat}.` : `${toBeat} still stands. Same course, run it again.`}
                 </p>
                 {lap ? sealNote : null}
-                {immersive ? (
+                {lap && sealOptions?.length ? (
+                  sealButtons
+                ) : immersive ? (
                   <Button variant={beats || lap ? tone : 'ghost'} size="lg" block className="mt-6" onClick={leave}>
-                    {lap ? 'Back to seal' : beats ? 'Take the crown with this run' : 'Exit'}
+                    {lap ? 'Back' : beats ? 'Take the crown with this run' : 'Exit'}
                   </Button>
                 ) : null}
+                {canTry ? (
                 <button
                   type="button"
                   onClick={() => {
@@ -374,8 +412,9 @@ export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run', lap
                   }}
                   className="mt-3 h-10 text-sm font-semibold text-mute hover:text-white"
                 >
-                  {lap ? 'Try the lap again' : 'Run again'}
+                  {lap ? `Try again · ${triesLeft} left` : 'Run again'}
                 </button>
+                ) : null}
               </>
             ) : (
               <>
@@ -385,18 +424,26 @@ export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run', lap
                   {sealed === 0 ? 'Swipe or tap left and right to switch lanes. Grab the coins.' : 'Same road rules, a little faster.'}
                 </p>
                 {lap ? sealNote : null}
-                <Button
-                  variant={tone}
-                  size="lg"
-                  block
-                  className="mt-6"
-                  onClick={() => {
-                    canvasRef.current?.focus();
-                    start();
-                  }}
-                >
-                  {startLabel}
-                </Button>
+                {canTry ? (
+                  <Button
+                    variant={tone}
+                    size="lg"
+                    block
+                    className="mt-6"
+                    onClick={() => {
+                      canvasRef.current?.focus();
+                      start();
+                    }}
+                  >
+                    {startLabel}
+                  </Button>
+                ) : sealOptions?.length ? (
+                  sealButtons
+                ) : immersive ? (
+                  <Button variant="ghost" size="lg" block className="mt-6" onClick={leave}>
+                    Back
+                  </Button>
+                ) : null}
               </>
             )}
           </div>

@@ -57,13 +57,15 @@ pub const STATUS_DEAD: u8 = 1;
 ///         deadline running when it was sent and the end of the king's last lap window
 /// 174 32  certified king lock hash: the last king whose steal is proven to have landed in time
 /// 206 8   certified king score u64
+/// 215 9   the game's rules, as its script declares them: see `GameRules`
 /// 214 1   pow_bits u8: leading zero bits an entry's proof of work needs, fixed at the open
 /// ```
 ///
 /// Every v2 field keeps its offset; v4 added the last four. v5 keeps v4's layout and changes only
 /// how land_by is reckoned: from the entry's last lap, not from the entry itself.
-pub const MATCH_DATA_LEN: usize = 215;
-pub const MATCH_VERSION: u8 = 5;
+pub const MATCH_DATA_LEN: usize = 224;
+pub const OFF_GAME_RULES: usize = 215;
+pub const MATCH_VERSION: u8 = 6;
 pub const OFF_VERSION: usize = 0;
 pub const OFF_STATUS: usize = 1;
 pub const OFF_ROUND: usize = 2;
@@ -84,11 +86,37 @@ pub const MAX_POW_BITS: u8 = 32;
 /// A run is played in laps, and each lap has its own window: from the block its road came from to
 /// the block its seal lands in. So time spent waiting for one lap's road never counts against it,
 /// and a slow block costs a player only the wait for their own seal. A steal counts only if it
-/// lands within one window of the entry's last seal.
-pub const LAP_WINDOW_MS: u64 = 3 * 60 * 1000;
-/// Laps in a full run. Lap 1 is seeded by the entry's block, each later lap by the block where the
-/// lap before it was sealed.
-pub const LAPS: u8 = 5;
+/// lands within one window of the entry's last seal. Lap 1 is seeded by the entry's block, each
+/// later lap by the block where the lap before it was sealed.
+///
+/// Each game declares its own numbers, so a host can't choose easier ones:
+/// `laps u8 ‖ lap window ms u32 LE ‖ least left on the clock after a steal, ms u32 LE`.
+#[derive(Clone, Copy)]
+pub struct GameRules {
+    pub laps: u8,
+    pub lap_window_ms: u64,
+    pub min_left_ms: u64,
+}
+pub const GAME_RULES_LEN: usize = 9;
+
+impl GameRules {
+    pub fn parse(raw: &[u8]) -> Result<Self, i8> {
+        let rules = GameRules {
+            laps: *raw.first().ok_or(ERR_LEN)?,
+            lap_window_ms: read_u32(raw, 1)? as u64,
+            min_left_ms: read_u32(raw, 5)? as u64,
+        };
+        if rules.laps == 0 || rules.lap_window_ms == 0 {
+            return Err(ERR_GAME);
+        }
+        Ok(rules)
+    }
+
+    /// The rules a match cell carries.
+    pub fn of_match(data: &[u8]) -> Result<Self, i8> {
+        Self::parse(data.get(OFF_GAME_RULES..OFF_GAME_RULES + GAME_RULES_LEN).ok_or(ERR_LEN)?)
+    }
+}
 
 /// Bid cell data, version 5. The entry also carries the player's run, one sealed lap at a time.
 ///
@@ -96,19 +124,23 @@ pub const LAPS: u8 = 5;
 /// 0   1   version = 4
 /// 1   8   refund_after_ms u64
 /// 9   8   pow nonce u64
-/// 17  1   laps sealed (0 to LAPS)
+/// 17  1   laps sealed (0 to the run's laps)
 /// 18  32  key lock hash: the lock of the player's key cell, which seals laps without the wallet
 /// 50  8   lap start ms u64: when the latest sealed lap's road appeared, that is when the cell its
 ///         seal spent landed. The next spend checks that the lap was sealed within its window.
 /// 58  32  lap chain: every sealed lap's block hash and moves hash, folded in order
-/// 90  ..  owner lock script (molecule)
+/// 90  1   laps in the run, copied from the match when the entry is made
+/// 91  4   lap window ms u32, copied the same way: a seal has no match cell to read it from
+/// 95  ..  owner lock script (molecule)
 /// ```
 ///
 /// The key cell is a small cell the player's browser holds, locked by CKB's built-in secp256k1 lock
 /// under a throwaway session key. A seal spends it, so CKB's own lock checks the session key's
 /// signature over the whole transaction; this script only checks that the key cell is there.
-pub const BID_VERSION: u8 = 5;
-pub const BID_HEADER_LEN: usize = 90;
+pub const BID_VERSION: u8 = 6;
+pub const BID_HEADER_LEN: usize = 95;
+pub const OFF_BID_RUN_LAPS: usize = 90;
+pub const OFF_BID_LAP_WINDOW: usize = 91;
 pub const OFF_BID_NONCE: usize = 9;
 pub const OFF_BID_LAPS: usize = 17;
 pub const OFF_BID_KEY: usize = 18;
@@ -120,7 +152,7 @@ pub const SEAL_VERSION: u8 = 1;
 pub const SEAL_WITNESS_LEN: usize = 1 + 32;
 /// A bid nobody used can be refunded this long after the match's deadline at the time it was
 /// locked. Deadlines only ever shrink, so the match is over by then.
-pub const REFUND_GRACE_MS: u64 = 60 * 60 * 1000;
+pub const REFUND_GRACE_MS: u64 = 30 * 60 * 1000;
 /// 0.1 CKB. A steal or refund may spend up to this much of the bid on the miner fee.
 pub const MAX_TX_FEE: u64 = 10_000_000;
 /// 1 CKB. What a close may pay whoever sends it, on top of the fee.
@@ -165,10 +197,12 @@ pub fn shrink_ms(round: u32) -> u64 {
     if cut < 72_000 { 72_000 } else { cut }
 }
 
-/// Deadline after a steal. Never zero, so a close still has a timestamp to reach.
-pub fn shrunk_deadline(current_ms: u64, round: u32) -> u64 {
-    let cut = shrink_ms(round);
-    if current_ms <= cut { 1_000 } else { current_ms - cut }
+/// Deadline after a steal, its run's last seal having landed at `sealed_ms`. It leaves at least
+/// `min_left_ms` after that seal, so players mid-run can still finish; it never moves later, and is
+/// never zero, so a close still has a timestamp to reach.
+pub fn shrunk_deadline(current_ms: u64, round: u32, sealed_ms: u64, min_left_ms: u64) -> u64 {
+    let floor = sealed_ms.saturating_add(min_left_ms).min(current_ms);
+    current_ms.saturating_sub(shrink_ms(round)).max(floor).max(1_000)
 }
 
 pub fn script_args() -> Result<Vec<u8>, i8> {
@@ -269,14 +303,14 @@ pub fn postmark(index: usize, source: Source) -> Result<([u8; 32], u64), i8> {
 
 /// When a steal must land to count, if the entry it spends had its last lap sealed at `sealed_ms`:
 /// one lap window later, or the match deadline running now if that comes first.
-pub fn land_by(deadline_ms: u64, sealed_ms: u64) -> u64 {
-    deadline_ms.min(sealed_ms.saturating_add(LAP_WINDOW_MS))
+pub fn land_by(deadline_ms: u64, sealed_ms: u64, lap_window_ms: u64) -> u64 {
+    deadline_ms.min(sealed_ms.saturating_add(lap_window_ms))
 }
 
 /// Whether a lap whose road appeared at `lap_start_ms` was sealed in time, its seal having landed
 /// at `sealed_ms`. A late lap leaves the entry stuck: no more laps, no steal, a refund at the close.
-pub fn lap_on_time(lap_start_ms: u64, sealed_ms: u64) -> bool {
-    sealed_ms <= lap_start_ms.saturating_add(LAP_WINDOW_MS)
+pub fn lap_on_time(lap_start_ms: u64, sealed_ms: u64, lap_window_ms: u64) -> bool {
+    sealed_ms <= lap_start_ms.saturating_add(lap_window_ms)
 }
 
 /// Leading zero bits of an entry's proof of work. The work is bound to the match, the owner and
@@ -362,7 +396,7 @@ pub fn load_run_witness() -> Result<Vec<u8>, i8> {
 /// was sealed against. A lap that wasn't sealed exactly so, in exactly this order, fails.
 pub fn sealed_run(run: &[u8], laps: u8, chain: &[u8; 32], match_id: &[u8; 32], owner: &[u8; 32]) -> Result<Vec<u8>, i8> {
     let count = *run.first().ok_or(ERR_RUN)?;
-    if count == 0 || count != laps || count > LAPS {
+    if count == 0 || count != laps {
         return Err(ERR_RUN);
     }
     let mut game = Vec::with_capacity(run.len());
@@ -393,6 +427,14 @@ pub fn score_run(game: &[u8; 32], arg: &[u8]) -> Result<u64, i8> {
     let mut score = [0u8; 8];
     spawn_game(game, arg, &mut score)?;
     Ok(u64::from_le_bytes(score))
+}
+
+/// Asks a game script for its rules: spawned with an empty argument, it writes `GAME_RULES_LEN` bytes.
+pub fn game_rules(game: &[u8; 32]) -> Result<[u8; GAME_RULES_LEN], i8> {
+    let mut raw = [0u8; GAME_RULES_LEN];
+    spawn_game(game, &[], &mut raw)?;
+    GameRules::parse(&raw)?;
+    Ok(raw)
 }
 
 /// Spawns a game script found by its data hash with one hex argument and one inherited fd, and

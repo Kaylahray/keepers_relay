@@ -95,6 +95,11 @@ fn create(match_type_hash: &[u8; 32], owner: &[u8; 32]) -> Result<(), i8> {
 
     let mut buf = [0u8; MATCH_DATA_LEN];
     let (_, match_data) = find_match(match_type_hash, Source::CellDep, &mut buf)?.ok_or(ERR_BID)?;
+    // The run's laps and window come from the match, which had them from the game.
+    let rules = GameRules::of_match(match_data)?;
+    if out[OFF_BID_RUN_LAPS] != rules.laps || read_u32(&out, OFF_BID_LAP_WINDOW)? as u64 != rules.lap_window_ms {
+        return Err(ERR_SEAL);
+    }
     let deadline = read_u64(match_data, OFF_DEADLINE)?;
     if refund_after != deadline.checked_add(REFUND_GRACE_MS).ok_or(ERR_CLOCK)? {
         return Err(ERR_CLOCK);
@@ -131,18 +136,19 @@ fn seal(owner: &[u8; 32]) -> Result<(), i8> {
     // Everything but the lap count, lap start and chain stays as it was.
     if input[..OFF_BID_LAPS] != output[..OFF_BID_LAPS]
         || input[OFF_BID_KEY..OFF_BID_LAP_START] != output[OFF_BID_KEY..OFF_BID_LAP_START]
+        || input[OFF_BID_RUN_LAPS..BID_HEADER_LEN] != output[OFF_BID_RUN_LAPS..BID_HEADER_LEN]
         || input[BID_HEADER_LEN..] != output[BID_HEADER_LEN..]
     {
         return Err(ERR_SEAL);
     }
     let laps = input[OFF_BID_LAPS];
-    if laps >= LAPS || output[OFF_BID_LAPS] != laps + 1 {
+    if laps >= input[OFF_BID_RUN_LAPS] || output[OFF_BID_LAPS] != laps + 1 {
         return Err(ERR_SEAL);
     }
     // The entry being spent landed when the last lap was sealed (or, before lap 1, when the entry
     // itself was locked). That block seeds this lap's road, and it closes the last lap's window.
     let (block, landed_ms) = postmark(0, Source::GroupInput)?;
-    if laps > 0 && !lap_on_time(read_u64(&input, OFF_BID_LAP_START)?, landed_ms) {
+    if laps > 0 && !lap_on_time(read_u64(&input, OFF_BID_LAP_START)?, landed_ms, read_u32(&input, OFF_BID_LAP_WINDOW)? as u64) {
         return Err(ERR_CLOCK);
     }
     if read_u64(&output, OFF_BID_LAP_START)? != landed_ms {

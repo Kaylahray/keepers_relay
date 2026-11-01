@@ -22,6 +22,7 @@ import { getCkbClient } from '@/lib/ckb/client';
 import { newSessionKey, returnKeyCell } from '@/lib/crown/chain';
 import { fire, replay, type ArtilleryState, type ShotRecord } from '@/lib/duel/artillery';
 import { acceptDuel, cancelDuel, finishDuel, fireShot, hasSessionCell, restoreSessionCell, skipTurns } from '@/lib/duel/chain';
+import { plainChainError } from '@/lib/ckb/errors';
 import { KIND_ARTILLERY, KIND_RACE, STATUS_OPEN, timerShrinkMs, turnMs } from '@/lib/duel/codec';
 import { forgetDuelKey, loadDuelKey, pendingKeys, rememberPendingKey, saveDuelKey } from '@/lib/duel/keys';
 import { nameOf } from '@/lib/registry/chain-names';
@@ -31,6 +32,10 @@ const ZERO = `0x${'0'.repeat(64)}`;
 const CKB = 100_000_000n;
 /** How long past the other player's clock to wait before skipping their turn: a shot sent in time may still be landing. */
 const LANDING_GRACE_MS = 30_000;
+/** How long the other player's shot takes to fly across this screen, added to the time a turn shows. */
+const SHOT_FLIGHT_MS = 3_000;
+/** The most a shown turn can run past the chain's clock, leaving time for a shot to land before a skip can be sent. */
+const SHOWN_PAST_CHAIN_MS = 15_000;
 const noSubscribe = () => () => undefined;
 
 function clock(ms: number): string {
@@ -46,7 +51,7 @@ function message(error: unknown, fallback: string): string {
   if (/RBF|PoolRejectedDuplicated|Dead|Unknown\(OutPoint|already spent|ConflictTransaction/i.test(text)) {
     return 'Too late: the duel moved on before your shot landed (your turn had already passed). The board is up to date now.';
   }
-  return error instanceof Error && error.message ? error.message : fallback;
+  return plainChainError(error, fallback);
 }
 
 /** One duel, live from the chain: the face-off, then the challenge, the fight, and the result. */
@@ -114,7 +119,17 @@ export function DuelView({ id }: { id: string }) {
       : null;
   // Once you fire, the turn is theirs on this screen at once; no clock runs until your shot lands.
   const shotInFlight = Boolean(pending && shots.length < pending.count);
-  const timeLeft = deadline != null && !shotInFlight ? deadline - now : null;
+  const chainLeft = deadline != null && !shotInFlight ? deadline - now : null;
+  // The chain starts a turn when the last shot lands, but a screen only learns of it later: a turn shows in full from when this page saw that shot, or the chain's clock for one already there when the page opened.
+  const point = snapshot?.point.txHash ?? null;
+  const [seen, setSeen] = useState<{ point: string; at: number | null } | null>(null);
+  if (point && seen?.point !== point) setSeen({ point, at: seen ? now : null });
+  const seenAt = seen?.point === point ? (seen?.at ?? null) : null;
+  const shownDeadline =
+    deadline != null && duel?.kind === KIND_ARTILLERY && seenAt != null
+      ? Math.min(seenAt + SHOT_FLIGHT_MS + Number(turnMs(duel.timerMs, shots.length)), deadline + SHOWN_PAST_CHAIN_MS)
+      : deadline;
+  const timeLeft = shownDeadline != null && !shotInFlight ? shownDeadline - now : null;
 
   // No key saved for this duel: look among the keys made before a wallet approval, in case the wallet reloaded the page before the key could be filed under the duel.
   const myKeyHash = duel && side !== null ? bytesToHex(side === 0 ? duel.key0 : duel.key1).toLowerCase() : null;
@@ -232,7 +247,7 @@ export function DuelView({ id }: { id: string }) {
   // Artillery: the other player's clock ran out.
   const theirClockOut =
     !chain.gone && duel?.kind === KIND_ARTILLERY && side !== null && Boolean(sessionKey) && turnSide !== null && turnSide !== side && timeLeft != null && timeLeft <= 0;
-  const theirTimeUp = theirClockOut && timeLeft != null && timeLeft <= -LANDING_GRACE_MS;
+  const theirTimeUp = theirClockOut && chainLeft != null && chainLeft <= -LANDING_GRACE_MS;
 
   // Nobody taps anything to end a turn or a duel: this browser sends the skip or the payout itself, with no wallet.
   const sent = useRef<{ what: string; at: number } | null>(null);

@@ -12,8 +12,8 @@ import {
   type DuelKind,
 } from '@/lib/duel/codec';
 import { duelType } from '@/lib/registry/config';
-import type { LaneRunner } from '@/lib/game/lane-runner';
-import { bytesToHex, hexToBytes, lapsFromWitness, MAX_TX_FEE, runSeed } from '@/lib/sudden-death/codec';
+import { LEGACY_LANE, type LaneRunner } from '@/lib/game/lane-runner';
+import { bytesToHex, hexToBytes, lapsFromWitness, MAX_TX_FEE, RUN_VERSION, runSeed } from '@/lib/sudden-death/codec';
 
 /** An independent replay of a duel, straight from chain. */
 
@@ -47,6 +47,8 @@ export type DuelRule = { ok: boolean; text: string };
 
 /** A racer's run, from the transaction that handed it in. */
 export type RaceRun = {
+  /** Played on the older build of the game. */
+  legacy: boolean;
   side: 0 | 1;
   score: bigint;
   /** What the run scores when replayed here, or null if it could not be replayed. */
@@ -143,7 +145,7 @@ async function history(client: ccc.Client, duelId: string) {
 }
 
 /** Replays a duel from chain alone. `game` replays race runs; artillery needs nothing loaded. */
-export async function replayDuel(client: ccc.Client, txHash: string, game: LaneRunner | null): Promise<DuelReplay> {
+export async function replayDuel(client: ccc.Client, txHash: string, current: LaneRunner | null, older?: LaneRunner | null): Promise<DuelReplay> {
   const hash = txHash.trim().toLowerCase();
   if (!/^0x[0-9a-f]{64}$/.test(hash)) throw new DuelVerifyError('Paste a 32-byte transaction hash, starting with 0x.');
   const duelId = await duelIdOf(client, hash);
@@ -212,17 +214,24 @@ export async function replayDuel(client: ccc.Client, txHash: string, game: LaneR
 
   // Race: each player's run, from the transaction that handed it in.
   const runs: RaceRun[] = [];
+  // Each race is replayed by the build of the game it was played on.
+  const legacy = bytesToHex(opened.duel.game).toLowerCase() === LEGACY_LANE.gameHash;
+  const game = legacy ? older : current;
   if (opened.duel.kind === KIND_RACE && accepted) {
     for (let i = acceptIndex + 1; i < states.length; i += 1) {
       const before = states[i - 1]!.duel;
       const here = states[i]!;
       const side = (here.duel.submitted & ~before.submitted & 0b01 ? 0 : 1) as 0 | 1;
       const witness = here.tx.getWitnessArgsAt(0)?.inputType;
-      const laps = witness ? lapsFromWitness(new Uint8Array(ccc.bytesFrom(witness))) : null;
+      const raw = witness ? new Uint8Array(ccc.bytesFrom(witness)) : null;
+      // A hand-in marks its run with version 1; the laps after that byte are laid out like any run.
+      if (raw?.[0] === 1) raw[0] = RUN_VERSION;
+      const laps = raw ? lapsFromWitness(raw) : null;
       const owner = side === 0 ? challenger : opponent;
       const seeded = (laps ?? []).map((lap) => ({ seed: runSeed(duelId, owner, lap.block), tape: lap.tape }));
-      const replayed = game && laps ? game.replayLaps(seeded) : null;
-      runs.push({ side, score: here.duel.scores[side], replayed, laps: seeded, txHash: here.txHash });
+      // No laps handed in scores 0, with nothing to replay.
+      const replayed = laps?.length === 0 ? 0 : game && laps ? game.replayLaps(seeded) : null;
+      runs.push({ side, score: here.duel.scores[side], replayed, laps: seeded, legacy, txHash: here.txHash });
     }
     for (const run of runs) {
       rules.push({

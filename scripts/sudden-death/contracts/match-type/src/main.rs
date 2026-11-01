@@ -78,6 +78,10 @@ fn create(host: &[u8; 32]) -> Result<(), i8> {
     if bytes::<32>(&out, OFF_GAME)? == [0u8; 32] {
         return Err(ERR_GAME);
     }
+    // The rules come from the game itself, so a host can't open a match on easier ones.
+    if out[OFF_GAME_RULES..] != game_rules(&bytes::<32>(&out, OFF_GAME)?)? {
+        return Err(ERR_GAME);
+    }
     if read_u64(&out, OFF_KING_SCORE)? != 0
         || read_u64(&out, OFF_LAND_BY)? != 0
         || bytes::<32>(&out, OFF_CERTIFIED)? != [0u8; 32]
@@ -116,6 +120,7 @@ fn steal(match_id: &[u8; 32], match_type_hash: &[u8; 32]) -> Result<(), i8> {
         || bytes::<32>(&input, OFF_TREASURY)? != bytes::<32>(&output, OFF_TREASURY)?
         || bytes::<32>(&input, OFF_BID_CODE)? != bytes::<32>(&output, OFF_BID_CODE)?
         || input[OFF_POW_BITS] != output[OFF_POW_BITS]
+        || input[OFF_GAME_RULES..] != output[OFF_GAME_RULES..]
     {
         return Err(ERR_IMMUTABLE);
     }
@@ -130,9 +135,7 @@ fn steal(match_id: &[u8; 32], match_type_hash: &[u8; 32]) -> Result<(), i8> {
         return Err(ERR_POT);
     }
     let in_deadline = read_u64(&input, OFF_DEADLINE)?;
-    if read_u64(&output, OFF_DEADLINE)? != shrunk_deadline(in_deadline, round) {
-        return Err(ERR_CLOCK);
-    }
+    let rules = GameRules::of_match(&input)?;
 
     proxy_guarded(0, Source::GroupInput, match_type_hash)?;
     proxy_guarded(0, Source::GroupOutput, match_type_hash)?;
@@ -165,7 +168,10 @@ fn steal(match_id: &[u8; 32], match_type_hash: &[u8; 32]) -> Result<(), i8> {
     let laps = *entry.get(OFF_BID_LAPS).ok_or(ERR_BID)?;
     // The entry landed when its last lap was sealed. That lap must have been sealed in its window.
     let (_, sealed_ms) = postmark(bid_index, Source::Input)?;
-    if !lap_on_time(read_u64(&entry, OFF_BID_LAP_START)?, sealed_ms) {
+    if !lap_on_time(read_u64(&entry, OFF_BID_LAP_START)?, sealed_ms, rules.lap_window_ms) {
+        return Err(ERR_CLOCK);
+    }
+    if read_u64(&output, OFF_DEADLINE)? != shrunk_deadline(in_deadline, round, sealed_ms, rules.min_left_ms) {
         return Err(ERR_CLOCK);
     }
     let chain = bytes::<32>(&entry, OFF_BID_CHAIN)?;
@@ -188,7 +194,7 @@ fn steal(match_id: &[u8; 32], match_type_hash: &[u8; 32]) -> Result<(), i8> {
         return Err(ERR_KING);
     }
     // This steal counts later only if it lands by now's deadline and within a lap window of the last seal.
-    if read_u64(&output, OFF_LAND_BY)? != land_by(in_deadline, sealed_ms) {
+    if read_u64(&output, OFF_LAND_BY)? != land_by(in_deadline, sealed_ms, rules.lap_window_ms) {
         return Err(ERR_CLOCK);
     }
 

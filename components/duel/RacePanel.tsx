@@ -3,14 +3,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ccc } from '@ckb-ccc/connector-react';
 import { Flag, Timer } from 'lucide-react';
-import { LaneRunnerGame, type FinishedRun, type LapPlan } from '@/components/game/LaneRunnerGame';
+import { LaneRunnerGame, type LapPlan } from '@/components/game/LaneRunnerGame';
 import { useTick } from '@/components/duel/useDuels';
 import { Button } from '@/components/ui/Button';
 import { LapBoxes } from '@/components/ui/kit';
 import { getCkbClient } from '@/lib/ckb/client';
+import { plainChainError } from '@/lib/ckb/errors';
 import { raceLap, sealRaceLap, submitRace, type DuelSnapshot, type RaceLap } from '@/lib/duel/chain';
 import { loadRaceRun, saveRaceRun, type RaceRun } from '@/lib/duel/race-run';
-import { bytesToHex, hexToBytes, LAPS, runSeed } from '@/lib/sudden-death/codec';
+import { addTry, loadLapTries, saveLapTries, SEAL_MARGIN_MS, SEAL_WARNING_MS, tapeOf, triesLeft, type LapTries } from '@/lib/game/lap-tries';
+import { hexToBytes, LAPS, runSeed } from '@/lib/sudden-death/codec';
 
 function clock(ms: number): string {
   const s = Math.max(0, Math.ceil(ms / 1000));
@@ -35,7 +37,9 @@ export function RacePanel({
   const duelId = snapshot.duelId;
   const [run, setRun] = useState<RaceRun>(() => loadRaceRun(duelId));
   const [lap, setLap] = useState<RaceLap | null>(null);
-  const [best, setBest] = useState<(FinishedRun & { lap: number }) | null>(null);
+  // This race's tries at the current lap, kept so a reload can't hand out more of them or lose the best one.
+  const tryScope = `race:${duelId}`;
+  const [tries, setTries] = useState<LapTries | null>(() => loadLapTries(tryScope));
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const now = useTick(true, 500);
@@ -44,9 +48,9 @@ export function RacePanel({
   const crashed = run.laps.at(-1)?.crashed ?? false;
   const done = run.laps.length >= LAPS || crashed;
 
-  // The next lap's road, read from the chain: it only exists once the last seal has landed.
+  // The next lap's road, read from the chain: it only exists once the last seal has landed. Still read after the last lap, to know it has landed.
   useEffect(() => {
-    if (handedIn || done) return;
+    if (handedIn) return;
     let stop = false;
     const read = async () => {
       const next = await raceLap(getCkbClient(), snapshot.point, sessionKey, myLockHash).catch(() => null);
@@ -58,7 +62,7 @@ export function RacePanel({
       stop = true;
       window.clearInterval(id);
     };
-  }, [snapshot.point, sessionKey, myLockHash, handedIn, done]);
+  }, [snapshot.point, sessionKey, myLockHash, handedIn]);
 
   const inSync = lap != null && lap.sealed === run.laps.length && !lap.late;
   const plan = useMemo<LapPlan | null>(() => {
@@ -69,28 +73,41 @@ export function RacePanel({
     };
   }, [inSync, lap, done, run.laps, duelId, myLockHash]);
   const current = run.laps.length + 1;
-  const tryHere = best?.lap === current ? best : null;
-  const windowLeft = lap && inSync ? lap.windowEndsMs - now : null;
+  // The hand-in spends the racer cell, so it waits until the chain shows every sealed lap in it.
+  const lastLapIn = lap != null && lap.sealed >= run.laps.length;
+  const tryHere = tries?.lap === current ? tries : null;
+  const windowLeft = lap && inSync ? lap.windowEndsMs - SEAL_MARGIN_MS - now : null;
+  // The seal window closed with this lap unsealed, or the last seal landed too late: the race stops here.
+  const missed = !done && windowLeft != null && windowLeft <= 0;
+  const late = !done && Boolean(lap?.late);
 
   function remember(next: RaceRun) {
     saveRaceRun(duelId, next);
     setRun(next);
   }
 
-  async function seal() {
-    if (!tryHere || !lap) return;
+  function recordTry(finished: { tape: Uint8Array; score: number; crashed: boolean }) {
+    const next = addTry(tries, current, finished);
+    saveLapTries(tryScope, next);
+    setTries(next);
+  }
+
+  async function seal(kind: 'clean' | 'crash') {
+    const chosen = tryHere?.[kind];
+    if (!chosen || !lap) return;
     setError(null);
     setBusy(`Sealing lap ${current}…`);
     try {
-      await sealRaceLap(getCkbClient(), snapshot.point, sessionKey, tryHere.tape);
+      await sealRaceLap(getCkbClient(), snapshot.point, sessionKey, tapeOf(chosen));
       remember({
         ...run,
-        laps: [...run.laps, { block: lap.block, tape: bytesToHex(tryHere.tape), score: tryHere.score, crashed: tryHere.crashed }],
+        laps: [...run.laps, { block: lap.block, tape: chosen.tape, score: chosen.score, crashed: chosen.crashed }],
       });
-      setBest(null);
+      saveLapTries(tryScope, null);
+      setTries(null);
       setLap(null);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'The lap could not be sealed.');
+      setError(plainChainError(cause, 'The lap could not be sealed.'));
     } finally {
       setBusy(null);
     }
@@ -113,7 +130,7 @@ export function RacePanel({
       remember({ ...run, handedIn: true });
       onMoved();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'The run could not be handed in.');
+      setError(plainChainError(cause, 'The run could not be handed in.'));
     } finally {
       setBusy(null);
     }
@@ -159,6 +176,17 @@ export function RacePanel({
           <p className="font-mono text-[11px] uppercase tracking-wider text-mute">All laps in</p>
           <p className="mt-2 font-poster text-4xl font-black tabular-nums">{score}</p>
           <p className="mt-2 text-sm text-mute">{crashed ? 'You crashed, so your race ends here.' : 'Every lap is sealed.'} Hand it in to be scored on chain.</p>
+          <Button variant="pink" size="lg" onClick={() => void handIn()} disabled={Boolean(busy) || !lastLapIn} className="mt-6">
+            {busy ?? (lastLapIn ? 'Hand in my run' : 'Your last lap is landing on chain…')}
+          </Button>
+        </div>
+      ) : missed || late ? (
+        <div className="clip-panel bg-ink-2 p-6 text-center">
+          <p className="font-mono text-[11px] uppercase tracking-wider text-danger">{late ? 'Sealed too late' : 'You missed the seal'}</p>
+          <p className="mt-2 font-poster text-4xl font-black tabular-nums">{late ? 0 : score}</p>
+          <p className="mt-2 text-sm text-mute">
+            {late ? 'Your last lap landed after its window, so your race scores 0.' : 'Your race stops here, and only the laps you sealed count.'} You can’t race this duel again. Hand it in so your opponent isn’t kept waiting.
+          </p>
           <Button variant="pink" size="lg" onClick={() => void handIn()} disabled={Boolean(busy)} className="mt-6">
             {busy ?? 'Hand in my run'}
           </Button>
@@ -171,8 +199,15 @@ export function RacePanel({
             sealLeftMs={plan ? windowLeft : null}
             seed={lap?.seed ?? 1n}
             toBeat={0}
-            onFinish={(finished) =>
-              setBest((cur) => (cur && cur.lap === current && cur.score >= finished.score ? cur : { ...finished, lap: current }))
+            onFinish={recordTry}
+            triesLeft={triesLeft(tries, current)}
+            sealOptions={
+              plan && tryHere && !busy
+                ? [
+                    ...(tryHere.clean ? [{ label: `Seal lap ${current} · ${tryHere.clean.score}`, onClick: () => void seal('clean') }] : []),
+                    ...(tryHere.crash ? [{ label: `Seal crash · ${tryHere.crash.score} · ends race`, danger: true, onClick: () => void seal('crash') }] : []),
+                  ]
+                : undefined
             }
             startLabel={plan ? `Race lap ${current} of ${LAPS}` : 'Waiting for your road…'}
             lap={plan ?? undefined}
@@ -180,28 +215,30 @@ export function RacePanel({
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-mute">
               {!plan
-                ? lap?.late
-                  ? 'Your last lap was sealed too late, so your race stops here.'
-                  : 'The chain is revealing your next road…'
+                ? 'The chain is revealing your next road…'
                 : tryHere
-                  ? `Best try: ${tryHere.score}${tryHere.crashed ? ' (crashed: sealing it ends your race)' : ''}. Try again or seal it.`
-                  : 'Race the lap. Try as often as you like, then seal your best.'}
+                  ? `Best clean try: ${tryHere.clean?.score ?? 'none yet'}.${tryHere.crash ? ` Best crash: ${tryHere.crash.score}, and sealing it ends your race.` : ''}`
+                  : 'Race the lap. You get two tries, then seal your best one.'}
             </p>
             {windowLeft != null ? (
-              <p className={`flex items-center gap-1.5 font-mono text-xs font-bold uppercase ${windowLeft < 30_000 ? 'text-danger' : 'text-white'}`}>
-                <Timer className="h-4 w-4" /> {clock(windowLeft)} to seal this lap
+              <p className={`flex items-center gap-1.5 font-mono text-xs font-bold uppercase ${windowLeft <= SEAL_WARNING_MS ? 'text-danger' : 'text-white'}`}>
+                <Timer className="h-4 w-4" /> {windowLeft <= SEAL_WARNING_MS ? `Seal now or you’re out: ${clock(windowLeft)}` : `${clock(windowLeft)} to seal this lap`}
               </p>
             ) : null}
           </div>
           {tryHere && plan ? (
-            <Button variant={tryHere.crashed ? 'danger' : 'pink'} size="lg" onClick={() => void seal()} disabled={Boolean(busy)} className="mt-3">
-              {busy ?? (tryHere.crashed ? `Seal crash · ${tryHere.score} · ends race` : `Seal lap ${current} · ${tryHere.score}`)}
-            </Button>
-          ) : null}
-          {lap?.late && run.laps.length > 0 ? (
-            <Button variant="pink" size="lg" onClick={() => void handIn()} disabled={Boolean(busy)} className="mt-3">
-              {busy ?? 'Hand in (scores 0)'}
-            </Button>
+            <div className="mt-3 flex flex-wrap gap-3">
+              {tryHere.clean ? (
+                <Button variant="pink" size="lg" onClick={() => void seal('clean')} disabled={Boolean(busy)}>
+                  {busy ?? `Seal lap ${current} · ${tryHere.clean.score}`}
+                </Button>
+              ) : null}
+              {tryHere.crash ? (
+                <Button variant="danger" size="lg" onClick={() => void seal('crash')} disabled={Boolean(busy)}>
+                  {busy ?? `Seal crash · ${tryHere.crash.score} · ends race`}
+                </Button>
+              ) : null}
+            </div>
           ) : null}
         </>
       )}

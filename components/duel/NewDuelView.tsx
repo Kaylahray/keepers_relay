@@ -15,6 +15,7 @@ import { useUsername } from '@/hooks/useUsername';
 import { useWallet } from '@/hooks/useWallet';
 import { listBuilders } from '@/lib/api/keeperApi';
 import { getCkbClient } from '@/lib/ckb/client';
+import { plainChainError } from '@/lib/ckb/errors';
 import { newSessionKey } from '@/lib/crown/chain';
 import { openDuel } from '@/lib/duel/chain';
 import { artilleryTimer, KIND_ARTILLERY, KIND_RACE, MIN_RACE_MS, type DuelKind } from '@/lib/duel/codec';
@@ -31,7 +32,7 @@ const TIMERS = [
 /** Under Pressure each turn is this much shorter than the last, down to 30 seconds. */
 const PRESSURE_SHRINK_MS = 5_000;
 /** Roughly what the duel cell needs for its own storage, returned to the challenger at the end. */
-const DEPOSIT_CKB: Record<DuelKind, number> = { [KIND_ARTILLERY]: 442, [KIND_RACE]: 336 };
+const DEPOSIT_CKB: Record<DuelKind, number> = { [KIND_ARTILLERY]: 442, [KIND_RACE]: 341 };
 
 type Opponent = { address: string; name: string } | null;
 
@@ -94,7 +95,7 @@ export function NewDuelView() {
       saveDuelKey(opened.duelId, session.secret);
       router.push(`/duels/${opened.duelId}`);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'The challenge could not be sent.');
+      setError(plainChainError(cause, 'The challenge could not be sent.'));
       setBusy(null);
     }
   }
@@ -255,7 +256,7 @@ export function NewDuelView() {
         {step === 3 && kind === KIND_RACE ? (
           <div>
             <p className="font-poster text-lg font-bold uppercase">Race length</p>
-            <p className="mt-3 rounded-2xl bg-ink-2 p-5 text-sm text-mute">15 minutes for both of you: five laps of 24 seconds, each with a 3-minute window to seal.</p>
+            <p className="mt-3 rounded-2xl bg-ink-2 p-5 text-sm text-mute">10 minutes for both of you: five laps of 30 seconds, each with two tries and a 2-minute window to seal.</p>
           </div>
         ) : null}
 
@@ -286,7 +287,7 @@ export function NewDuelView() {
             <dl className="divide-y divide-white/5 rounded-2xl bg-ink-2 px-5">
               {[
                 ['Game', kind === KIND_ARTILLERY ? 'Artillery' : 'Lane race'],
-                ['Timer', kind === KIND_ARTILLERY ? `${timerLabel} · ${pressure ? 'Pressure' : 'Classic'}` : '15 minutes · 5 laps'],
+                ['Timer', kind === KIND_ARTILLERY ? `${timerLabel} · ${pressure ? 'Pressure' : 'Classic'}` : '10 minutes · 5 laps'],
                 ['You lock', `${stake} CKB stake`],
                 ['Storage deposit', `About ${DEPOSIT_CKB[kind]} CKB · comes back when the duel ends`],
               ].map(([k, v]) => (

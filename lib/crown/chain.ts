@@ -7,7 +7,6 @@ import {
   decodeBidData,
   decodeEntryRun,
   foldLap,
-  LAPS,
   sealedBidData,
   SEAL_VERSION,
   type SealedLap,
@@ -20,7 +19,7 @@ import {
   MATCH_VERSION,
   MAX_TX_FEE,
   REFUND_GRACE_MS,
-  LAP_WINDOW_MS,
+  LANE_RULES,
   lapOnTime,
   runSeed,
   runWitness,
@@ -281,8 +280,8 @@ export async function entryLap(
     sealed: run.laps,
     block: landed.blockHash,
     seed: runSeed(matchId, ownerLockHash, landed.blockHash),
-    windowEndsMs: Number(landed.landedMs) + LAP_WINDOW_MS,
-    late: run.laps > 0 && !lapOnTime(run.lapStartMs, landed.landedMs),
+    windowEndsMs: Number(landed.landedMs) + run.lapWindowMs,
+    late: run.laps > 0 && !lapOnTime(run.lapStartMs, landed.landedMs, run.lapWindowMs),
   };
 }
 
@@ -301,8 +300,8 @@ export async function sealLap(
   if (!landed) throw new Error('Your entry is still confirming. Give it a few seconds.');
   const raw = hexToBytes(cell.outputData);
   const run = decodeEntryRun(raw);
-  if (run.laps >= LAPS) throw new Error('Every lap is already sealed.');
-  if (run.laps > 0 && !lapOnTime(run.lapStartMs, landed.landedMs)) {
+  if (run.laps >= run.runLaps) throw new Error('Every lap is already sealed.');
+  if (run.laps > 0 && !lapOnTime(run.lapStartMs, landed.landedMs, run.lapWindowMs)) {
     throw new Error('Your last lap was sealed after its window closed, so this run can’t go on.');
   }
   const movesHash = ckbHash([tape]);
@@ -421,6 +420,7 @@ export async function openMatch(signer: Signer, room: CrownRoom): Promise<CrownR
       certified: ZERO_32,
       certifiedScore: 0n,
       powBits: DEFAULT_POW_BITS,
+      rules: LANE_RULES,
     });
   // The type id depends on the first input, which is only known once the wallet funds the transaction.
   const matchScript = getSuddenDeathMatchScript(concatArgs(ccc.hexFrom(ZERO_32), hostHash));
@@ -490,7 +490,7 @@ export async function lockBid(
   const bidScript = getSuddenDeathBidScript(matchTypeHash, player.hash());
   const lock = getSuddenDeathBidLock(bidScript);
   const key = hexToBytes(session.lock.hash());
-  const data = encodeBidData(player, current.deadlineMs + BigInt(REFUND_GRACE_MS), 0n, key);
+  const data = encodeBidData(player, current.deadlineMs + BigInt(REFUND_GRACE_MS), 0n, key, current.rules);
   // Room for the fee and the steal's miner fee. The key cell, made alongside, pays for the seals.
   const capacity = minCapacity(lock, bidScript, data) + current.fee + MAX_TX_FEE;
   const tx = ccc.Transaction.from({
@@ -515,7 +515,7 @@ export async function lockBid(
       current.powBits,
       (tries) => onStatus?.(`Proving work for your entry… ${Math.round(tries / 1000)}k tries`),
     );
-    funded.outputsData[0] = ccc.hexFrom(encodeBidData(player, current.deadlineMs + BigInt(REFUND_GRACE_MS), nonce, key));
+    funded.outputsData[0] = ccc.hexFrom(encodeBidData(player, current.deadlineMs + BigInt(REFUND_GRACE_MS), nonce, key, current.rules));
     onStatus?.('Paying your entry…');
     txHash = await signer.sendTransaction(funded);
     requestWalletRefresh();
@@ -567,7 +567,7 @@ export async function stealCrown(
   }
   const bidLanded = await landedBlock(client, bid.outPoint.txHash);
   if (!bidLanded) throw new Error('Your last seal is still confirming. Give it a few seconds.');
-  if (!lapOnTime(sealed.lapStartMs, bidLanded.landedMs) || Date.now() > Number(bidLanded.landedMs) + LAP_WINDOW_MS) {
+  if (!lapOnTime(sealed.lapStartMs, bidLanded.landedMs, sealed.lapWindowMs) || Date.now() > Number(bidLanded.landedMs) + sealed.lapWindowMs) {
     throw new RoadExpiredError();
   }
   const owner = ownerScriptOf(bid.outputData);
@@ -577,7 +577,7 @@ export async function stealCrown(
   if (BigInt(run.score) <= current.kingScore) {
     throw new RunBeatenError(run.score, Number(current.kingScore));
   }
-  const nextDeadline = BigInt(shrunkDeadline(Number(current.deadlineMs), current.round));
+  const nextDeadline = BigInt(shrunkDeadline(Number(current.deadlineMs), current.round, Number(bidLanded.landedMs), current.rules.minLeftMs));
   const next = encodeMatchCell({
     ...current,
     round: current.round + 1,
@@ -585,7 +585,7 @@ export async function stealCrown(
     pot: current.pot + current.fee,
     king: hexToBytes(owner.hash()),
     kingScore: BigInt(run.score),
-    landByMs: landBy(current.deadlineMs, bidLanded.landedMs),
+    landByMs: landBy(current.deadlineMs, bidLanded.landedMs, current.rules.lapWindowMs),
     certified: certified.king,
     certifiedScore: certified.score,
   });

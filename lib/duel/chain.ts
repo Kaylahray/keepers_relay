@@ -27,7 +27,6 @@ import {
   ckbHash,
   foldLap,
   hexToBytes,
-  LAP_WINDOW_MS,
   lapOnTime,
   MAX_TX_FEE,
   runSeed,
@@ -334,7 +333,7 @@ export type RaceLap = {
 
 /** The next lap of a player's race. */
 export async function raceLap(client: ccc.Client, duelPoint: OutPointRef, session: ccc.Hex, ownerLockHash: string): Promise<RaceLap | null> {
-  const { duelId } = await liveDuel(client, duelPoint);
+  const { duelId, duel } = await liveDuel(client, duelPoint);
   const signer = new ccc.SignerCkbPrivateKey(client, session);
   const racer = await sessionCell(signer);
   if (!racer) return null;
@@ -345,8 +344,8 @@ export async function raceLap(client: ccc.Client, duelPoint: OutPointRef, sessio
     sealed: run.laps,
     block: landed.blockHash,
     seed: runSeed(duelId, ownerLockHash, landed.blockHash),
-    windowEndsMs: Number(landed.landedMs) + LAP_WINDOW_MS,
-    late: run.laps > 0 && !lapOnTime(run.lapStartMs, landed.landedMs),
+    windowEndsMs: Number(landed.landedMs) + duel.lapWindowMs,
+    late: run.laps > 0 && !lapOnTime(run.lapStartMs, landed.landedMs, duel.lapWindowMs),
   };
 }
 
@@ -360,7 +359,7 @@ export async function sealRaceLap(client: ccc.Client, duelPoint: OutPointRef, se
   const run = decodeRacer(hexToBytes(racer.outputData));
   const source = await landedBlock(client, run.laps === 0 ? duelPoint.txHash : racer.outPoint.txHash);
   if (!source) throw new Error('Still confirming. Give it a few seconds.');
-  if (run.laps > 0 && !lapOnTime(run.lapStartMs, source.landedMs)) {
+  if (run.laps > 0 && !lapOnTime(run.lapStartMs, source.landedMs, duel.lapWindowMs)) {
     throw new Error('Your last lap was sealed after its window closed, so this race can’t go on.');
   }
   const moves = ckbHash([tape]);
@@ -403,7 +402,8 @@ export async function submitRace(
   if (!racerLanded) throw new Error('Your last lap is still confirming. Give it a few seconds.');
   // A last lap sealed outside its window scores 0, and the script then expects no run at all: the witness is just version and zero laps.
   const sealed = decodeRacer(hexToBytes(racer.outputData));
-  const late = sealed.laps === 0 || !lapOnTime(sealed.lapStartMs, racerLanded.landedMs);
+  if (sealed.laps < laps.length) throw new Error('Your last lap is still landing on chain. Give it a few seconds.');
+  const late = sealed.laps === 0 || !lapOnTime(sealed.lapStartMs, racerLanded.landedMs, duel.lapWindowMs);
   const scores: [bigint, bigint] = [...duel.scores];
   scores[side] = late ? 0n : BigInt(score);
   const next = encodeDuel({ ...duel, scores, submitted: duel.submitted | (1 << side) });

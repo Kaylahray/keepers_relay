@@ -16,7 +16,8 @@ use ckb_testtool::{
 };
 
 const MAX_CYCLES: u64 = 30_000_000;
-const MATCH_LEN: usize = 215;
+const MATCH_LEN: usize = 224;
+const OFF_GAME_RULES: usize = 215;
 const FEE: u64 = 1_000;
 const DEADLINE_MS: u64 = 1_700_000_000_000;
 const CELL_CAP: u64 = 200_000_000_000;
@@ -41,7 +42,8 @@ const OFF_CERTIFIED_SCORE: usize = 206;
 const OFF_POW_BITS: usize = 214;
 /// Work each test entry needs: small, so tests stay fast, but real.
 const POW_BITS: u8 = 8;
-const LAP_WINDOW_MS: u64 = 3 * 60 * 1000;
+const LAP_WINDOW_MS: u64 = 2 * 60 * 1000;
+const MIN_LEFT_MS: u64 = 5 * 60 * 1000;
 const LAPS: usize = 5;
 /// Each test lap's block lands this long after the one before it.
 const LAP_GAP_MS: u64 = 30_000;
@@ -62,7 +64,7 @@ const ON_TIME: u64 = DEADLINE_MS;
 const LATE: u64 = KING_STOLE_BY + 1;
 const CLOSER_REWARD: u64 = 100_000_000;
 const HOST_ALLOWANCE: u64 = CLOSER_REWARD + MAX_TX_FEE;
-const REFUND_GRACE_MS: u64 = 60 * 60 * 1000;
+const REFUND_GRACE_MS: u64 = 30 * 60 * 1000;
 
 fn blake(parts: &[&[u8]]) -> [u8; 32] {
     let mut hasher = Blake2bBuilder::new(32)
@@ -196,8 +198,11 @@ fn match_data(
     bid_code: &[u8; 32],
 ) -> Bytes {
     let mut data = vec![0u8; MATCH_LEN];
-    data[OFF_VERSION] = 5;
+    data[OFF_VERSION] = 6;
     data[OFF_POW_BITS] = POW_BITS;
+    data[OFF_GAME_RULES] = LAPS as u8;
+    put_u32(&mut data, OFF_GAME_RULES + 1, LAP_WINDOW_MS as u32);
+    put_u32(&mut data, OFF_GAME_RULES + 5, MIN_LEFT_MS as u32);
     data[OFF_STATUS] = 0;
     put_u32(&mut data, OFF_ROUND, round);
     put_u64(&mut data, OFF_DEADLINE, deadline);
@@ -302,15 +307,17 @@ fn bid_data_until(owner: &Script, refund_after_ms: u64) -> Bytes {
     bid_data_full(owner, refund_after_ms, 0, 0, &[0u8; 32], &SOME_KEY)
 }
 
-/// An entry's data, version 5: `version ‖ refund ‖ nonce ‖ laps ‖ key lock hash ‖ lap start ms ‖ chain ‖ owner`.
+/// An entry's data, version 6: `version ‖ refund ‖ nonce ‖ laps ‖ key lock hash ‖ lap start ms ‖ chain ‖ owner`.
 fn bid_data_full(owner: &Script, refund_after_ms: u64, laps: u8, lap_start_ms: u64, chain: &[u8; 32], key: &[u8; 32]) -> Bytes {
-    let mut raw = vec![5u8];
+    let mut raw = vec![6u8];
     raw.extend_from_slice(&refund_after_ms.to_le_bytes());
     raw.extend_from_slice(&0u64.to_le_bytes());
     raw.push(laps);
     raw.extend_from_slice(key);
     raw.extend_from_slice(&lap_start_ms.to_le_bytes());
     raw.extend_from_slice(chain);
+    raw.push(LAPS as u8);
+    raw.extend_from_slice(&(LAP_WINDOW_MS as u32).to_le_bytes());
     raw.extend_from_slice(owner.as_slice());
     Bytes::from(raw)
 }
@@ -390,12 +397,64 @@ fn create_match_opens_an_empty_pot() {
         .output_data(Bytes::new().pack())
         .cell_dep(payer_dep)
         .cell_dep(proxy_dep)
+        .cell_dep(Deployed::load(&mut context, "lane-runner").dep)
         .cell_dep(match_bin.dep)
         .cell_dep(bid_bin.dep)
         .cell_dep(treasury_bin.dep)
         .build();
     let tx = context.complete_tx(tx);
     verify_and_dump_failed_tx(&context, &tx, MAX_CYCLES).expect("create");
+}
+
+#[test]
+fn a_match_with_rules_its_game_did_not_declare_is_rejected() {
+    let mut context = Context::default();
+    let match_bin = Deployed::load(&mut context, "match-type");
+    let bid_bin = Deployed::load(&mut context, "bid-type");
+    let treasury_bin = Deployed::load(&mut context, "treasury-lock");
+    let (payer, payer_dep) = always(&mut context, &[0x01]);
+
+    let (proxy_out, proxy_dep) = proxy_pair(&mut context);
+    let fund = context.create_cell(cell(CELL_CAP * 3, payer.clone(), None), Bytes::new());
+    let first = input_at(fund, 0);
+    let match_id = type_id_of(&first, 0);
+    let host = script_hash(&payer);
+    let match_script = match_bin.script(&mut context, &type_args(&match_id, &host));
+    let match_type_hash = script_hash(&match_script);
+    let guard = proxy_lock(&mut context, &proxy_out, &match_type_hash);
+    let treasury_script = treasury_bin.script(&mut context, &match_type_hash);
+    let bid_code = code_hash(&bid_bin.script(&mut context, &match_type_hash));
+    let data = match_data(
+        1,
+        DEADLINE_MS,
+        0,
+        &[0u8; 32],
+        &game_hash(),
+        &script_hash(&treasury_script),
+        &bid_code,
+    );
+
+    let mut raw = data.to_vec();
+    put_u32(&mut raw, OFF_GAME_RULES + 1, 60 * 60 * 1000);
+    let data = Bytes::from(raw);
+
+    let tx = TransactionBuilder::default()
+        .input(first)
+        .output(cell(CELL_CAP, guard, Some(match_script)))
+        .output_data(data.pack())
+        .output(cell(CELL_CAP, treasury_script, None))
+        .output_data(Bytes::new().pack())
+        .output(cell(CELL_CAP, payer, None))
+        .output_data(Bytes::new().pack())
+        .cell_dep(payer_dep)
+        .cell_dep(proxy_dep)
+        .cell_dep(Deployed::load(&mut context, "lane-runner").dep)
+        .cell_dep(match_bin.dep)
+        .cell_dep(bid_bin.dep)
+        .cell_dep(treasury_bin.dep)
+        .build();
+    let tx = context.complete_tx(tx);
+    rejects_with(&context, &tx, -13);
 }
 
 fn type_args(match_id: &[u8; 32], host: &[u8; 32]) -> [u8; 64] {
@@ -478,9 +537,10 @@ fn bid_script_for(context: &mut Context, live: &Live, owner: &Script) -> Script 
 }
 
 /// Mirror of `shrunk_deadline` in sudden-death-common.
-fn shrunk(deadline: u64, round: u32) -> u64 {
+fn shrunk(deadline: u64, round: u32, sealed_ms: u64) -> u64 {
     let cut = (600_000u64 >> (round / 2).min(13)).max(72_000);
-    if deadline <= cut { 1_000 } else { deadline - cut }
+    let floor = (sealed_ms + MIN_LEFT_MS).min(deadline);
+    deadline.saturating_sub(cut).max(floor).max(1_000)
 }
 
 /// The standing crown a steal tries to take.
@@ -498,6 +558,10 @@ struct Standing {
     record_land_by: Option<u64>,
     /// When the entry's last seal landed; its lap opened at ENTRY_MS.
     sealed_at: u64,
+    /// The clock the steal is sent under.
+    deadline: u64,
+    /// Records this new clock instead of the honest one.
+    record_deadline: Option<u64>,
 }
 
 const OPENING: Standing = Standing { round: 1, king: [0u8; 32], score: 0,
@@ -506,6 +570,8 @@ const OPENING: Standing = Standing { round: 1, king: [0u8; 32], score: 0,
     sealed: None,
     record_land_by: None,
     sealed_at: SEALED_MS,
+    deadline: DEADLINE_MS,
+    record_deadline: None,
 };
 
 impl Standing {
@@ -548,13 +614,13 @@ fn steal_claiming(
     let treasury_hash = script_hash(&live.treasury_script);
     let pot = (standing.round as u64 - 1) * FEE;
     let data = with_score(
-        match_data(standing.round, DEADLINE_MS, pot, &standing.king, &live.game, &treasury_hash, &live.bid_code),
+        match_data(standing.round, standing.deadline, pot, &standing.king, &live.game, &treasury_hash, &live.bid_code),
         standing.score,
     );
     let next = with_score(
         match_data(
             standing.round + 1,
-            shrunk(DEADLINE_MS, standing.round),
+            standing.record_deadline.unwrap_or(shrunk(standing.deadline, standing.round, standing.sealed_at)),
             pot + FEE,
             &script_hash(stealer),
             &live.game,
@@ -907,6 +973,7 @@ fn create_rejects_a_zero_host_hash() {
         .output(cell(CELL_CAP, payer, None))
         .output_data(Bytes::new().pack())
         .cell_dep(payer_dep)
+        .cell_dep(Deployed::load(&mut context, "lane-runner").dep)
         .cell_dep(match_bin.dep)
         .cell_dep(bid_bin.dep)
         .cell_dep(treasury_bin.dep)
@@ -1534,6 +1601,7 @@ fn match_created_with_the_proxy_code_hash_but_type_hash_type_is_rejected() {
         .output(cell(CELL_CAP, payer, None))
         .output_data(Bytes::new().pack())
         .cell_dep(payer_dep)
+        .cell_dep(Deployed::load(&mut context, "lane-runner").dep)
         .cell_dep(match_bin.dep)
         .cell_dep(bid_bin.dep)
         .cell_dep(treasury_bin.dep)
@@ -1574,6 +1642,7 @@ fn match_created_with_proxy_args_longer_than_32_bytes_is_rejected() {
         .output_data(Bytes::new().pack())
         .cell_dep(payer_dep)
         .cell_dep(proxy_dep)
+        .cell_dep(Deployed::load(&mut context, "lane-runner").dep)
         .cell_dep(match_bin.dep)
         .cell_dep(bid_bin.dep)
         .cell_dep(treasury_bin.dep)
@@ -2156,6 +2225,7 @@ fn a_match_asking_for_more_work_than_the_limit_is_rejected() {
         .output_data(Bytes::new().pack())
         .cell_dep(payer_dep)
         .cell_dep(proxy_dep)
+        .cell_dep(Deployed::load(&mut context, "lane-runner").dep)
         .cell_dep(match_bin.dep)
         .cell_dep(bid_bin.dep)
         .cell_dep(treasury_bin.dep)
@@ -2359,6 +2429,55 @@ fn a_steal_after_a_late_last_lap_is_rejected() {
 }
 
 #[test]
+fn a_steal_cuts_the_clock_only_down_to_the_floor() {
+    let mut context = Context::default();
+    let live = live(&mut context);
+    let (tape, score) = run_for(&live.match_id, &live.king_lock);
+    // A 10-minute cut would leave 3 minutes after this seal, so it stops at 5.
+    let sealed_at = DEADLINE_MS - 780_000;
+    let standing = Standing { sealed_at, record_deadline: Some(sealed_at + MIN_LEFT_MS), ..OPENING };
+    let king = live.king_lock.clone();
+    let tx = steal_with(&mut context, &live, &standing, &king, &tape, score);
+    verify_and_dump_failed_tx(&context, &tx, MAX_CYCLES).expect("cut down to the floor");
+}
+
+#[test]
+fn a_steal_cutting_past_the_floor_is_rejected() {
+    let mut context = Context::default();
+    let live = live(&mut context);
+    let (tape, score) = run_for(&live.match_id, &live.king_lock);
+    let standing = Standing { sealed_at: DEADLINE_MS - 780_000, record_deadline: Some(DEADLINE_MS - 600_000), ..OPENING };
+    let king = live.king_lock.clone();
+    let tx = steal_with(&mut context, &live, &standing, &king, &tape, score);
+    rejects_with(&context, &tx, -5);
+}
+
+#[test]
+fn a_steal_leaves_a_clock_under_the_floor_alone() {
+    let mut context = Context::default();
+    let live = live(&mut context);
+    let (tape, score) = run_for(&live.match_id, &live.king_lock);
+    // Four minutes left after the seal: under the floor, so nothing is cut, and it never grows.
+    let deadline = SEALED_MS + 240_000;
+    let standing = Standing { deadline, record_deadline: Some(deadline), ..OPENING };
+    let king = live.king_lock.clone();
+    let tx = steal_with(&mut context, &live, &standing, &king, &tape, score);
+    verify_and_dump_failed_tx(&context, &tx, MAX_CYCLES).expect("clock left alone");
+}
+
+#[test]
+fn a_steal_cannot_add_time_to_the_clock() {
+    let mut context = Context::default();
+    let live = live(&mut context);
+    let (tape, score) = run_for(&live.match_id, &live.king_lock);
+    let deadline = SEALED_MS + 240_000;
+    let standing = Standing { deadline, record_deadline: Some(SEALED_MS + MIN_LEFT_MS), ..OPENING };
+    let king = live.king_lock.clone();
+    let tx = steal_with(&mut context, &live, &standing, &king, &tape, score);
+    rejects_with(&context, &tx, -5);
+}
+
+#[test]
 fn a_steal_counts_from_its_last_seal_not_from_the_entry() {
     let mut context = Context::default();
     let live = live(&mut context);
@@ -2380,4 +2499,30 @@ fn with_output_lap_start(
     raw[50..58].copy_from_slice(&ms.to_le_bytes());
     outputs[0] = Bytes::from(raw).pack();
     tx.as_advanced_builder().set_outputs_data(outputs).build()
+}
+
+#[test]
+fn a_steal_that_changes_the_game_rules_is_rejected() {
+    let mut context = Context::default();
+    let live = live(&mut context);
+    let tx = steal_tx(&mut context, &live, false);
+    let mut next = tx.outputs_data().get(0).expect("match output").raw_data().to_vec();
+    put_u32(&mut next, OFF_GAME_RULES + 1, 60 * 60 * 1000);
+    let mut outputs: Vec<_> = tx.outputs_data().into_iter().collect();
+    outputs[0] = Bytes::from(next).pack();
+    let tx = tx.as_advanced_builder().set_outputs_data(outputs).build();
+    rejects_with(&context, &tx, -11);
+}
+
+#[test]
+fn a_seal_that_changes_the_lap_window_is_rejected() {
+    let mut context = Context::default();
+    let live = live(&mut context);
+    let tx = seal_tx(&mut context, &live, Seal::honest());
+    let mut next = tx.outputs_data().get(0).expect("entry output").raw_data().to_vec();
+    put_u32(&mut next, 91, 60 * 60 * 1000);
+    let mut outputs: Vec<_> = tx.outputs_data().into_iter().collect();
+    outputs[0] = Bytes::from(next).pack();
+    let tx = tx.as_advanced_builder().set_outputs_data(outputs).build();
+    rejects_with(&context, &tx, -16);
 }

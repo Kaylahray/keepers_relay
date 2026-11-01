@@ -99,6 +99,8 @@ async function main() {
     count: number,
     label: string,
     tries = 300,
+    // Spreads the seals out so the last one lands within a minute of this time.
+    lastSealBy: number | null = null,
   ) => {
     const seeds: bigint[] = [];
     const tapes: Uint8Array[] = [];
@@ -112,6 +114,10 @@ async function main() {
       tapes.push(best.tape);
       laps.push({ block: codec.hexToBytes(next.block), tape: best.tape });
       score = best.score;
+      if (lastSealBy != null && k > 0) {
+        const wait = Math.min(60_000, lastSealBy - 60_000 - Date.now());
+        if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+      }
       point = await chain.sealLap(client, point, session as `0x${string}`, best.tape);
       await waitCommitted(client, point.txHash, `${label} lap ${k + 1} seal`);
     }
@@ -156,7 +162,7 @@ async function main() {
   const roomB = await chain.lockBid(playerB, room, sessionB);
   await waitCommitted(client, roomB.bidOutPoint!.txHash, 'B entry');
   const refundAt = await chain.bidRefundAt(client, roomA.bidOutPoint!);
-  check(refundAt === Number(cell.deadlineMs) + codec.REFUND_GRACE_MS, 'entry records its refund time: deadline + 1 hour');
+  check(refundAt === Number(cell.deadlineMs) + codec.REFUND_GRACE_MS, 'entry records its refund time: deadline + 30 minutes');
   // Each entry carries proof of work for its own transaction, at the difficulty the crown asks for.
   const entryCell = (await client.getCellLive(roomA.bidOutPoint!, true))!;
   const entryTx = (await client.getTransaction(roomA.bidOutPoint!.txHash))!.transaction;
@@ -186,16 +192,24 @@ async function main() {
   check(codec.bytesToHex(cell.king) === lockA.hash(), 'A is king');
   check(cell.kingScore === BigInt(runA.score), `king score is A's run`, `${runA.score}`);
   check(cell.round === 2 && cell.pot === fee, 'round 2, pot holds one fee');
+  const clock = cell.deadlineMs;
+  check(clock === codec.decodeMatchCell(codec.hexToBytes((await client.getTransaction(room.matchOutPoint!.txHash))!.transaction.outputsData[0]!)).deadlineMs, 'A’s grab left the short clock alone: it is under the 5-minute floor');
   room = { ...room, matchOutPoint: stolenA.room.matchOutPoint, treasuryOutPoint: stolenA.room.treasuryOutPoint };
   // A's run is over, so A's key cell goes back to A, signed by the session key.
   const beforeKeyA = await client.getBalance([lockA]);
   const keyBack = await chain.returnKeyCell(client, sessionA.secret, lockA);
   await waitCommitted(client, keyBack!, 'A key cell return');
-  const keyGain = (await client.getBalance([lockA])) - beforeKeyA;
+  // The balance comes from the indexer, which can lag a committed transaction by a moment.
+  let keyGain = 0n;
+  for (let wait = 0; wait < 20 && keyGain <= 0n; wait += 1) {
+    keyGain = (await client.getBalance([lockA])) - beforeKeyA;
+    if (keyGain <= 0n) await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
   check(keyGain > 61n * 100_000_000n, 'A’s key cell came back to A after the run', `${ccc.fixedPointToString(keyGain)} CKB`);
 
   console.log('\nB plays five laps, each seeded by the block the last one was sealed in');
-  const playedB = await playLaps(lockB, sessionB.secret, roomB.bidOutPoint!, 5, 'B');
+  // B times the last seal for just before the clock runs out, so B's grab can go out late.
+  const playedB = await playLaps(lockB, sessionB.secret, roomB.bidOutPoint!, 5, 'B', 300, Number(clock));
   const runB = playedB.run;
   check(new Set(playedB.seeds.map(String)).size === 5, 'every lap had its own road');
   check(runB.score > runA.score, 'B’s five laps beat A', `${runB.score} > ${runA.score}`);
@@ -205,14 +219,14 @@ async function main() {
   );
   check(inflated === 'error code -12', 'chain refuses an inflated score (-12)', inflated);
 
-  console.log('\nB takes the crown');
+  console.log('\nB takes the crown, after the clock ran out');
+  await new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(clock) + 2_000 - Date.now())));
   const stolenB = await chain.stealCrown(client, { ...room, bidOutPoint: playedB.point }, runB);
   await waitCommitted(client, stolenB.txHash, 'B steal');
   cell = await liveMatch(stolenB.room.matchOutPoint!);
   check(codec.bytesToHex(cell.king) === lockB.hash(), 'B is king');
   check(cell.kingScore === BigInt(runB.score) && cell.round === 3 && cell.pot === fee * 2n, 'B score recorded, round 3, pot holds two fees');
-  // A's steal cut the short devnet clock to zero, so B's steal was sent after time was up. It
-  // lands, but its postmark can never beat its deadline: A's on-time steal is the one that counts.
+  // B's steal was sent after time was up. It lands, but its postmark can never beat its deadline: A's on-time steal is the one that counts.
   check(codec.bytesToHex(cell.certified) === lockA.hash(), 'A’s on-time steal is certified');
   check(Number(cell.landByMs) < Date.now(), 'B stole after the clock ran out, so B can never be certified');
   room = { ...room, matchOutPoint: stolenB.room.matchOutPoint, treasuryOutPoint: stolenB.room.treasuryOutPoint };
@@ -242,12 +256,21 @@ async function main() {
   check(early === 'Immature', 'an entry cannot be refunded before its refund time', early);
 
   console.log('\nClose');
-  check(Number(cell.deadlineMs) <= Date.now(), 'two steals have cut the 4-minute clock to zero', `${cell.deadlineMs}`);
+  check(cell.deadlineMs === clock && Number(cell.deadlineMs) <= Date.now(), 'no grab cut the short clock, and it has now run out', `${cell.deadlineMs}`);
   const entryA = await client.getCellLive(pointA2, false);
   const beforeA = await client.getBalance([lockA]);
   const beforeB = await client.getBalance([lockB]);
   // Nobody signs the close. A sends it, so A's payout also carries the closer's reward.
-  const closed = await chain.closeCrown(client, room, lockA.hash());
+  // The chain's clock runs a little behind the wall clock, so the close opens shortly after zero.
+  let closed: Awaited<ReturnType<typeof chain.closeCrown>> | null = null;
+  for (let attempt = 0; !closed; attempt += 1) {
+    try {
+      closed = await chain.closeCrown(client, room, lockA.hash());
+    } catch (error) {
+      if (attempt >= 30 || !/immature/i.test(String((error as { data?: string }).data ?? error))) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 5_000));
+    }
+  }
   await waitCommitted(client, closed.txHash, 'close');
   const gainA = (await client.getBalance([lockA])) - beforeA;
   const owedA = fee * 2n + codec.CLOSER_REWARD + BigInt(entryA?.cellOutput.capacity ?? 0);
