@@ -6,6 +6,7 @@ import { ApiError } from '@/lib/server/errors';
 import { normalizeAddress } from '@/lib/server/auth';
 import { roomFromStored, type CrownRoom, type CrownStatus, type GameId } from '@/lib/crown/rooms';
 import type { CrownSeat } from '@/lib/crown/seats';
+import { listFinishedDuels, type FinishedDuel } from '@/lib/duel/chain';
 import { suddenDeathMatchType } from '@/lib/registry/config';
 import { bytesToHex, decodeMatchCell, hexToBytes } from '@/lib/sudden-death/codec';
 
@@ -137,6 +138,8 @@ export type PlayerCrown = {
 export type PlayerStats = {
   address: string;
   wins: number;
+  /** Duels that ended level: not a win, and no CKB won. */
+  draws: number;
   wonShannons: string;
   crownsTaken: number;
   bestScore: number | null;
@@ -144,6 +147,33 @@ export type PlayerStats = {
   hosted: number;
   crowns: PlayerCrown[];
 };
+
+/** The players page asks for every player at once, so finished duels are read from chain once and shared for a minute. */
+const FINISHED_DUELS_FRESH_MS = 60_000;
+const ALL_FINISHED_DUELS = 1_000;
+let finishedRead: { at: number; duels: Promise<FinishedDuel[]> } | null = null;
+
+function finishedDuels(): Promise<FinishedDuel[]> {
+  if (finishedRead && Date.now() - finishedRead.at < FINISHED_DUELS_FRESH_MS) return finishedRead.duels;
+  const duels = listFinishedDuels(getServerCkbClient(), ALL_FINISHED_DUELS);
+  finishedRead = { at: Date.now(), duels };
+  duels.catch(() => {
+    finishedRead = null;
+  });
+  return duels;
+}
+
+/** A won duel counts as a win and adds its payout to CKB won. A draw is counted on its own, since it just returns the player's own stake. */
+function addDuelResults(stats: PlayerStats, lockHash: string, duels: FinishedDuel[]): void {
+  for (const { duel, outcome } of duels) {
+    const side = bytesToHex(duel.challenger).toLowerCase() === lockHash ? 0 : bytesToHex(duel.opponent).toLowerCase() === lockHash ? 1 : null;
+    if (side === null) continue;
+    if (outcome === 'draw') stats.draws += 1;
+    if (outcome !== side) continue;
+    stats.wins += 1;
+    stats.wonShannons = (BigInt(stats.wonShannons) + duel.stake * 2n).toString();
+  }
+}
 
 export async function playerStats(rawAddress: string): Promise<PlayerStats> {
   const address = normalizeAddress(rawAddress);
@@ -156,6 +186,7 @@ export async function playerStats(rawAddress: string): Promise<PlayerStats> {
   const empty: PlayerStats = {
     address,
     wins: 0,
+    draws: 0,
     wonShannons: '0',
     crownsTaken: 0,
     bestScore: null,
@@ -208,5 +239,9 @@ export async function playerStats(rawAddress: string): Promise<PlayerStats> {
   }
   const order: Record<CrownStatus, number> = { live: 0, lobby: 1, settled: 2 };
   stats.crowns.sort((a, b) => order[a.status] - order[b.status] || (b.deadlineAt ?? 0) - (a.deadlineAt ?? 0));
+  addDuelResults(stats, lockHash, await finishedDuels().catch((error) => {
+    console.warn('[crowns] finished duels read failed:', error);
+    return [];
+  }));
   return stats;
 }

@@ -151,11 +151,13 @@ export function ProfileView({ address }: { address: string }) {
           </div>
         ))}
       </section>
-      {s && (s.holding > 0 || s.hosted > 0) ? (
+      {s && (s.holding > 0 || s.hosted > 0 || s.draws > 0) ? (
         <p className="mt-3 font-mono text-[10px] uppercase text-mute">
           {s.holding > 0 ? `Holding ${s.holding} now` : null}
           {s.holding > 0 && s.hosted > 0 ? ' · ' : null}
           {s.hosted > 0 ? `Hosted ${s.hosted}` : null}
+          {s.draws > 0 && (s.holding > 0 || s.hosted > 0) ? ' · ' : null}
+          {s.draws > 0 ? (s.draws === 1 ? '1 draw' : `${s.draws} draws`) : null}
         </p>
       ) : null}
       {stats.isError ? <p className="mt-3 text-sm text-danger">Stats could not load. Refresh to try again.</p> : null}

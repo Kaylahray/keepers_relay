@@ -37,7 +37,7 @@ export default function PlayersPage() {
 
   const rows = roster.map((player, i) => {
     const s = stats[i]?.data;
-    return { player, wins: s?.wins ?? null, won: s ? Number(BigInt(s.wonShannons) / 100_000_000n) : null };
+    return { player, wins: s?.wins ?? null, draws: s?.draws ?? 0, won: s ? Number(BigInt(s.wonShannons) / 100_000_000n) : null };
   });
   const s = q.trim().toLowerCase().replace(/^@/, '');
   const list = rows
@@ -89,7 +89,7 @@ export default function PlayersPage() {
         ) : (
           <ul className="space-y-2">
             {list.map((row, i) => (
-              <PlayerRow key={row.player.address} rank={i + 1} player={row.player} wins={row.wins} won={row.won} online={loadedAt - Date.parse(row.player.lastSeenAt) < ONLINE_MS} />
+              <PlayerRow key={row.player.address} rank={i + 1} player={row.player} wins={row.wins} draws={row.draws} won={row.won} online={loadedAt - Date.parse(row.player.lastSeenAt) < ONLINE_MS} />
             ))}
           </ul>
         )}
@@ -98,7 +98,7 @@ export default function PlayersPage() {
   );
 }
 
-function PlayerRow({ rank, player, wins, won, online }: { rank: number; player: BuilderProfile; wins: number | null; won: number | null; online: boolean }) {
+function PlayerRow({ rank, player, wins, draws, won, online }: { rank: number; player: BuilderProfile; wins: number | null; draws: number; won: number | null; online: boolean }) {
   const avatar = useQuery({
     queryKey: ['avatar-spore', player.avatarSporeId],
     enabled: Boolean(player.avatarSporeId),
@@ -117,7 +117,10 @@ function PlayerRow({ rank, player, wins, won, online }: { rank: number; player: 
           {online ? <span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-ink-2 bg-lime" aria-label="Online" /> : null}
         </span>
         <span className="min-w-0">
-          <span className="block truncate font-semibold">@{handle}</span>
+          <span className="flex items-center gap-2">
+            <span className="truncate font-semibold">@{handle}</span>
+            {draws > 0 ? <span className="shrink-0 rounded-md bg-ink-3 px-1.5 py-0.5 font-mono text-[10px] uppercase text-mute">{draws === 1 ? '1 draw' : `${draws} draws`}</span> : null}
+          </span>
           <span className="block truncate text-xs text-mute">
             {name !== handle ? `${name} · ` : ''}
             <span className="font-mono">{short}</span>
