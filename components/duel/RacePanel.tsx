@@ -11,7 +11,7 @@ import { getCkbClient } from '@/lib/ckb/client';
 import { plainChainError } from '@/lib/ckb/errors';
 import { raceLap, sealRaceLap, submitRace, type DuelSnapshot, type RaceLap } from '@/lib/duel/chain';
 import { loadRaceRun, saveRaceRun, type RaceRun } from '@/lib/duel/race-run';
-import { addTry, loadLapTries, saveLapTries, SEAL_MARGIN_MS, SEAL_WARNING_MS, tapeOf, triesLeft, type LapTries } from '@/lib/game/lap-tries';
+import { addTry, loadLapTries, saveLapTries, SEAL_MARGIN_MS, SEAL_WARNING_MS, tapeOf, triesLeft, TRY_NEEDS_MS, type LapTries } from '@/lib/game/lap-tries';
 import { hexToBytes, LAPS, runSeed } from '@/lib/sudden-death/codec';
 
 function clock(ms: number): string {
@@ -222,7 +222,7 @@ export function RacePanel({
             </p>
             {windowLeft != null ? (
               <p className={`flex items-center gap-1.5 font-mono text-xs font-bold uppercase ${windowLeft <= SEAL_WARNING_MS ? 'text-danger' : 'text-white'}`}>
-                <Timer className="h-4 w-4" /> {windowLeft <= SEAL_WARNING_MS ? `Seal now or you’re out: ${clock(windowLeft)}` : `${clock(windowLeft)} to seal this lap`}
+                <Timer className="h-4 w-4" /> {!tryHere && windowLeft <= TRY_NEEDS_MS ? `Not enough time left to race: ${clock(windowLeft)}` : windowLeft <= SEAL_WARNING_MS ? `Seal now or you’re out: ${clock(windowLeft)}` : `${clock(windowLeft)} to seal this lap`}
               </p>
             ) : null}
           </div>

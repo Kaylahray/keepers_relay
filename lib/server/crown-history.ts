@@ -7,6 +7,7 @@ import { normalizeAddress } from '@/lib/server/auth';
 import { roomFromStored, type CrownRoom, type CrownStatus, type GameId } from '@/lib/crown/rooms';
 import type { CrownSeat } from '@/lib/crown/seats';
 import { listFinishedDuels, type FinishedDuel } from '@/lib/duel/chain';
+import { KIND_ARTILLERY } from '@/lib/duel/codec';
 import { suddenDeathMatchType } from '@/lib/registry/config';
 import { bytesToHex, decodeMatchCell, hexToBytes } from '@/lib/sudden-death/codec';
 
@@ -135,6 +136,17 @@ export type PlayerCrown = {
   holds: boolean;
 };
 
+/** A duel this player played to the end. */
+export type PlayerDuel = {
+  /** The payout transaction. Check it on `/verify`. */
+  txHash: string;
+  game: string;
+  result: 'won' | 'lost' | 'draw';
+  stakeShannons: string;
+  endedMs: number | null;
+  rivalHash: string;
+};
+
 export type PlayerStats = {
   address: string;
   wins: number;
@@ -146,6 +158,7 @@ export type PlayerStats = {
   holding: number;
   hosted: number;
   crowns: PlayerCrown[];
+  duels: PlayerDuel[];
 };
 
 /** The players page asks for every player at once, so finished duels are read from chain once and shared for a minute. */
@@ -165,13 +178,24 @@ function finishedDuels(): Promise<FinishedDuel[]> {
 
 /** A won duel counts as a win and adds its payout to CKB won. A draw is counted on its own, since it just returns the player's own stake. */
 function addDuelResults(stats: PlayerStats, lockHash: string, duels: FinishedDuel[]): void {
-  for (const { duel, outcome } of duels) {
-    const side = bytesToHex(duel.challenger).toLowerCase() === lockHash ? 0 : bytesToHex(duel.opponent).toLowerCase() === lockHash ? 1 : null;
-    if (side === null) continue;
+  for (const { txHash, endedMs, duel, outcome } of duels) {
+    const challenger = bytesToHex(duel.challenger).toLowerCase();
+    const opponent = bytesToHex(duel.opponent).toLowerCase();
+    const side = challenger === lockHash ? 0 : opponent === lockHash ? 1 : null;
+    if (side === null || outcome === 'cancelled') continue;
     if (outcome === 'draw') stats.draws += 1;
-    if (outcome !== side) continue;
-    stats.wins += 1;
-    stats.wonShannons = (BigInt(stats.wonShannons) + duel.stake * 2n).toString();
+    if (outcome === side) {
+      stats.wins += 1;
+      stats.wonShannons = (BigInt(stats.wonShannons) + duel.stake * 2n).toString();
+    }
+    stats.duels.push({
+      txHash,
+      game: duel.kind === KIND_ARTILLERY ? 'Artillery' : 'Lane race',
+      result: outcome === 'draw' ? 'draw' : outcome === side ? 'won' : 'lost',
+      stakeShannons: duel.stake.toString(),
+      endedMs,
+      rivalHash: side === 0 ? opponent : challenger,
+    });
   }
 }
 
@@ -193,6 +217,7 @@ export async function playerStats(rawAddress: string): Promise<PlayerStats> {
     holding: 0,
     hosted: 0,
     crowns: [],
+    duels: [],
   };
   if (!databaseConfigured()) return empty;
 

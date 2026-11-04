@@ -17,10 +17,12 @@ import { useWallet } from '@/hooks/useWallet';
 import { useAuth } from '@/context/auth-provider';
 import { loadAvatarSpore } from '@/hooks/usePublicProfile';
 import { getBuilder, getPlayerStats } from '@/lib/api/keeperApi';
+import { getCkbClient } from '@/lib/ckb/client';
 import { ckbWhole, GAMES } from '@/lib/crown/rooms';
-import type { PlayerCrown } from '@/lib/server/crown-history';
+import { chainNames, nameOf } from '@/lib/registry/chain-names';
+import type { PlayerCrown, PlayerDuel } from '@/lib/server/crown-history';
 
-/** A player's profile: who they are, and what they have done in crowns. `me` is the connected wallet. */
+/** A player's profile: who they are, and what they have done in crowns and duels. `me` is the connected wallet. */
 export function ProfileView({ address }: { address: string }) {
   const { isConnected, address: walletAddress, isReady } = useWallet();
   const { ensureAuth } = useAuth();
@@ -162,6 +164,9 @@ export function ProfileView({ address }: { address: string }) {
       ) : null}
       {stats.isError ? <p className="mt-3 text-sm text-danger">Stats could not load. Refresh to try again.</p> : null}
 
+      {/* With no crowns yet, duels come first so they sit above the empty panel. */}
+      {s && s.crowns.length === 0 && s.duels.length > 0 ? <DuelHistory duels={s.duels} isSelf={isSelf} /> : null}
+
       <section className="mt-12" aria-labelledby="history">
         <h2 id="history" className="font-poster text-lg font-bold uppercase">
           {isSelf ? 'Your crowns' : 'Crowns'} <span className="ml-1 font-mono text-xs text-mute">{s?.crowns.length ?? ''}</span>
@@ -184,7 +189,51 @@ export function ProfileView({ address }: { address: string }) {
           )}
         </div>
       </section>
+
+      {s && s.crowns.length > 0 && s.duels.length > 0 ? <DuelHistory duels={s.duels} isSelf={isSelf} /> : null}
     </ArenaStage>
+  );
+}
+
+function DuelHistory({ duels, isSelf }: { duels: PlayerDuel[]; isSelf: boolean }) {
+  const hashes = duels.map((duel) => duel.rivalHash);
+  const names = useQuery({
+    queryKey: ['chain-names', hashes.join()],
+    queryFn: () => chainNames(getCkbClient(), hashes),
+  });
+  return (
+    <section className="mt-12" aria-labelledby="duel-history">
+      <h2 id="duel-history" className="font-poster text-lg font-bold uppercase">
+        {isSelf ? 'Your duels' : 'Duels'} <span className="ml-1 font-mono text-xs text-mute">{duels.length}</span>
+      </h2>
+      <ul className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {duels.map((duel) => (
+          <DuelRow key={duel.txHash} duel={duel} rival={nameOf(names.data ?? new Map<string, string>(), duel.rivalHash)} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function DuelRow({ duel, rival }: { duel: PlayerDuel; rival: string }) {
+  const stake = BigInt(duel.stakeShannons);
+  const label = duel.result === 'won' ? 'Paid out' : duel.result === 'lost' ? 'Stake lost' : 'Stake back';
+  const when = duel.endedMs ? new Date(duel.endedMs).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : null;
+  return (
+    <li>
+      <Link href={`/verify/${duel.txHash}`} className="clip-panel block bg-ink-2 p-5 transition-colors hover:bg-ink-3">
+        <div className="flex items-start justify-between gap-3">
+          <p className="min-w-0 truncate font-poster text-base font-bold uppercase">vs {rival}</p>
+          <StatusChip tone={duel.result === 'won' ? 'closed' : 'lobby'}>{duel.result === 'won' ? 'Won' : duel.result === 'lost' ? 'Lost' : 'Draw'}</StatusChip>
+        </div>
+        <p className="mt-3 font-mono text-[10px] uppercase tracking-wider text-mute">{label}</p>
+        <Ckb value={ckbWhole(duel.result === 'won' ? stake * 2n : stake)} size="md" />
+        <p className="mt-2 text-xs text-mute">
+          {duel.game}
+          {when ? ` · ${when}` : ''}
+        </p>
+      </Link>
+    </li>
   );
 }
 

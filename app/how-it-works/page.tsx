@@ -25,7 +25,7 @@ const DETAILS = [
   },
   {
     title: 'Your road',
-    body: 'A run is 5 laps of 30 seconds. Each lap’s road is made from the block where your last lap was sealed, so nobody, not even you, sees a lap before the one before it is locked in. You get two tries at each lap, then you seal your best within 2 minutes: your browser signs, no wallet pops up. The road also reacts to your moves, and someone copying your moves would crash on their own road.',
+    body: 'A run is 5 laps of 30 seconds. Each lap’s road is made from the block where your last lap was sealed. You get two tries at each lap, then you seal your best within 2 minutes: your browser signs, no wallet pops up. The road also reacts to your moves, and someone copying your moves would crash on their own road.',
   },
   {
     title: 'Holding the crown',
@@ -150,7 +150,7 @@ export default function HowItWorksPage() {
           </h2>
           <p className="mt-3 text-mute">
             A run is 5 short laps, and you seal each one as you go. Short laps are quick for the chain to replay, and they are hard for bots to fake: each lap&apos;s road is made from the
-            block your last lap landed in, so nobody can know it in advance.
+            block your last lap landed in.
           </p>
         </div>
         <div className="flex flex-col items-center gap-3 rounded-2xl bg-ink p-6">

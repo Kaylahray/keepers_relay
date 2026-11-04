@@ -1,6 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { Crown, ShieldCheck, Timer } from 'lucide-react';
 import { ArenaCta } from '@/components/arena/ArenaPrimitives';
@@ -24,12 +25,13 @@ import { LapPanel } from '@/components/crown/LapPanel';
 import { ccc } from '@ckb-ccc/connector-react';
 import { ckbHash, hexToBytes, LAPS, runSeed, runSeedV1 } from '@/lib/sudden-death/codec';
 import { loadLapRun, saveLapRun } from '@/lib/crown/my-laps';
-import { addTry, loadLapTries, saveLapTries, SEAL_MARGIN_MS, tapeOf, triesLeft, type LapTries } from '@/lib/game/lap-tries';
+import { addTry, loadLapTries, saveLapTries, SEAL_MARGIN_MS, tapeOf, triesLeft, TRY_NEEDS_MS, type LapTries } from '@/lib/game/lap-tries';
 import {
   bidRefundAt,
   closeCrown,
   entryLap,
   expireBid,
+  countEntries,
   lockBid,
   EntryGoneError,
   isLostRace,
@@ -72,6 +74,20 @@ import {
 
 function scriptHash(lock: { codeHash: string; hashType: 'type' | 'data' | 'data1' | 'data2'; args: string }) {
   return ccc.Script.from({ codeHash: lock.codeHash, hashType: lock.hashType, args: lock.args }).hash();
+}
+
+/** Entries paid so far, read from the chain. Separate from the pot: an entry only joins it by taking the crown. */
+function EntriesPaid({ matchId, hostLockHash, feeShannons }: { matchId: string; hostLockHash: string; feeShannons: bigint }) {
+  const { data: count } = useQuery({
+    queryKey: ['crown-entries', matchId, hostLockHash],
+    queryFn: () => countEntries(getCkbClient(), matchId, hostLockHash),
+    refetchInterval: 10_000,
+  });
+  return (
+    <p className="mt-2 min-h-4 font-mono text-[11px] text-mute">
+      {count == null ? null : count === 0 ? 'No entries paid yet' : `${count} ${count === 1 ? 'entry' : 'entries'} paid · ${ckbWhole(feeShannons * BigInt(count))} CKB`}
+    </p>
+  );
 }
 
 /** Font size for a number in the pot / crown / clock row. */
@@ -500,6 +516,8 @@ export function CrownPlayView({ id }: { id: string }) {
   const timeUp = live && room.deadlineAt != null && !clock.counting;
   const roadLeft = nextLap ? nextLap.windowEndsMs - now : null;
   const roadOpen = roadLeft != null && roadLeft > SEAL_MARGIN_MS;
+  // Too little time left to race this lap, and no try to seal: only a new entry can help.
+  const outOfRoad = roadLeft != null && roadLeft - SEAL_MARGIN_MS <= TRY_NEEDS_MS && !(lapTry?.lap === sealedLaps.length + 1 && (lapTry.clean || lapTry.crash));
   const canTake =
     live && !entryWindow && !timeUp && beats && !iHold && isConnected && (!onChain || (matchReady && inSync && roadOpen)) && !busy;
   const currentLap = sealedLaps.length + 1;
@@ -818,6 +836,9 @@ export function CrownPlayView({ id }: { id: string }) {
                   </span>
                   <span className="font-mono text-base font-bold md:text-xl">CKB</span>
                 </p>
+                {chain && live && room.matchId && room.hostLockHash ? (
+                  <EntriesPaid matchId={room.matchId} hostLockHash={room.hostLockHash} feeShannons={room.feeShannons} />
+                ) : null}
               </div>
               <div className="sm:text-right">
                 <p className="font-mono text-[11px] uppercase tracking-wider text-mute">
@@ -858,7 +879,7 @@ export function CrownPlayView({ id }: { id: string }) {
 
           {confirmingOpen ? (
             <div className="clip-panel bg-ink-2">
-              <ChainLoader compact title={`Setting up the game on chain · ${formatWait(now - (room.openedAt ?? now))}`} note="Usually 20 to 90 seconds. Practise meanwhile." />
+              <ChainLoader compact title="Setting up the game on chain" note="Practise meanwhile." />
             </div>
           ) : null}
 
@@ -946,13 +967,13 @@ export function CrownPlayView({ id }: { id: string }) {
               <div className="clip-panel mt-4 bg-ink-2 p-6">
                 {entryWindow ? (
                   <>
-                    <p className="font-mono text-[11px] uppercase tracking-wider text-lime">{entryBid ? 'You’re in' : 'Entry open'}</p>
-                    <p className="mt-2 font-poster text-xl font-black uppercase">{entryBid ? 'Drive 5 laps' : 'Pay to enter'}</p>
+                    <p className="font-mono text-[11px] uppercase tracking-wider text-lime">{entryBid ? 'You’re in' : 'Starting soon'}</p>
+                    <p className="mt-2 font-poster text-xl font-black uppercase">{entryBid ? 'Drive 5 laps' : 'Get ready'}</p>
                     <p className="mt-1 max-w-xl text-sm text-mute">
-                      The round starts for everyone together. Lock your entry now.
+                      The round starts for everyone together. You can pay your entry when it starts.
                     </p>
                     <p className="mt-2 font-mono text-[10px] uppercase tracking-wider text-lime">
-                      {seats.filter((seat) => seat.bidOutPoint).length} locked · {seats.length} seated
+                      {seats.length} seated
                     </p>
                   </>
                 ) : iHold ? (
@@ -1034,7 +1055,8 @@ export function CrownPlayView({ id }: { id: string }) {
                     ) : null}
                   </div>
                 ) : null}
-                {onChain && live && !timeUp && !iHold && isConnected && matchReady && (!entryBid || (nextLap && inSync && !roadOpen)) ? (
+                {/* A lap's time starts when the entry lands, so entries open when the round starts, not before. */}
+                {onChain && live && !entryWindow && !timeUp && !iHold && isConnected && matchReady && (!entryBid || (nextLap && inSync && !runOver && (!roadOpen || outOfRoad))) ? (
                   <div className="mt-4">
                     <ArenaCta
                       onClick={() => {

@@ -298,6 +298,8 @@ export function LaneRunnerGame({ seed, toBeat, onFinish, startLabel = 'Run', lap
   const sealNote =
     sealFace == null ? null : sealFace === 'closed' ? (
       <p className="mt-3 rounded-lg bg-danger/15 px-3 py-2 text-xs font-semibold text-danger">You missed the seal, so this run stops here.</p>
+    ) : phase !== 'over' && !sealOptions?.length && sealLeftMs != null && sealLeftMs <= TRY_NEEDS_MS ? (
+      <p className="mt-3 rounded-lg bg-danger/15 px-3 py-2 text-xs font-semibold text-danger">There isn’t enough time left to race this lap.</p>
     ) : (
       <p className={`mt-3 rounded-lg px-3 py-2 text-xs font-semibold ${sealUrgent ? 'bg-danger/15 text-danger' : 'bg-gold/10 text-gold'}`}>
         {sealUrgent ? `Seal now or you’re out: ${sealFace} left.` : `${sealFace} left to seal this lap. Every try uses that time.`}

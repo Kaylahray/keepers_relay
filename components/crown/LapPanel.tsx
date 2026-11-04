@@ -3,6 +3,7 @@
 import { ChainLoader } from '@/components/arena/ChainLoader';
 import { Button } from '@/components/ui/Button';
 import { LapBoxes } from '@/components/ui/kit';
+import { TRY_NEEDS_MS } from '@/lib/game/lap-tries';
 import { LAPS } from '@/lib/sudden-death/codec';
 
 type Props = {
@@ -45,6 +46,10 @@ export function LapPanel({
   formatWait,
 }: Props) {
   const runScore = laps.at(-1)?.score ?? 0;
+  const crashedOn = laps.at(-1)?.crashed ? laps.length : null;
+  const hasTry = cleanScore != null || crashScore != null;
+  // Too little time left to race, and nothing raced yet to seal.
+  const outOfTime = windowLeft != null && windowLeft > 0 && !hasTry && windowLeft <= TRY_NEEDS_MS;
   return (
     <div>
       <p className="font-mono text-[11px] uppercase tracking-wider text-lime">Run in progress</p>
@@ -75,20 +80,22 @@ export function LapPanel({
             note={
               pitStop === 'entry'
                 ? 'Lap 1’s road appears the moment it lands.'
-                : `Lap ${laps.length} is sealed. The next road comes from the block your seal lands in. Nobody, not even you, has seen it yet.`
+                : `Lap ${laps.length} is sealed. The next road comes from the block your seal lands in.`
             }
           />
         </div>
       ) : runOver ? (
         <div className="mt-4">
-          <p className="font-mono text-[11px] uppercase tracking-wider text-mute">All 5 laps sealed</p>
+          <p className="font-mono text-[11px] uppercase tracking-wider text-mute">
+            {laps.length >= LAPS ? 'All 5 laps sealed' : `${laps.length} of ${LAPS} laps sealed${crashedOn ? ` · crashed on lap ${crashedOn}` : ''}`}
+          </p>
           <p className="mt-2 font-poster text-4xl font-black tabular-nums">
             {runScore} <span className="text-xl text-mute">vs {toBeat}</span>
           </p>
           <p className={`mt-2 max-w-xl text-sm font-semibold ${runScore > toBeat ? 'text-lime' : 'text-mute'}`}>
             {runScore > toBeat
-              ? 'Every lap is sealed and it beats the crown. Grab it.'
-              : 'Every lap is sealed, but the crown still stands. Pay a new entry for a fresh run.'}
+              ? 'Your run is over and it beats the crown. Grab it.'
+              : 'Your run is over, but the crown still stands. Pay a new entry for a fresh run.'}
           </p>
         </div>
       ) : (
@@ -106,7 +113,9 @@ export function LapPanel({
           <p className="mt-2 max-w-xl text-sm text-mute">
             {windowLeft === 0
               ? 'You missed the seal, so this run is over. Your entry comes back after the game, or you can pay a new entry for a fresh run.'
-              : cleanScore == null && crashScore == null
+              : outOfTime
+                ? 'There isn’t enough time left to race this lap. Your entry comes back after the game, or you can pay a new entry for a fresh run.'
+                : !hasTry
                 ? 'Race the lap above. You get two tries, then seal your best one.'
                 : [
                     cleanScore != null ? `Best clean try: ${cleanScore}. Seal it to race on.` : null,
@@ -115,10 +124,10 @@ export function LapPanel({
                     .filter(Boolean)
                     .join(' ')}
           </p>
-          {windowLeft != null && windowLeft > 0 && windowLeft <= 30_000 ? (
+          {windowLeft != null && windowLeft > 0 && windowLeft <= 30_000 && hasTry ? (
             <p className="mt-3 rounded-lg bg-danger/15 px-3 py-2 text-sm font-semibold text-danger">Seal now or you’re out of this run.</p>
           ) : null}
-          {windowLeft !== 0 && (cleanScore != null || crashScore != null) ? (
+          {windowLeft !== 0 && hasTry ? (
             <div className="mt-4 flex flex-wrap gap-3">
               {cleanScore != null ? (
                 <Button size="lg" onClick={() => onSeal('clean')} disabled={busy}>

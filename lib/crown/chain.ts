@@ -773,6 +773,15 @@ async function findBids(client: ccc.Client, matchTypeHash: string): Promise<ccc.
   return bids;
 }
 
+/** Every entry paid into a match: those still live, plus those spent taking the crown. Null until the match is on chain. */
+export async function countEntries(client: ccc.Client, matchId: string, hostLockHash: string): Promise<number | null> {
+  const cell = await findOne(client, getSuddenDeathMatchScript(concatArgs(matchId, hostLockHash)), 'type');
+  if (!cell?.cellOutput.type) return null;
+  const { pot, fee } = readMatch(cell);
+  const live = await findBids(client, cell.cellOutput.type.hash());
+  return live.length + Number(pot / fee);
+}
+
 /** Returns an unused entry to its owner after its refund time. */
 export async function expireBid(client: ccc.Client, point: OutPointRef): Promise<string> {
   const bid = await liveCell(client, point);

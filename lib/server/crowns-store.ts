@@ -502,7 +502,7 @@ export async function syncCrown(incoming: CrownRoom, sessionAddress: string): Pr
     next = {
       ...next,
       feed: [
-        { id: `${Date.now()}-open`, text: 'Game opened on chain. Entries are open; the clock starts after the countdown.', good: true },
+        { id: `${Date.now()}-open`, text: 'Game opened on chain. Entries open and the clock starts when the countdown ends.', good: true },
         ...next.feed,
       ].slice(0, 8),
     };
