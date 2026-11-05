@@ -1,4 +1,4 @@
-import { LANE_RULES, shrunkDeadline } from '@/lib/sudden-death/codec';
+import { GAME_RULES, shrunkDeadline } from '@/lib/sudden-death/codec';
 
 const KEY = 'keepers-crowns';
 
@@ -6,12 +6,12 @@ const KEY = 'keepers-crowns';
 export const DEFAULT_DURATION_MS = 30 * 60 * 1000;
 
 /** Games a crown can be played with. Each is a game script the match cell names by data hash. */
-export type GameId = 'lane-runner';
+export type GameId = 'crown-run';
 
 export const GAMES: Record<GameId, { title: string; blurb: string }> = {
-  'lane-runner': {
-    title: 'Lane Runner',
-    blurb: 'Three lanes, rows of blocks, faster every few seconds. Survive and grab coins. Two and a half minutes at most.',
+  'crown-run': {
+    title: 'Crown Run',
+    blurb: 'Five 30-second laps. Dodge the blocks, grab the coins, then pick your upgrades and your next road.',
   },
 };
 
@@ -64,7 +64,6 @@ export type CrownRoom = {
   /** When this browser sent a steal that the chain has not confirmed yet. */
   stealPendingAt?: number | null;
   /** A quiz crown from before version 2. The current scripts cannot play or close it. */
-  legacy?: boolean;
 };
 
 export type StoredRoom = Omit<CrownRoom, 'feeShannons' | 'potShannons'> & {
@@ -81,14 +80,13 @@ export function roomToStored(room: CrownRoom): StoredRoom {
 }
 
 export function roomFromStored(room: StoredRoom): CrownRoom {
-  const raw = room as StoredRoom & { questions?: unknown };
   return {
     id: room.id,
     title: room.title,
     feeShannons: BigInt(room.feeShannons),
     potShannons: BigInt(room.potShannons),
     durationMs: room.durationMs || DEFAULT_DURATION_MS,
-    game: room.game ?? 'lane-runner',
+    game: 'crown-run',
     status: room.status,
     round: room.round ?? 0,
     king: room.king ?? null,
@@ -107,7 +105,6 @@ export function roomFromStored(room: StoredRoom): CrownRoom {
     kingHash: room.kingHash ?? null,
     hostAddress: room.hostAddress ?? null,
     stealPendingAt: room.stealPendingAt ?? null,
-    legacy: room.legacy ?? (!room.game && Array.isArray(raw.questions)),
   };
 }
 
@@ -142,7 +139,6 @@ function emit() {
 
 export function listCrowns(): CrownRoom[] {
   return readAll()
-    .filter((room) => !room.legacy)
     .sort((a, b) => (b.openedAt ?? 0) - (a.openedAt ?? 0));
 }
 
@@ -192,10 +188,10 @@ export type CrownSetup = {
 
 /** A practice floor anyone can open: no stake beyond the entry fee, the default clock. */
 export const FLOOR_CROWN: CrownSetup = {
-  title: 'Lane Runner floor',
+  title: 'Crown Run',
   feeShannons: 50n * 100_000_000n,
   durationMs: DEFAULT_DURATION_MS,
-  game: 'lane-runner',
+  game: 'crown-run',
 };
 
 export function sealCrown(setup: CrownSetup): CrownRoom {
@@ -265,7 +261,7 @@ export function applySteal(room: CrownRoom, score: number, king: string, note: s
   const fee = ckbWhole(room.feeShannons);
   const now = Date.now();
   const before = room.deadlineAt ?? now;
-  const deadlineAt = shrunkDeadline(before, room.round, now, LANE_RULES.minLeftMs);
+  const deadlineAt = shrunkDeadline(before, room.round, now, GAME_RULES.minLeftMs);
   const cut = before - deadlineAt;
   return {
     ...room,

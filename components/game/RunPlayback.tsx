@@ -3,31 +3,29 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Play, RotateCcw } from 'lucide-react';
 import { ChainLoader } from '@/components/arena/ChainLoader';
+import { UpgradeBadges } from '@/components/game/RunPicks';
 import { Button } from '@/components/ui/Button';
-import { LANE, LEGACY_LANE, loadLaneRunner, loadLegacyLaneRunner, type LaneRunner } from '@/lib/game/lane-runner';
+import { CROWN_RUN, DANGER, loadCrownRun, picksDue, picksOf, type CrownRun, type LockedLap } from '@/lib/game/crown-run';
 import { createNightDrive, type NightDrive } from '@/lib/game/night-drive';
 
-const TICK_MS = 1000 / LANE.TICK_HZ;
+const TICK_MS = 1000 / CROWN_RUN.TICK_HZ;
 
-/** A recorded run: each lap's road seed and its lane changes (`tick u16 ‖ lane`), as the chain stores them. */
-export type RecordedRun = { laps: { seed: bigint; tape: Uint8Array }[]; /** Played on the older build of the game, with its shorter laps. */ legacy?: boolean; /** One tape for the whole run (before laps existed). */ whole?: boolean };
+/** A recorded run: each lap's road seed, then its moves and picks, as the chain stores them. */
+export type RecordedRun = { laps: LockedLap[] };
 
-/** Plays a recorded run back on the real game, like a video: the same roads, the same lane changes at the same ticks, scored by the same rules the chain replayed. */
+/** Plays a recorded run back on the real game, like a video: the same roads, moves and picks, scored by the same rules the chain replayed. */
 export function RunPlayback({ run, title }: { run: RecordedRun; title?: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const runnerRef = useRef<LaneRunner | null>(null);
+  const runnerRef = useRef<CrownRun | null>(null);
   const driveRef = useRef<NightDrive | null>(null);
   const frame = useRef(0);
   const [phase, setPhase] = useState<'loading' | 'ready' | 'playing' | 'done'>('loading');
-  const [hud, setHud] = useState({ score: 0, lap: 1 });
-  const legacy = Boolean(run.legacy);
-  const maxTicks = legacy ? LEGACY_LANE.maxTicks : LANE.MAX_TICKS;
-  const lapTicks = legacy ? LEGACY_LANE.lapTicks : LANE.LAP_TICKS;
-  const endTick = run.whole ? maxTicks : run.laps.length * lapTicks;
+  const [hud, setHud] = useState({ score: 0, lap: 1, owned: 0, road: 0 });
+  const endTick = run.laps.length * CROWN_RUN.LAP_TICKS;
 
   useEffect(() => {
     let stop = false;
-    void (legacy ? loadLegacyLaneRunner() : loadLaneRunner()).then((runner) => {
+    void loadCrownRun().then((runner) => {
       if (stop) return;
       runnerRef.current = runner;
       setPhase('ready');
@@ -38,18 +36,15 @@ export function RunPlayback({ run, title }: { run: RecordedRun; title?: string }
       driveRef.current?.dispose();
       driveRef.current = null;
     };
-  }, [legacy]);
+  }, []);
 
   const draw = useCallback(() => {
     const runner = runnerRef.current;
     const canvas = canvasRef.current;
     if (!runner || !canvas) return;
     if (!driveRef.current) driveRef.current = createNightDrive(canvas);
-    driveRef.current?.render(
-      { x: runner.x(), rows: runner.rows(), tick: runner.tick(), crashed: runner.over() && runner.tick() < maxTicks },
-      performance.now(),
-    );
-  }, [maxTicks]);
+    driveRef.current?.render({ x: runner.x(), rows: runner.rows(), tick: runner.tick(), crashed: runner.crashed(), speed: runner.speed() }, performance.now());
+  }, []);
 
   const play = useCallback(() => {
     const runner = runnerRef.current;
@@ -67,24 +62,25 @@ export function RunPlayback({ run, title }: { run: RecordedRun; title?: string }
       at = now;
       while (carry >= TICK_MS && !runner.over() && runner.tick() < endTick) {
         carry -= TICK_MS;
-        // Each lap drives its own road, exactly as the chain replayed it.
-        const index = run.whole ? 0 : Math.floor(runner.tick() / lapTicks);
-        if (index !== lap) {
-          lap = index;
-          cursor = 0;
-          runner.reseed(run.laps[index]!.seed);
-        }
-        const tape = run.laps[lap]!.tape;
-        const offset = cursor * LANE.EVENT_LEN;
+        const bytes = run.laps[lap]!.bytes;
+        const offset = cursor * CROWN_RUN.EVENT_LEN;
         let input: number | null = null;
-        if (offset < tape.length && (tape[offset]! | (tape[offset + 1]! << 8)) === runner.tick()) {
-          input = tape[offset + 2]!;
+        if (offset + CROWN_RUN.EVENT_LEN <= bytes.length && (bytes[offset]! | (bytes[offset + 1]! << 8)) === runner.tick()) {
+          input = bytes[offset + 2]!;
           cursor += 1;
         }
         runner.step(input);
+        // A lap's picks apply as it ends, then the next lap drives its own road.
+        if (runner.tick() === (lap + 1) * CROWN_RUN.LAP_TICKS && !runner.crashed() && run.laps[lap + 1]) {
+          const picks = picksOf(bytes, lap);
+          if (picksDue(lap) > 0 && picks.road != null) runner.choose(picks.upgrade, picks.road);
+          lap += 1;
+          cursor = 0;
+          runner.reseed(run.laps[lap]!.seed);
+        }
       }
       draw();
-      setHud({ score: runner.score(), lap: lap + 1 });
+      setHud({ score: runner.score(), lap: lap + 1, owned: runner.owned(), road: runner.road() });
       if (runner.over() || runner.tick() >= endTick) {
         setPhase('done');
         return;
@@ -92,16 +88,19 @@ export function RunPlayback({ run, title }: { run: RecordedRun; title?: string }
       frame.current = requestAnimationFrame(loop);
     };
     frame.current = requestAnimationFrame(loop);
-  }, [run, endTick, lapTicks, draw]);
+  }, [run, endTick, draw]);
 
   return (
     <div className="relative overflow-hidden rounded-2xl bg-ink-2">
       <canvas ref={canvasRef} className="block h-[min(56vh,460px)] w-full" aria-label={title ?? 'Recorded run'} />
       {phase === 'playing' || phase === 'done' ? (
         <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between bg-gradient-to-b from-ink/70 to-transparent p-3 pb-8 font-mono text-[11px] uppercase text-white/80">
-          <span>{run.whole ? 'Run' : `Lap ${Math.min(hud.lap, run.laps.length)} of ${run.laps.length}`}</span>
+          <div>
+            <p>Lap {Math.min(hud.lap, run.laps.length)} of {run.laps.length}</p>
+            <p className={hud.road === DANGER ? 'text-danger' : 'text-lime'}>{hud.road === DANGER ? 'Danger road' : 'Safe road'}</p>
+          </div>
           <span className="font-poster text-3xl font-black leading-none tabular-nums text-white">{hud.score}</span>
-          <span>Replay</span>
+          <UpgradeBadges owned={hud.owned} />
         </div>
       ) : null}
       {phase !== 'playing' ? (

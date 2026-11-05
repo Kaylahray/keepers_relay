@@ -15,10 +15,10 @@ export const LAP_WINDOW_MS = 2 * 60 * 1000;
 export const V5_LAP_WINDOW_MS = 3 * 60 * 1000;
 /** A game's rules, as its script declares them and the chain holds it to. */
 export type GameRules = { laps: number; lapWindowMs: number; minLeftMs: number };
-/** The least a steal can leave on the clock in the lane runner, counted from its run's last seal. */
-export const MIN_LEFT_MS = 5 * 60 * 1000;
-/** The lane runner's rules. The chain refuses a match or race that names anything else for it. */
-export const LANE_RULES: GameRules = { laps: 5, lapWindowMs: LAP_WINDOW_MS, minLeftMs: MIN_LEFT_MS };
+/** The least a steal can leave on the clock in Crown Run, counted from its run's last locked lap. */
+export const MIN_LEFT_MS = 7 * 60 * 1000;
+/** Crown Run's rules. The chain refuses a match that names anything else for it. */
+export const GAME_RULES: GameRules = { laps: 5, lapWindowMs: LAP_WINDOW_MS, minLeftMs: MIN_LEFT_MS };
 /** What every match before per-game rules ran on. Kept to verify old matches. */
 const OLD_RULES: GameRules = { laps: 5, lapWindowMs: V5_LAP_WINDOW_MS, minLeftMs: 0 };
 /** Laps in a full run. */
@@ -303,7 +303,7 @@ export function decodeMatchCell(raw: Uint8Array): MatchCell {
 }
 
 /** A new entry: no laps sealed yet, and the lock hash of the key cell that will seal them. */
-export function encodeBidData(owner: ccc.Script, refundAfterMs: bigint, nonce = 0n, key: Uint8Array = new Uint8Array(32), rules: GameRules = LANE_RULES): Uint8Array {
+export function encodeBidData(owner: ccc.Script, refundAfterMs: bigint, nonce = 0n, key: Uint8Array = new Uint8Array(32), rules: GameRules = GAME_RULES): Uint8Array {
   const script = owner.toBytes();
   const data = new Uint8Array(BID_HEADER_LEN + script.length);
   data[0] = BID_VERSION;

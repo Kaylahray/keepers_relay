@@ -3,12 +3,12 @@
 version = 4
 
 [[package]]
-name = "crowns-game-core"
+name = "crowns-crown-run-core"
 version = "0.1.0"
 
 [[package]]
-name = "crowns-game-wasm"
+name = "crowns-crown-run-wasm"
 version = "0.1.0"
 dependencies = [
- "crowns-game-core",
+ "crowns-crown-run-core",
 ]

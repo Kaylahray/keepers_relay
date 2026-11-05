@@ -4,7 +4,7 @@ Crowns is a set of skill games on Nervos CKB. Players stake CKB, and the chain d
 
 ## Games
 
-**Crowns** are king-of-the-hill games for many players. A host opens a crown with an entry fee and a clock. Players drive 5 laps of the lane runner. A higher score takes the crown, adds the entry to the pot and shortens the clock. The player holding the crown when the clock runs out wins the pot.
+**Crowns** are king-of-the-hill games for many players. A host opens a crown with an entry fee and a clock. Players drive 5 laps of Crown Run, picking upgrades and roads between laps. A higher score takes the crown, adds the entry to the pot and shortens the clock. The player holding the crown when the clock runs out wins the pot.
 
 **Duels** are one-on-one games. Both players lock the same stake and play one of two games:
 
@@ -41,9 +41,9 @@ The scripts are written in Rust for CKB-VM v2 and live in `scripts/sudden-death/
 | `treasury-lock` | Holds the crown pot and pays the winner at close |
 | `bid-type` | A player's entry: proof of work, saved laps, refund |
 | `duel-type` | Duels: open, cancel, accept, shot, skip, race result, finish |
-| `lane-runner` | Replays a lane runner run and returns the score |
+| `crown-run` | Replays a Crown Run run and returns the score |
 | `artillery` | Replays a duel's shots and returns the result |
-| `game-core` | Lane runner rules, shared by the chain and the browser (WebAssembly) |
+| `crown-run-core` | Crown Run rules, shared by the chain and the browser (WebAssembly) |
 | `artillery-core` | Artillery rules, mirrored in `lib/duel/artillery.ts` and tested for matching results |
 | `common` | Shared cell layouts, clock rules and helpers |
 
@@ -73,9 +73,9 @@ Crowns from earlier deployments (v1, v2, v4) can still be checked at `/verify`.
 | `app/` | Pages and API routes |
 | `components/ui/` | Shared UI components |
 | `components/crown/`, `components/duel/` | Crown and duel screens, including the artillery game |
-| `components/game/` | Lane runner game and run playback |
+| `components/game/` | Crown Run screens and run playback |
 | `lib/crown/`, `lib/duel/` | Building and reading crown and duel transactions |
-| `lib/game/` | Lane runner WebAssembly loader |
+| `lib/game/` | Crown Run WebAssembly loader |
 | `lib/sudden-death/` | Cell layouts, seeds and the replay check used by `/verify` |
 | `lib/registry/` | Usernames, profiles and script configuration |
 | `lib/server/`, `lib/db/` | Database access (Neon Postgres): crowns, players, sign-in |

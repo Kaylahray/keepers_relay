@@ -1,0 +1,53 @@
+{
+  "cell_recipes": [
+    {
+      "name": "match-type",
+      "tx_hash": "0x2e39ef6ba56591cc29e5198e7428a723d7f959e5825ff759232eafac4d733563",
+      "index": 0,
+      "occupied_capacity": 7103000000000,
+      "data_hash": "0x2096d41574c35ee6687fe9e5195c371c9551226316388f4313cca38ecd7b4f36",
+      "type_id": "0x3e1240fd9efbb38e72466449301ef2a96f5554ca4cd9a0a0ff16623290a01d34"
+    },
+    {
+      "name": "bid-type",
+      "tx_hash": "0x2e39ef6ba56591cc29e5198e7428a723d7f959e5825ff759232eafac4d733563",
+      "index": 1,
+      "occupied_capacity": 6247000000000,
+      "data_hash": "0x3b4a5fb6f71b6afeedb0f7cc95c342a1ebfc2b2a5ef6634d4211be800f1d76eb",
+      "type_id": "0x5c41a20b5b4361448b8fd3fde00dfbd4464d0f1d7abb66e7b8729cbce61671ac"
+    },
+    {
+      "name": "treasury-lock",
+      "tx_hash": "0x2e39ef6ba56591cc29e5198e7428a723d7f959e5825ff759232eafac4d733563",
+      "index": 2,
+      "occupied_capacity": 5355000000000,
+      "data_hash": "0xa22280ae1a21a4a91bab4609cacdd4e22feba692a6f07e8e586ff897afd692a7",
+      "type_id": "0x7dab4b0d44d7ab6b2df6befa902ac4268f5c8c4e29a8bc90eb52a90711b99241"
+    },
+    {
+      "name": "duel-type",
+      "tx_hash": "0x2e39ef6ba56591cc29e5198e7428a723d7f959e5825ff759232eafac4d733563",
+      "index": 3,
+      "occupied_capacity": 7707800000000,
+      "data_hash": "0xd63c1694db88b5d635ba33a7ca72af638208f28a81f010e1e85f8ac90d5bfce9",
+      "type_id": "0x726d6e4b30737e5caade98ee78f25fcfd7d495ea76971861768c4e267e20b0d1"
+    },
+    {
+      "name": "artillery",
+      "tx_hash": "0xbdd9ca1cbff34f234659c5dbeb5f4d9254e92c30b68258ac68d593ca47bb4fb0",
+      "index": 1,
+      "occupied_capacity": 4106100000000,
+      "data_hash": "0x1979b2698583fdcb24d5862eef66cd81cf74c3a3ef11a556626f013f059aed3c",
+      "type_id": null
+    },
+    {
+      "name": "crown-run",
+      "tx_hash": "0x264212a2202baf7ae25be1df9d1c8a4eef0ba3c6f55548c863b681ef7da8aed2",
+      "index": 0,
+      "occupied_capacity": 4032500000000,
+      "data_hash": "0x162bd6157c8ebb64cb5ce3e9f0f776a08b0e1748286cc5895405b3681443b372",
+      "type_id": null
+    }
+  ],
+  "dep_group_recipes": []
+}

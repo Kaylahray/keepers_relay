@@ -129,7 +129,7 @@ export const suddenDeathGame: ScriptConfig = {
   depType: "code",
 };
 
-/** The duel script: two stakes in escrow, an artillery duel or a lane race, judged by replay. */
+/** The duel script: two stakes in escrow, an artillery duel, judged by replay. */
 export const duelType: ScriptConfig = {
   codeHash: pick(process.env.NEXT_PUBLIC_SD_DUEL_CODE_HASH),
   hashType: asHashType(process.env.NEXT_PUBLIC_SD_DUEL_HASH_TYPE),
@@ -206,7 +206,8 @@ export function assertSuddenDeathConfigured(): void {
 }
 
 // CKB tx fee estimation (shannons per kB) — passed to `completeFeeBy`.
-export const REGISTRY_FEE_RATE = BigInt(2000);
+/** Shannons per KB. High enough to beat a crowded pool, since lap windows and turns are short: about 0.001 CKB per KB. */
+export const REGISTRY_FEE_RATE = BigInt(100_000);
 
 export const USERNAME_RULES = {
   minLength: 3,

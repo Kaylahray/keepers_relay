@@ -9,7 +9,6 @@ import { ChainLoader } from '@/components/arena/ChainLoader';
 import { Avatar } from '@/components/duel/Avatar';
 import { Button } from '@/components/ui/Button';
 import { Ckb, ChoiceChip, Stepper } from '@/components/ui/kit';
-import { ART } from '@/lib/art';
 import { loadAvatarSpore } from '@/hooks/usePublicProfile';
 import { useUsername } from '@/hooks/useUsername';
 import { useWallet } from '@/hooks/useWallet';
@@ -18,7 +17,7 @@ import { getCkbClient } from '@/lib/ckb/client';
 import { plainChainError } from '@/lib/ckb/errors';
 import { newSessionKey } from '@/lib/crown/chain';
 import { openDuel } from '@/lib/duel/chain';
-import { artilleryTimer, KIND_ARTILLERY, KIND_RACE, MIN_RACE_MS, type DuelKind } from '@/lib/duel/codec';
+import { artilleryTimer } from '@/lib/duel/codec';
 import { rememberPendingKey, saveDuelKey } from '@/lib/duel/keys';
 import { duelsConfigured } from '@/lib/registry/config';
 
@@ -32,7 +31,7 @@ const TIMERS = [
 /** Under Pressure each turn is this much shorter than the last, down to 30 seconds. */
 const PRESSURE_SHRINK_MS = 5_000;
 /** Roughly what the duel cell needs for its own storage, returned to the challenger at the end. */
-const DEPOSIT_CKB: Record<DuelKind, number> = { [KIND_ARTILLERY]: 442, [KIND_RACE]: 341 };
+const DEPOSIT_CKB = 442;
 
 type Opponent = { address: string; name: string } | null;
 
@@ -44,17 +43,15 @@ export function NewDuelView() {
   const { isConnected, address } = useWallet();
   const { username } = useUsername();
   const players = useQuery({ queryKey: ['builders', 'roster'], queryFn: listBuilders });
-  const [kind, setKind] = useState<DuelKind>(params.get('game') === 'race' ? KIND_RACE : KIND_ARTILLERY);
   const [stake, setStake] = useState(25);
   const [timerMs, setTimerMs] = useState(60_000);
-  const [pressure, setPressure] = useState(false);
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const vs = params.get('vs');
   const [picked, setPicked] = useState<Opponent | undefined>(undefined);
   // A link that already names the game (and the opponent) starts past those steps.
-  const [step, setStep] = useState(params.get('game') ? (vs ? 2 : 1) : 0);
+  const [step, setStep] = useState(vs ? 2 : 1);
 
   const roster = useMemo(
     () =>
@@ -86,9 +83,8 @@ export function NewDuelView() {
       rememberPendingKey(session.secret);
       setBusy('Approve in your wallet to lock your stake…');
       const opened = await openDuel(signer, {
-        kind,
         stake: BigInt(stake) * CKB,
-        timerMs: kind === KIND_RACE ? BigInt(MIN_RACE_MS) : artilleryTimer(timerMs, pressure ? PRESSURE_SHRINK_MS : 0),
+        timerMs: artilleryTimer(timerMs, PRESSURE_SHRINK_MS),
         opponentLockHash,
         session,
       });
@@ -100,14 +96,14 @@ export function NewDuelView() {
     }
   }
 
-  const steps = ['Game', 'Opponent', 'Stake', kind === KIND_ARTILLERY ? 'Timer' : 'Race'];
+  const steps = ['Opponent', 'Stake', 'Timer'];
   const timerLabel = TIMERS.find((t) => t.ms === timerMs)?.label ?? `${timerMs / 1000}s`;
 
   return (
     <div className="mx-auto w-full max-w-4xl px-4 pt-6 md:px-8 md:pt-12">
       <button
         type="button"
-        onClick={() => (step ? setStep(step - 1) : router.push('/duels'))}
+        onClick={() => (step > 1 ? setStep(step - 1) : router.push('/duels'))}
         className="mb-6 inline-flex h-10 items-center gap-2 text-sm font-semibold text-mute hover:text-white"
       >
         <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Back
@@ -118,32 +114,11 @@ export function NewDuelView() {
 
       {step < 4 ? (
         <div className="mt-8">
-          <Stepper steps={steps} current={step} tone="pink" onJump={setStep} />
+          <Stepper steps={steps} current={step - 1} tone="pink" onJump={(i) => setStep(i + 1)} />
         </div>
       ) : null}
 
       <div className="mt-8 min-h-[320px]">
-        {step === 0 ? (
-          <fieldset>
-            <legend className="font-poster text-lg font-bold uppercase">Pick the game</legend>
-            <div role="radiogroup" className="mt-4 grid gap-4 sm:grid-cols-2">
-              {[
-                { id: KIND_ARTILLERY as DuelKind, name: 'Artillery', body: 'Two tanks take turns firing over a stone tower. Angle, power and wind.', img: ART.artillery },
-                { id: KIND_RACE as DuelKind, name: 'Lane race', body: 'You both drive the same 5 laps. Higher score wins.', img: ART.laneRace },
-              ].map((g) => (
-                <ChoiceChip key={g.id} selected={kind === g.id} tone="pink" onClick={() => setKind(g.id)} className="overflow-hidden p-0">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={g.img} alt="" className="aspect-video w-full object-cover" />
-                  <div className="p-4">
-                    <p className="font-poster text-base font-bold uppercase">{g.name}</p>
-                    <p className="mt-1 text-sm text-mute">{g.body}</p>
-                  </div>
-                </ChoiceChip>
-              ))}
-            </div>
-          </fieldset>
-        ) : null}
-
         {step === 1 ? (
           <fieldset>
             <legend className="font-poster text-lg font-bold uppercase">Pick your opponent</legend>
@@ -223,7 +198,7 @@ export function NewDuelView() {
           </fieldset>
         ) : null}
 
-        {step === 3 && kind === KIND_ARTILLERY ? (
+        {step === 3 ? (
           <div className="space-y-8">
             <fieldset>
               <legend className="font-poster text-lg font-bold uppercase">Turn timer</legend>
@@ -236,27 +211,7 @@ export function NewDuelView() {
                 ))}
               </div>
             </fieldset>
-            <fieldset>
-              <legend className="font-poster text-lg font-bold uppercase">Pace</legend>
-              <div role="radiogroup" className="mt-4 grid gap-3 sm:grid-cols-2">
-                <ChoiceChip selected={!pressure} tone="pink" onClick={() => setPressure(false)}>
-                  <span className="block font-semibold">Classic</span>
-                  <span className="mt-1 block text-sm text-mute">Every turn gets {timerLabel}.</span>
-                </ChoiceChip>
-                <ChoiceChip selected={pressure} tone="pink" onClick={() => setPressure(true)}>
-                  <span className="block font-semibold">Pressure</span>
-                  <span className="mt-1 block text-sm text-mute">Each turn is 5 seconds shorter than the last, never below 30 seconds.</span>
-                </ChoiceChip>
-              </div>
-              <p className="mt-3 text-sm text-mute">Miss your turn and it passes to the other player.</p>
-            </fieldset>
-          </div>
-        ) : null}
-
-        {step === 3 && kind === KIND_RACE ? (
-          <div>
-            <p className="font-poster text-lg font-bold uppercase">Race length</p>
-            <p className="mt-3 rounded-2xl bg-ink-2 p-5 text-sm text-mute">10 minutes for both of you: five laps of 30 seconds, each with two tries and a 2-minute window to seal.</p>
+            <p className="text-sm text-mute">The first turn gets {timerLabel}. Each turn after that is 5 seconds shorter, never below 30 seconds. Miss your turn and it passes to the other player.</p>
           </div>
         ) : null}
 
@@ -286,10 +241,10 @@ export function NewDuelView() {
             </section>
             <dl className="divide-y divide-white/5 rounded-2xl bg-ink-2 px-5">
               {[
-                ['Game', kind === KIND_ARTILLERY ? 'Artillery' : 'Lane race'],
-                ['Timer', kind === KIND_ARTILLERY ? `${timerLabel} · ${pressure ? 'Pressure' : 'Classic'}` : '10 minutes · 5 laps'],
+                ['Game', 'Artillery'],
+                ['Timer', `${timerLabel}, then 5 seconds less each turn`],
                 ['You lock', `${stake} CKB stake`],
-                ['Storage deposit', `About ${DEPOSIT_CKB[kind]} CKB · comes back when the duel ends`],
+                ['Storage deposit', `About ${DEPOSIT_CKB} CKB · comes back when the duel ends`],
               ].map(([k, v]) => (
                 <div key={k} className="flex items-center justify-between gap-4 py-3.5 text-sm">
                   <dt className="text-mute">{k}</dt>

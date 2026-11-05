@@ -1,7 +1,7 @@
-//! Game script for the lane runner. Never a lock or type script: match-type spawns it.
+//! Game script for Crown Run. Never a lock or type script: match-type spawns it.
 //!
 //! Game ABI v2 (see `score_run` in sudden-death-common): one argument, the hex of
-//! `lap count u8` then per lap `seed u64 LE ‖ tape length u16 LE ‖ tape`, and one inherited fd.
+//! `lap count u8` then per lap `seed u64 LE ‖ length u16 LE ‖ moves and picks`, and one inherited fd.
 //! Writes the score as u64 LE to the fd and exits 0; exits non-zero for an illegal run.
 //! Spawned with an empty argument, it writes the game's rules to the fd instead.
 
@@ -34,9 +34,9 @@ fn program_entry() -> i8 {
         return ERR_FD;
     }
     if raw.is_empty() {
-        return send(fds[0], &crowns_game_core::rules());
+        return send(fds[0], &crowns_crown_run_core::rules());
     }
-    let Ok(outcome) = crowns_game_core::replay_encoded(&raw) else {
+    let Ok(outcome) = crowns_crown_run_core::replay_encoded(&raw) else {
         return ERR_TAPE;
     };
     send(fds[0], &outcome.score.to_le_bytes())

@@ -6,7 +6,6 @@ import { ArtilleryReplay } from '@/components/duel/ArtilleryReplay';
 import { Avatar } from '@/components/duel/Avatar';
 import { SIDE_COLORS } from '@/components/duel/colors';
 import { useChainPictures } from '@/components/duel/useChainPictures';
-import { RunPlayback } from '@/components/game/RunPlayback';
 import { getCkbClient } from '@/lib/ckb/client';
 import type { DuelMove, DuelReplay } from '@/lib/duel/verify';
 import { KIND_ARTILLERY } from '@/lib/duel/codec';
@@ -33,7 +32,7 @@ export function DuelVerify({ replay }: { replay: DuelReplay }) {
   const players: [string, string] = [nameOf(names, replay.challenger), nameOf(names, replay.opponent)];
   const [picture0, picture1] = useChainPictures([replay.challenger, replay.opponent]);
   const pictures: [string | null | undefined, string | null | undefined] = [picture0, picture1];
-  const game = replay.kind === KIND_ARTILLERY ? 'Artillery' : 'Lane race';
+  const game = 'Artillery';
 
   const outcome =
     replay.status === 'cancelled'
@@ -67,22 +66,6 @@ export function DuelVerify({ replay }: { replay: DuelReplay }) {
       {/* The game, played back from the chain's own records */}
       {replay.kind === KIND_ARTILLERY && replay.seed !== null && replay.shots.length > 0 ? (
         <ArtilleryReplay seed={replay.seed} shots={replay.shots} names={players} pictures={pictures} />
-      ) : null}
-      {replay.runs.length > 0 ? (
-        <div className="grid gap-4 md:grid-cols-2">
-          {replay.runs.map((run) => (
-            <div key={run.txHash}>
-              <p className="mb-2 font-poster text-base font-bold uppercase">
-                {players[run.side]} · {String(run.score)} points
-              </p>
-              {run.laps.length > 0 ? (
-                <RunPlayback run={{ laps: run.laps, legacy: run.legacy }} title={`${players[run.side]}'s five laps`} />
-              ) : (
-                <p className="text-sm text-mute">No laps were handed in, so there is nothing to watch.</p>
-              )}
-            </div>
-          ))}
-        </div>
       ) : null}
 
       {/* The verdict */}

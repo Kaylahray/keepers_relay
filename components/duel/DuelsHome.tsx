@@ -244,8 +244,7 @@ export function DuelsHome() {
             </h2>
             <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
               {[
-                { name: 'Artillery', body: 'Fire over the tower. Read the wind.', img: ART.artillery, game: 'artillery' },
-                { name: 'Lane race', body: 'Same 5 laps. Higher score wins.', img: ART.laneRace, game: 'race' },
+                { name: 'Artillery', body: 'Fire over the tower. Read the wind.', img: ART.artillery },
               ].map((g) => (
                 <article key={g.name} className="flex flex-col overflow-hidden rounded-2xl bg-ink-2">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -254,7 +253,7 @@ export function DuelsHome() {
                     <h3 className="font-poster text-sm font-bold uppercase">{g.name}</h3>
                     <p className="mt-1 text-sm text-mute">{g.body}</p>
                     <div className="mt-auto pt-4">
-                      <Button href={`/duels/new?game=${g.game}`} variant="pink" size="sm">
+                      <Button href="/duels/new" variant="pink" size="sm">
                         Challenge
                       </Button>
                     </div>
@@ -302,7 +301,7 @@ function DuelRow({ duel: snap, names, me }: { duel: DuelSnapshot; names: Map<str
           </p>
           <p className="mt-0.5 flex items-center gap-1.5 truncate text-xs text-mute">
             <GameIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-            {artillery ? `Artillery · ${pressure ? 'Pressure' : 'Classic'}` : 'Lane race'}
+            {pressure ? 'Artillery · Pressure' : 'Artillery'}
             {live && artillery ? ` · shot ${Math.min(30, duel.shots.length + 1)}/30` : live ? ' · racing' : ' · waiting for an accept'}
           </p>
         </div>
@@ -358,7 +357,7 @@ function FinishedRow({ item, names, me }: { item: FinishedDuel; names: Map<strin
           </p>
           <p className="mt-0.5 flex items-center gap-1.5 truncate text-xs text-mute">
             <GameIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-            {artillery ? 'Artillery' : 'Lane race'}
+            Artillery
             {when ? ` · ${when}` : ''}
           </p>
           <p className={`mt-1 text-sm font-semibold ${result.tone}`}>{result.text}</p>

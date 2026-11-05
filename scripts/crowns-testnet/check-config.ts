@@ -32,7 +32,7 @@ async function main() {
     ['bid-type', config.suddenDeathBidType],
     ['treasury-lock', config.suddenDeathTreasuryLock],
     ['proxy-lock', config.suddenDeathProxyLock],
-    ['lane-runner', config.suddenDeathGame],
+    ['crown-run', config.suddenDeathGame],
   ] as const;
   const deps = getSuddenDeathCellDeps();
   for (const [index, [name, script]] of named.entries()) {

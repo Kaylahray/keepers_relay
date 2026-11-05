@@ -241,7 +241,7 @@ function DuelSlide({ duel: snap, names }: { duel: DuelSnapshot; names: Map<strin
   const [challengerPicture, opponentPicture] = useChainPictures([bytesToHex(duel.challenger), opponentHash === ZERO ? null : opponentHash]);
   const opponent = opponentHash === ZERO ? 'anyone' : nameOf(names, opponentHash);
   const artillery = duel.kind === KIND_ARTILLERY;
-  const game = artillery ? (timerShrinkMs(duel.timerMs) > 0n ? 'Artillery · Pressure' : 'Artillery') : 'Lane race';
+  const game = timerShrinkMs(duel.timerMs) > 0n ? 'Artillery · Pressure' : 'Artillery';
   const stake = Number(duel.stake / 100_000_000n);
   // Artillery health, replayed from the shots on chain.
   const board = artillery && live && duel.shots.length > 0 ? replay(duelSeed(hexToBytes(snap.duelId), duel.seedBlock), duel.shots) : null;

@@ -19,7 +19,7 @@ import {
   MATCH_VERSION,
   MAX_TX_FEE,
   REFUND_GRACE_MS,
-  LANE_RULES,
+  GAME_RULES,
   lapOnTime,
   runSeed,
   runWitness,
@@ -110,7 +110,6 @@ export class RunBeatenError extends Error {
 
 type Signer = ccc.Signer;
 
-/** A finished run: its tape, and the score the wasm build gave it on the player's own course. */
 /** A finished run: every sealed lap (the block that seeded its road, and its moves), and the score the wasm build gave the whole run. */
 export type PlayedRun = { laps: SealedLap[]; score: number };
 
@@ -285,7 +284,7 @@ export async function entryLap(
   };
 }
 
-/** Seals a finished lap into the player's entry. */
+/** Locks a finished lap, and its picks, into the player's entry. */
 export async function sealLap(
   client: ccc.Client,
   entry: OutPointRef,
@@ -300,9 +299,9 @@ export async function sealLap(
   if (!landed) throw new Error('Your entry is still confirming. Give it a few seconds.');
   const raw = hexToBytes(cell.outputData);
   const run = decodeEntryRun(raw);
-  if (run.laps >= run.runLaps) throw new Error('Every lap is already sealed.');
+  if (run.laps >= run.runLaps) throw new Error('Every lap is already locked.');
   if (run.laps > 0 && !lapOnTime(run.lapStartMs, landed.landedMs, run.lapWindowMs)) {
-    throw new Error('Your last lap was sealed after its window closed, so this run can’t go on.');
+    throw new Error('Your last lap was locked after its time ran out, so this run can’t go on.');
   }
   const movesHash = ckbHash([tape]);
   const chain = foldLap(run.chain, hexToBytes(landed.blockHash), movesHash);
@@ -315,7 +314,7 @@ export async function sealLap(
   // The key cell rides along: CKB's built-in lock checks the session key signed this whole transaction, new lap chain included, and the key cell pays the miner fee.
   const signer = new ccc.SignerCkbPrivateKey(client, session);
   const key = await keyCellOf(signer);
-  if (!key) throw new Error('This run’s key cell is missing, so its laps can’t be sealed.');
+  if (!key) throw new Error('This run’s key cell is missing, so its laps can’t be locked.');
   const tx = ccc.Transaction.from({
     inputs: [
       ccc.CellInput.from({ previousOutput: cell.outPoint, since: 0 }),
@@ -331,7 +330,7 @@ export async function sealLap(
   });
   tx.setWitnessArgsAt(0, { inputType: ccc.hexFrom(witness) });
   await tx.completeFeeChangeToOutput(signer, 1, REGISTRY_FEE_RATE);
-  onStatus?.(`Sealing lap ${laps} on chain…`);
+  onStatus?.(`Locking lap ${laps} on chain…`);
   const txHash = await signer.sendTransaction(tx);
   return { txHash, index: '0x0' };
 }
@@ -420,7 +419,7 @@ export async function openMatch(signer: Signer, room: CrownRoom): Promise<CrownR
       certified: ZERO_32,
       certifiedScore: 0n,
       powBits: DEFAULT_POW_BITS,
-      rules: LANE_RULES,
+      rules: GAME_RULES,
     });
   // The type id depends on the first input, which is only known once the wallet funds the transaction.
   const matchScript = getSuddenDeathMatchScript(concatArgs(ccc.hexFrom(ZERO_32), hostHash));
@@ -542,6 +541,20 @@ export async function lockBid(
 }
 
 /** Submits a run as a steal. */
+/** Who the prize goes to right now. A takeover that landed late still shows as the holder, but can't win. */
+export async function prizeStanding(client: ccc.Client, room: CrownRoom): Promise<{ late: boolean; lockHash: string; score: number } | null> {
+  const { cell } = await locateMatch(client, room);
+  const current = readMatch(cell);
+  if (current.king.every((byte) => byte === 0)) return null;
+  const postmark = await postmarkOf(client, cell);
+  const certified = certifiedAfter(current, postmark.landedMs);
+  return {
+    late: !sameHash(bytesToHex(certified.king), bytesToHex(current.king)),
+    lockHash: bytesToHex(certified.king),
+    score: Number(certified.score),
+  };
+}
+
 export async function stealCrown(
   client: ccc.Client,
   room: CrownRoom,
@@ -563,10 +576,10 @@ export async function stealCrown(
   // The run sealed into the entry: the laps the script will replay.
   const sealed = decodeEntryRun(hexToBytes(bid.outputData));
   if (sealed.laps === 0 || sealed.laps !== run.laps.length) {
-    throw new Error('Seal your laps before grabbing the crown.');
+    throw new Error('Lock your laps before taking the crown.');
   }
   const bidLanded = await landedBlock(client, bid.outPoint.txHash);
-  if (!bidLanded) throw new Error('Your last seal is still confirming. Give it a few seconds.');
+  if (!bidLanded) throw new Error('Your last lap is still confirming. Give it a few seconds.');
   if (!lapOnTime(sealed.lapStartMs, bidLanded.landedMs, sealed.lapWindowMs) || Date.now() > Number(bidLanded.landedMs) + sealed.lapWindowMs) {
     throw new RoadExpiredError();
   }
@@ -623,7 +636,7 @@ export async function stealCrown(
     { ...working, bidOutPoint: null, deadlineAt: Number(current.deadlineMs) },
     run.score,
     'You',
-    `${run.laps.length} laps, ${run.laps.reduce((sum, lap) => sum + lap.tape.length / 3, 0)} moves, replayed on chain`,
+    `${run.laps.length} laps, ${run.laps.reduce((sum, lap) => sum + Math.floor(lap.tape.length / 3), 0)} moves, replayed on chain`,
   );
   const seals = moved.seals.slice();
   if (seals[0]) seals[0] = { ...seals[0], txHash };

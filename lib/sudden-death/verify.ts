@@ -1,7 +1,6 @@
-import { LEGACY_LANE } from '@/lib/game/lane-runner';
 import { ccc } from '@ckb-ccc/core';
 import { suddenDeathGame, suddenDeathMatchType } from '@/lib/registry/config';
-import type { LaneRunner } from '@/lib/game/lane-runner';
+import type { CrownRun, LockedLap } from '@/lib/game/crown-run';
 import {
   decodeMatchCell,
   hexToBytes,
@@ -10,12 +9,10 @@ import {
   landBy,
   landByV4,
   runSeed,
-  runSeedV1,
   shrunkDeadlineV5,
   shrunkDeadline,
   decodeEntryRun,
   lapsFromWitness,
-  tapeFromWitness,
   winnerOf,
   type MatchCell,
 } from '@/lib/sudden-death/codec';
@@ -39,12 +36,12 @@ export type StealCheck = {
   kingAfter: string;
   /** Score this steal wrote into the match cell. */
   score: number;
-  /** What the run in the witness scores when replayed here, or null if it could not be replayed (an older game build). */
+  /** What the run in the witness scores when replayed here, or null if it could not be replayed (another game). */
   replayed: number | null;
   /** Lane changes in the run. */
   moves: number;
   /** The run as recorded: each lap's road seed and lane changes, to play it back. Null if unreadable. */
-  run: { laps: { seed: bigint; tape: Uint8Array }[]; whole?: boolean; legacy?: boolean } | null;
+  run: { laps: LockedLap[] } | null;
   /** Replayed score equals the recorded one, beats the crown before it, and crowned someone new. */
   runOk: boolean;
   /** Round advanced by exactly one. */
@@ -153,7 +150,7 @@ async function entryRunOf(client: ccc.Client, tx: ccc.Transaction, bidCode: Uint
 }
 
 /** Walk a match back to the transaction that opened it. */
-export async function replayMatch(client: ccc.Client, startTxHash: string, current: LaneRunner, older?: LaneRunner): Promise<MatchReplay> {
+export async function replayMatch(client: ccc.Client, startTxHash: string, current: CrownRun): Promise<MatchReplay> {
   if (suddenDeathMatchType.codeHash.length <= 2) {
     throw new VerifyError('This build has no Sudden Death match script configured.');
   }
@@ -239,9 +236,7 @@ export async function replayMatch(client: ccc.Client, startTxHash: string, curre
 
   const opened = decodeMatchCell(hexToBytes(open.tx.outputsData[open.index]!));
   const gameHex = bytesToHex(opened.game);
-  // Each game is replayed by the build it was played on.
-  const legacy = gameHex.toLowerCase() === LEGACY_LANE.gameHash;
-  const game = gameHex.toLowerCase() === suddenDeathGame.codeHash.toLowerCase() ? current : legacy ? older : undefined;
+  const game = gameHex.toLowerCase() === suddenDeathGame.codeHash.toLowerCase() ? current : undefined;
   const gameKnown = game != null;
 
   const steals: StealCheck[] = [];
@@ -260,20 +255,11 @@ export async function replayMatch(client: ccc.Client, startTxHash: string, curre
     const score = Number(state.kingScore);
     // Since v4 a run is played in laps, each on the road seeded by the block it was sealed against.
     const laps = postmarked && rawWitness ? lapsFromWitness(rawWitness) : null;
-    const tape = !postmarked && rawWitness ? tapeFromWitness(rawWitness) : null;
     const entry = postmarked ? await entryRunOf(client, hop.tx, before.bidCode).catch(() => null) : null;
-    const run = laps
-      ? { laps: laps.map((lap) => ({ seed: runSeed(matchId, state.king, lap.block), tape: lap.tape })) }
-      : tape
-        ? { laps: [{ seed: runSeedV1(matchId, state.king), tape }], whole: true }
-        : null;
+    const run = laps ? { laps: laps.map((lap) => ({ seed: runSeed(matchId, state.king, lap.block), bytes: lap.tape })) } : null;
     let replayed: number | null = null;
-    if (game && laps && run) {
-      replayed = game.replayLaps(run.laps);
-    } else if (game && tape) {
-      replayed = game.replay(runSeedV1(matchId, state.king), tape);
-    }
-    // A crown played on an older build of the game cannot be replayed by this page's build.
+    if (game && run) replayed = game.replay(run.laps);
+    // A crown played on another game cannot be replayed here.
     const beatsKing = score > Number(before.kingScore) && !sameBytes(state.king, before.king);
     const runOk = gameKnown ? replayed === score && beatsKing : beatsKing;
 
@@ -320,8 +306,8 @@ export async function replayMatch(client: ccc.Client, startTxHash: string, curre
       kingAfter: bytesToHex(state.king),
       score,
       replayed,
-      moves: laps ? laps.reduce((sum, lap) => sum + Math.floor(lap.tape.length / 3), 0) : tape ? Math.floor(tape.length / 3) : 0,
-      run: gameKnown && run ? { ...run, legacy } : null,
+      moves: laps ? laps.reduce((sum, lap) => sum + Math.floor(lap.tape.length / 3), 0) : 0,
+      run: gameKnown ? run : null,
       runOk,
       roundOk,
       potOk,

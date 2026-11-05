@@ -1,3 +1,29 @@
+# Add Crown Run
+
+Adds one new cell, the `crown-run` game. Match, bid, treasury, duel and artillery stay exactly as they are, and the old lane runner cell is left alone. Cost: 40,325 CKB, plus a fee under 0.001 CKB. The transaction is already built in `info.crown-run.json`.
+
+## 1. Sign and send (WSL, this folder)
+
+```bash
+cd /mnt/c/Users/chiom/Desktop/spore/keepers_relay/keepers_relay/scripts/sudden-death/deployment/testnet-v5/crowns
+export CKB_CLI_HOME=/mnt/c/Users/chiom/.ckb-cli
+cli="$HOME/ckb-cli/target/release/ckb-cli --url https://testnet.ckb.dev"
+from=ckt1qzda0cr08m85hc8jlnfp3zer7xulejywt49kt2rr0vthywaa50xwsqvu2rela8ce3j70u76uq3js967a3n07wlgf65e4e
+
+$cli deploy sign-txs --from-account $from --info-file info.crown-run.json --add-signatures
+$cli deploy apply-txs --migration-dir migrations --info-file info.crown-run.json
+```
+
+## 2. Point the app at it
+
+```bash
+pnpm exec tsx scripts/crowns-testnet/env-from-migration.ts
+```
+
+Only the three `NEXT_PUBLIC_SD_GAME_*` lines change. Put them in `.env.local` and in Vercel.
+
+---
+
 # Upgrade to the 30-second lap rules and per-game settings
 
 Laps go to 30 seconds, the seal window to 2 minutes and the refund wait to 30 minutes. A grab can no longer cut the clock below 5 minutes after its run's last seal. Each game script now declares its own lap count, seal window and clock floor, and the chain checks them when a crown or race opens. New crowns, entries and races are longer cells, so this is only safe while no crown or race is in play, which step 1 checks. Match, bid, treasury and duel are upgraded in place with the same type ids, and the new lane runner is added as a new cell. Cost: about 40,000 CKB. The deploy account had 237,887 CKB free on 2026-11-01.

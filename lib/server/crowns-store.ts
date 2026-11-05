@@ -73,8 +73,7 @@ export async function listCrownVaults(): Promise<CrownRoom[]> {
   const vaults = rows
     .filter((row) => !(asVault(row.payload).room.status === 'lobby' && new Date(row.updated_at).getTime() < cutoff))
     .map((row) => asVault(row.payload))
-    .map((vault) => ({ room: roomFromStored(vault.room), seats: vault.seats }))
-    .filter(({ room }) => !room.legacy);
+    .map((vault) => ({ room: roomFromStored(vault.room), seats: vault.seats }));
   // The cards show the king by name, the same name the lobby shows.
   return Promise.all(vaults.map(async ({ room, seats }) => publicRoom(await nameKing(room, seats))));
 }

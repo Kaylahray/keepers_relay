@@ -7,7 +7,6 @@ import { normalizeAddress } from '@/lib/server/auth';
 import { roomFromStored, type CrownRoom, type CrownStatus, type GameId } from '@/lib/crown/rooms';
 import type { CrownSeat } from '@/lib/crown/seats';
 import { listFinishedDuels, type FinishedDuel } from '@/lib/duel/chain';
-import { KIND_ARTILLERY } from '@/lib/duel/codec';
 import { suddenDeathMatchType } from '@/lib/registry/config';
 import { bytesToHex, decodeMatchCell, hexToBytes } from '@/lib/sudden-death/codec';
 
@@ -94,8 +93,7 @@ async function allCrowns(): Promise<{ room: CrownRoom; hostAddress: string | nul
       room: roomFromStored(vault.room),
       hostAddress: vault.hostAddress ? normalizeAddress(vault.hostAddress) : null,
       seats: Array.isArray(vault.seats) ? vault.seats : [],
-    }))
-    .filter((entry) => !entry.room.legacy);
+    }));
 }
 
 /** Brings the steals table up to date with the chain. */
@@ -190,7 +188,7 @@ function addDuelResults(stats: PlayerStats, lockHash: string, duels: FinishedDue
     }
     stats.duels.push({
       txHash,
-      game: duel.kind === KIND_ARTILLERY ? 'Artillery' : 'Lane race',
+      game: 'Artillery',
       result: outcome === 'draw' ? 'draw' : outcome === side ? 'won' : 'lost',
       stakeShannons: duel.stake.toString(),
       endedMs,

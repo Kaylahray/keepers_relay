@@ -18,6 +18,8 @@ mod replay;
 mod artillery;
 #[cfg(test)]
 mod duel;
+#[cfg(test)]
+mod crown_run;
 
 pub struct Loader(PathBuf);
 

@@ -42,7 +42,8 @@ yarn-error.log*
 
 # cargo build cache
 /scripts/sudden-death/target/
-/scripts/sudden-death/game-wasm/target/
+/scripts/sudden-death/crown-run-wasm/target/
+/scripts/sudden-death/crown-run-wasm/target/
 /scripts/sudden-death/tests/failed_txs/
 
 # vercel

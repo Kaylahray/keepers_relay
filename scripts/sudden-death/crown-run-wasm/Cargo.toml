@@ -1,15 +1,15 @@
 [package]
-name = "crowns-game-wasm"
+name = "crowns-crown-run-wasm"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-description = "Browser build of the Crowns lane runner: the exact rules the replay script checks"
+description = "Browser build of Crown Run: the exact rules the game script checks"
 
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
-crowns-game-core = { path = "../contracts/game-core" }
+crowns-crown-run-core = { path = "../contracts/crown-run-core" }
 
 [workspace]
 

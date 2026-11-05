@@ -6,14 +6,12 @@ import {
   duelSeed,
   duelWind,
   KIND_ARTILLERY,
-  KIND_RACE,
   STATUS_LIVE,
   type DuelCell,
   type DuelKind,
 } from '@/lib/duel/codec';
 import { duelType } from '@/lib/registry/config';
-import { LEGACY_LANE, type LaneRunner } from '@/lib/game/lane-runner';
-import { bytesToHex, hexToBytes, lapsFromWitness, MAX_TX_FEE, RUN_VERSION, runSeed } from '@/lib/sudden-death/codec';
+import { bytesToHex, hexToBytes, MAX_TX_FEE } from '@/lib/sudden-death/codec';
 
 /** An independent replay of a duel, straight from chain. */
 
@@ -45,19 +43,6 @@ export type DuelMove = {
 /** One rule, said plainly, and whether this duel kept it. */
 export type DuelRule = { ok: boolean; text: string };
 
-/** A racer's run, from the transaction that handed it in. */
-export type RaceRun = {
-  /** Played on the older build of the game. */
-  legacy: boolean;
-  side: 0 | 1;
-  score: bigint;
-  /** What the run scores when replayed here, or null if it could not be replayed. */
-  replayed: number | null;
-  /** Each lap's road seed and recorded lane changes, for playing the run back. */
-  laps: { seed: bigint; tape: Uint8Array }[];
-  txHash: string;
-};
-
 export type DuelReplay = {
   duelId: string;
   kind: DuelKind;
@@ -72,8 +57,6 @@ export type DuelReplay = {
   shots: ShotRecord[];
   moves: DuelMove[];
   board: ArtilleryState | null;
-  /** Race: each player's handed-in run. */
-  runs: RaceRun[];
   /** Who the game itself says won; null while it is still on. */
   winner: 0 | 1 | 'draw' | null;
   /** The payout: who each output paid, by lock hash. */
@@ -144,8 +127,8 @@ async function history(client: ccc.Client, duelId: string) {
   return { states, end };
 }
 
-/** Replays a duel from chain alone. `game` replays race runs; artillery needs nothing loaded. */
-export async function replayDuel(client: ccc.Client, txHash: string, current: LaneRunner | null, older?: LaneRunner | null): Promise<DuelReplay> {
+/** Replays a duel from chain alone. */
+export async function replayDuel(client: ccc.Client, txHash: string): Promise<DuelReplay> {
   const hash = txHash.trim().toLowerCase();
   if (!/^0x[0-9a-f]{64}$/.test(hash)) throw new DuelVerifyError('Paste a 32-byte transaction hash, starting with 0x.');
   const duelId = await duelIdOf(client, hash);
@@ -212,42 +195,9 @@ export async function replayDuel(client: ccc.Client, txHash: string, current: La
     if (skipped > 0) rules.push({ ok: true, text: `${skipped} ${skipped === 1 ? 'turn was' : 'turns were'} skipped after the player's time ran out. Nobody was paid for it.` });
   }
 
-  // Race: each player's run, from the transaction that handed it in.
-  const runs: RaceRun[] = [];
-  // Each race is replayed by the build of the game it was played on.
-  const legacy = bytesToHex(opened.duel.game).toLowerCase() === LEGACY_LANE.gameHash;
-  const game = legacy ? older : current;
-  if (opened.duel.kind === KIND_RACE && accepted) {
-    for (let i = acceptIndex + 1; i < states.length; i += 1) {
-      const before = states[i - 1]!.duel;
-      const here = states[i]!;
-      const side = (here.duel.submitted & ~before.submitted & 0b01 ? 0 : 1) as 0 | 1;
-      const witness = here.tx.getWitnessArgsAt(0)?.inputType;
-      const raw = witness ? new Uint8Array(ccc.bytesFrom(witness)) : null;
-      // A hand-in marks its run with version 1; the laps after that byte are laid out like any run.
-      if (raw?.[0] === 1) raw[0] = RUN_VERSION;
-      const laps = raw ? lapsFromWitness(raw) : null;
-      const owner = side === 0 ? challenger : opponent;
-      const seeded = (laps ?? []).map((lap) => ({ seed: runSeed(duelId, owner, lap.block), tape: lap.tape }));
-      // No laps handed in scores 0, with nothing to replay.
-      const replayed = laps?.length === 0 ? 0 : game && laps ? game.replayLaps(seeded) : null;
-      runs.push({ side, score: here.duel.scores[side], replayed, laps: seeded, legacy, txHash: here.txHash });
-    }
-    for (const run of runs) {
-      rules.push({
-        ok: run.replayed === Number(run.score),
-        text: `${run.side === 0 ? 'The challenger' : 'The opponent'}'s run was replayed here: ${run.replayed ?? '?'} points, as recorded.`,
-      });
-    }
-  }
-
   // Who the game says won.
   let winner: DuelReplay['winner'] = null;
   if (board) winner = board.winner;
-  if (opened.duel.kind === KIND_RACE && end) {
-    const score = (side: 0 | 1) => (last.duel.submitted & (1 << side) ? last.duel.scores[side] : 0n);
-    winner = score(0) === score(1) ? 'draw' : score(0) > score(1) ? 0 : 1;
-  }
 
   // The payout, and whether it went where the game says.
   let payout: DuelReplay['payout'] = null;
@@ -289,7 +239,6 @@ export async function replayDuel(client: ccc.Client, txHash: string, current: La
     shots,
     moves,
     board,
-    runs,
     winner,
     payout,
     rules,

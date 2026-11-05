@@ -1,25 +1,40 @@
-/** This browser's run in a crown: the session key that seals its laps, and every lap sealed so far. */
+/** This browser's run in a crown: the session key that locks its laps, and every lap locked so far. */
 
 export type SealedLapRecord = {
   /** The block the lap was seeded by (hex). */
   block: string;
-  /** The lap's moves (hex). */
+  /** The lap's moves and picks (hex). */
   tape: string;
   /** The run's score at the end of this lap. */
   score: number;
   /** The run crashed in this lap, so it ends here. */
   crashed: boolean;
+  coins?: number;
+};
+
+/** A lap driven but not locked yet, kept so a reload can't lose it or drive it again. */
+export type DrivenLapRecord = {
+  /** Its index from zero. */
+  lap: number;
+  /** The lap's moves (hex). */
+  moves: string;
+  score: number;
+  coins: number;
+  crashed: boolean;
+  /** Set once the picks are made, so a failed lock can be sent again without choosing again. */
+  picks?: { upgrade: number | null; road: number | null };
 };
 
 export type LapRun = {
-  /** The session key's secret (hex). It can only seal laps into this one entry. */
+  /** The session key's secret (hex). It can only lock laps into this one entry. */
   session: string;
   laps: SealedLapRecord[];
+  driven?: DrivenLapRecord | null;
   /** The transaction holding this run's entry right now; a lap read from any other entry is ignored. */
   entryTx?: string;
-  /** When the last seal was sent, for the pit stop's timer. */
+  /** When the last lap was locked, for the wait's timer. */
   sealedAt?: number;
-  /** The run was sent as a grab, so nothing more can be sealed into it. */
+  /** The run ended: it took the crown, or crashed and was left there. */
   finished?: boolean;
   /** The run can no longer be sent and its key cell went back to the player. */
   keyReturned?: boolean;

@@ -6,39 +6,25 @@ import { PASS_SHOT, replay, type ArtilleryState, type Shot, type ShotRecord } fr
 import {
   ARTILLERY_MAX_LEN,
   decodeDuel,
-  decodeRacer,
   duelSeed,
   duelWind,
   encodeDuel,
-  encodeRacer,
   KIND_ARTILLERY,
-  KIND_RACE,
   MAX_SHOTS,
   newDuel,
-  RACE_LEN,
-  RACER_LEN,
   STATUS_LIVE,
   STATUS_OPEN,
   type DuelCell,
-  type DuelKind,
 } from '@/lib/duel/codec';
 import {
   bytesToHex,
-  ckbHash,
-  foldLap,
   hexToBytes,
-  lapOnTime,
   MAX_TX_FEE,
-  runSeed,
-  runWitness,
-  SEAL_VERSION,
-  type SealedLap,
 } from '@/lib/sudden-death/codec';
 import {
   artilleryGame,
   duelType,
   REGISTRY_FEE_RATE,
-  suddenDeathGame,
   suddenDeathProxyLock,
   type ScriptConfig,
 } from '@/lib/registry/config';
@@ -53,8 +39,6 @@ const SHANNONS_PER_CKB = 100_000_000n;
 const ZERO_32 = new Uint8Array(32);
 /** Relative timestamp `since`: "this input has waited at least so many seconds since it landed". */
 const FEE_PER_KB = 1_000_000n;
-/** What a racer cell keeps for the fees of its seals and its submit. */
-const RACER_FEES = 1n * SHANNONS_PER_CKB;
 
 function toCellDep(s: ScriptConfig): ccc.CellDep {
   return ccc.CellDep.from({ outPoint: { txHash: s.outPoint.txHash, index: s.outPoint.index }, depType: s.depType });
@@ -62,18 +46,11 @@ function toCellDep(s: ScriptConfig): ccc.CellDep {
 
 /** Every code cell a duel may run: the duel script, both game scripts and the proxy lock. */
 export function duelCellDeps(): ccc.CellDep[] {
-  return [toCellDep(duelType), toCellDep(artilleryGame), toCellDep(suddenDeathGame), toCellDep(suddenDeathProxyLock)];
+  return [toCellDep(duelType), toCellDep(artilleryGame), toCellDep(suddenDeathProxyLock)];
 }
 
 export function duelScript(duelId: ccc.HexLike): ccc.Script {
   return ccc.Script.from({ codeHash: duelType.codeHash, hashType: duelType.hashType, args: ccc.hexFrom(duelId) });
-}
-
-export function racerScript(duelId: ccc.HexLike, side: 0 | 1): ccc.Script {
-  const args = new Uint8Array(33);
-  args.set(ccc.bytesFrom(duelId), 0);
-  args[32] = side;
-  return duelScript(args);
 }
 
 function minCapacity(lock: ccc.Script, type: ccc.Script | undefined, dataLength: number): bigint {
@@ -110,23 +87,16 @@ async function sessionCell(signer: ccc.SignerCkbPrivateKey): Promise<ccc.Cell | 
   return null;
 }
 
-/** What a racer cell needs: itself with its data, and, once handed in, a plain cell for its owner. */
-function racerCapacity(session: ccc.Script, owner: ccc.Script, racer: ccc.Script): bigint {
-  const own = minCapacity(session, racer, RACER_LEN);
-  const back = minCapacity(owner, undefined, 0);
-  return (own > back ? own : back) + RACER_FEES;
-}
-
 /** Opens a challenge. */
 export async function openDuel(
   signer: Signer,
-  input: { kind: DuelKind; stake: bigint; timerMs: bigint; opponentLockHash: string | null; session: SessionKey },
+  input: { stake: bigint; timerMs: bigint; opponentLockHash: string | null; session: SessionKey },
 ): Promise<{ duelId: ccc.Hex; point: OutPointRef }> {
   const owner = (await signer.getRecommendedAddressObj()).script;
-  const game = hexToBytes(input.kind === KIND_RACE ? suddenDeathGame.codeHash : artilleryGame.codeHash);
+  const game = hexToBytes(artilleryGame.codeHash);
   const data = encodeDuel(
     newDuel({
-      kind: input.kind,
+      kind: KIND_ARTILLERY,
       stake: input.stake,
       timerMs: input.timerMs,
       challenger: hexToBytes(owner.hash()),
@@ -135,28 +105,19 @@ export async function openDuel(
       game,
     }),
   );
-  const fullLength = input.kind === KIND_RACE ? RACE_LEN : ARTILLERY_MAX_LEN;
   // The type id comes from the first input, known only once the wallet funds the transaction.
   const placeholder = duelScript(ZERO_32);
   const placeholderGuard = getSuddenDeathProxyLock(ccc.hexFrom(ZERO_32));
-  const keyOutput =
-    input.kind === KIND_RACE
-      ? ccc.CellOutput.from({
-          capacity: racerCapacity(input.session.lock, owner, racerScript(ZERO_32, 0)),
-          lock: input.session.lock,
-          type: racerScript(ZERO_32, 0),
-        })
-      : ccc.CellOutput.from({ capacity: keyCellCapacity(input.session.lock, owner), lock: input.session.lock });
   const tx = ccc.Transaction.from({
     outputs: [
       ccc.CellOutput.from({
-        capacity: input.stake + minCapacity(placeholderGuard, placeholder, fullLength),
+        capacity: input.stake + minCapacity(placeholderGuard, placeholder, ARTILLERY_MAX_LEN),
         lock: placeholderGuard,
         type: placeholder,
       }),
-      keyOutput,
+      ccc.CellOutput.from({ capacity: keyCellCapacity(input.session.lock, owner), lock: input.session.lock }),
     ],
-    outputsData: [ccc.hexFrom(data), input.kind === KIND_RACE ? ccc.hexFrom(encodeRacer({ laps: 0, lapStartMs: 0n, chain: ZERO_32 })) : '0x'],
+    outputsData: [ccc.hexFrom(data), '0x'],
     cellDeps: duelCellDeps(),
   });
   await tx.completeInputsByCapacity(signer);
@@ -165,7 +126,6 @@ export async function openDuel(
   const live = duelScript(duelId);
   tx.outputs[0]!.type = live;
   tx.outputs[0]!.lock = getSuddenDeathProxyLock(live.hash());
-  if (input.kind === KIND_RACE) tx.outputs[1]!.type = racerScript(duelId, 0);
   const txHash = await signer.sendTransaction(tx);
   requestWalletRefresh();
   return { duelId, point: { txHash, index: '0x0' } };
@@ -194,7 +154,7 @@ export async function cancelDuel(signer: Signer, point: OutPointRef): Promise<st
 /** Accepts a challenge: the opponent's wallet adds the same stake and makes their session key's cell. */
 export async function acceptDuel(signer: Signer, point: OutPointRef, session: SessionKey): Promise<OutPointRef> {
   const client = signer.client;
-  const { cell, duel, duelId } = await liveDuel(client, point);
+  const { cell, duel } = await liveDuel(client, point);
   if (duel.status !== STATUS_OPEN) throw new Error('This duel was already accepted.');
   const owner = (await signer.getRecommendedAddressObj()).script;
   const named = bytesToHex(duel.opponent);
@@ -202,11 +162,6 @@ export async function acceptDuel(signer: Signer, point: OutPointRef, session: Se
     throw new Error('This challenge was sent to someone else.');
   }
   const next = encodeDuel({ ...duel, status: STATUS_LIVE, opponent: hexToBytes(owner.hash()), key1: hexToBytes(session.lock.hash()) });
-  const racer = racerScript(duelId, 1);
-  const keyOutput =
-    duel.kind === KIND_RACE
-      ? ccc.CellOutput.from({ capacity: racerCapacity(session.lock, owner, racer), lock: session.lock, type: racer })
-      : ccc.CellOutput.from({ capacity: keyCellCapacity(session.lock, owner), lock: session.lock });
   const tx = ccc.Transaction.from({
     inputs: [ccc.CellInput.from({ previousOutput: cell.outPoint, since: 0 })],
     outputs: [
@@ -215,9 +170,9 @@ export async function acceptDuel(signer: Signer, point: OutPointRef, session: Se
         lock: cell.cellOutput.lock,
         type: cell.cellOutput.type,
       }),
-      keyOutput,
+      ccc.CellOutput.from({ capacity: keyCellCapacity(session.lock, owner), lock: session.lock }),
     ],
-    outputsData: [ccc.hexFrom(next), duel.kind === KIND_RACE ? ccc.hexFrom(encodeRacer({ laps: 0, lapStartMs: 0n, chain: ZERO_32 })) : '0x'],
+    outputsData: [ccc.hexFrom(next), '0x'],
     cellDeps: duelCellDeps(),
   });
   await tx.completeInputsByCapacity(signer);
@@ -321,115 +276,6 @@ async function addMoves(
   return { txHash, index: '0x0' };
 }
 
-/** A race lap's road: where the racer stands and the seed of the lap they play next. */
-export type RaceLap = {
-  sealed: number;
-  block: ccc.Hex;
-  seed: bigint;
-  /** The next seal must land by then. */
-  windowEndsMs: number;
-  late: boolean;
-};
-
-/** The next lap of a player's race. */
-export async function raceLap(client: ccc.Client, duelPoint: OutPointRef, session: ccc.Hex, ownerLockHash: string): Promise<RaceLap | null> {
-  const { duelId, duel } = await liveDuel(client, duelPoint);
-  const signer = new ccc.SignerCkbPrivateKey(client, session);
-  const racer = await sessionCell(signer);
-  if (!racer) return null;
-  const run = decodeRacer(hexToBytes(racer.outputData));
-  const landed = await landedBlock(client, run.laps === 0 ? duelPoint.txHash : racer.outPoint.txHash);
-  if (!landed) return null;
-  return {
-    sealed: run.laps,
-    block: landed.blockHash,
-    seed: runSeed(duelId, ownerLockHash, landed.blockHash),
-    windowEndsMs: Number(landed.landedMs) + duel.lapWindowMs,
-    late: run.laps > 0 && !lapOnTime(run.lapStartMs, landed.landedMs, duel.lapWindowMs),
-  };
-}
-
-/** Seals one race lap into the player's racer cell, signed by their session key. Returns where it is. */
-export async function sealRaceLap(client: ccc.Client, duelPoint: OutPointRef, session: ccc.Hex, tape: Uint8Array): Promise<OutPointRef> {
-  const { cell: duelCell, duel } = await liveDuel(client, duelPoint);
-  if (duel.status !== STATUS_LIVE || duel.kind !== KIND_RACE) throw new Error('This race is not on.');
-  const signer = new ccc.SignerCkbPrivateKey(client, session);
-  const racer = await sessionCell(signer);
-  if (!racer?.cellOutput.type) throw new Error('This race’s racer cell is missing.');
-  const run = decodeRacer(hexToBytes(racer.outputData));
-  const source = await landedBlock(client, run.laps === 0 ? duelPoint.txHash : racer.outPoint.txHash);
-  if (!source) throw new Error('Still confirming. Give it a few seconds.');
-  if (run.laps > 0 && !lapOnTime(run.lapStartMs, source.landedMs, duel.lapWindowMs)) {
-    throw new Error('Your last lap was sealed after its window closed, so this race can’t go on.');
-  }
-  const moves = ckbHash([tape]);
-  const next = encodeRacer({ laps: run.laps + 1, lapStartMs: source.landedMs, chain: foldLap(run.chain, hexToBytes(source.blockHash), moves) });
-  const witness = new Uint8Array(33);
-  witness[0] = SEAL_VERSION;
-  witness.set(moves, 1);
-  const tx = ccc.Transaction.from({
-    inputs: [ccc.CellInput.from({ previousOutput: racer.outPoint, since: 0 })],
-    outputs: [ccc.CellOutput.from({ capacity: racer.cellOutput.capacity, lock: racer.cellOutput.lock, type: racer.cellOutput.type })],
-    outputsData: [ccc.hexFrom(next)],
-    cellDeps: [...duelCellDeps(), ccc.CellDep.from({ outPoint: duelCell.outPoint, depType: 'code' })],
-    headerDeps: [source.blockHash],
-  });
-  tx.setWitnessArgsAt(0, { inputType: ccc.hexFrom(witness) });
-  await tx.completeFeeChangeToOutput(signer, 0, REGISTRY_FEE_RATE);
-  const txHash = await signer.sendTransaction(tx);
-  return { txHash, index: '0x0' };
-}
-
-/** Hands in a player's race: their racer cell is spent (only their session key can), the chain replays the laps, and the score is recorded in the duel. */
-export async function submitRace(
-  client: ccc.Client,
-  duelPoint: OutPointRef,
-  session: ccc.Hex,
-  owner: ccc.Script,
-  laps: SealedLap[],
-  score: number,
-): Promise<OutPointRef> {
-  const { cell, duel } = await liveDuel(client, duelPoint);
-  if (duel.status !== STATUS_LIVE || duel.kind !== KIND_RACE) throw new Error('This race is not on.');
-  const signer = new ccc.SignerCkbPrivateKey(client, session);
-  const sessionHash = (await signer.getRecommendedAddressObj()).script.hash().toLowerCase();
-  const side: 0 | 1 | null =
-    bytesToHex(duel.key0).toLowerCase() === sessionHash ? 0 : bytesToHex(duel.key1).toLowerCase() === sessionHash ? 1 : null;
-  if (side === null) throw new Error('This browser is not racing in that duel.');
-  const racer = await sessionCell(signer);
-  if (!racer?.cellOutput.type) throw new Error('This race’s racer cell is missing.');
-  const racerLanded = await landedBlock(client, racer.outPoint.txHash);
-  if (!racerLanded) throw new Error('Your last lap is still confirming. Give it a few seconds.');
-  // A last lap sealed outside its window scores 0, and the script then expects no run at all: the witness is just version and zero laps.
-  const sealed = decodeRacer(hexToBytes(racer.outputData));
-  if (sealed.laps < laps.length) throw new Error('Your last lap is still landing on chain. Give it a few seconds.');
-  const late = sealed.laps === 0 || !lapOnTime(sealed.lapStartMs, racerLanded.landedMs, duel.lapWindowMs);
-  const scores: [bigint, bigint] = [...duel.scores];
-  scores[side] = late ? 0n : BigInt(score);
-  const next = encodeDuel({ ...duel, scores, submitted: duel.submitted | (1 << side) });
-  // The submit witness: version 1, then the run as a steal carries it.
-  const run = late ? new Uint8Array([1, 0]) : runWitness(laps);
-  run[0] = 1;
-  const tx = ccc.Transaction.from({
-    inputs: [
-      ccc.CellInput.from({ previousOutput: cell.outPoint, since: 0 }),
-      ccc.CellInput.from({ previousOutput: racer.outPoint, since: 0 }),
-    ],
-    outputs: [
-      ccc.CellOutput.from({ capacity: cell.cellOutput.capacity, lock: cell.cellOutput.lock, type: cell.cellOutput.type }),
-      ccc.CellOutput.from({ capacity: racer.cellOutput.capacity, lock: owner }),
-    ],
-    outputsData: [ccc.hexFrom(next), '0x'],
-    cellDeps: duelCellDeps(),
-    headerDeps: [racerLanded.blockHash],
-  });
-  tx.setWitnessArgsAt(0, { inputType: ccc.hexFrom(run) });
-  await tx.completeFeeChangeToOutput(signer, 1, REGISTRY_FEE_RATE);
-  const txHash = await signer.sendTransaction(tx);
-  return { txHash, index: '0x0' };
-}
-
-/** Who a duel pays, as the chain will judge it: a side, a draw, or nobody yet. */
 export type DuelResult = { kind: 'side'; side: 0 | 1; byTimeout: boolean } | { kind: 'draw' } | { kind: 'pending' };
 
 /** The result a finish sent now would get. */
@@ -473,16 +319,11 @@ export async function finishDuel(client: ccc.Client, point: OutPointRef, waited 
             ccc.CellOutput.from({ capacity: total - 2n * duel.stake, lock: challenger }),
             ccc.CellOutput.from({ capacity: 2n * duel.stake, lock: opponent }),
           ];
-  // A race whose time ran out shows it by naming the duel's own block and the newest one.
-  const clock = waited && duel.kind === KIND_RACE && duel.submitted !== 0b11;
-  const landed = clock ? await landedBlock(client, point.txHash) : null;
-  const tip = clock ? await client.getTipHeader() : null;
   const tx = ccc.Transaction.from({
     inputs: [ccc.CellInput.from({ previousOutput: cell.outPoint, since: 0 })],
     outputs,
     outputsData: outputs.map(() => '0x'),
     cellDeps: duelCellDeps(),
-    headerDeps: landed && tip ? [landed.blockHash, tip.hash] : [],
   });
   tx.outputs[0]!.capacity -= sizedFee(tx);
   const txHash = await client.sendTransaction(tx);
@@ -560,14 +401,15 @@ export async function findPastDuel(client: ccc.Client, duelId: string): Promise<
   return null;
 }
 
-/** Every live duel on this network (racer cells left out), newest first. */
+/** Every live duel on this network, newest first. */
 export async function listDuels(client: ccc.Client, limit = 60): Promise<DuelSnapshot[]> {
   const prefix = ccc.Script.from({ codeHash: duelType.codeHash, hashType: duelType.hashType, args: '0x' });
   const found: DuelSnapshot[] = [];
   for await (const cell of client.findCells({ script: prefix, scriptType: 'type', scriptSearchMode: 'prefix', withData: true }, 'desc', limit)) {
     if (ccc.bytesFrom(cell.cellOutput.type!.args).length !== 32) continue;
     try {
-      found.push(await viewOf(client, cell));
+      const view = await viewOf(client, cell);
+      if (view.duel.kind === KIND_ARTILLERY) found.push(view);
     } catch {
       // Not a duel this app can read.
     }
@@ -613,22 +455,17 @@ export async function listFinishedDuels(client: ccc.Client, limit = 40): Promise
       const response = await client.getTransaction(txHash);
       const tx = response?.transaction;
       if (!tx || tx.outputs.some((output) => isDuelCell(output.type))) return null;
-      // The duel cell is whichever duel-script input has 32-byte args (a race's racer cells have 33).
+      // The duel cell is whichever duel-script input has 32-byte args.
       for (const input of [tx.inputs[inputIndex], ...tx.inputs]) {
         const cell = input ? await client.getCell(input.previousOutput) : undefined;
         if (!cell || !isDuelCell(cell.cellOutput.type)) continue;
         const duelId = cell.cellOutput.type!.args;
         const duel = decodeDuel(hexToBytes(cell.outputData));
+        if (duel.kind !== KIND_ARTILLERY) return null;
         let outcome: FinishedDuel['outcome'] = 'cancelled';
         if (duel.status === STATUS_LIVE) {
-          if (duel.kind === KIND_ARTILLERY) {
-            const winner = replay(duelSeed(hexToBytes(duelId), duel.seedBlock), duel.shots).winner;
-            outcome = winner === null ? 'draw' : winner;
-          } else {
-            // A racer who never handed in scores 0.
-            const score = (side: 0 | 1) => ((duel.submitted >> side) & 1 ? duel.scores[side] : 0n);
-            outcome = score(0) === score(1) ? 'draw' : score(0) > score(1) ? 0 : 1;
-          }
+          const winner = replay(duelSeed(hexToBytes(duelId), duel.seedBlock), duel.shots).winner;
+          outcome = winner === null ? 'draw' : winner;
         }
         const header = response.blockHash ? await client.getHeaderByHash(response.blockHash) : undefined;
         return { duelId, txHash: txHash as ccc.Hex, endedMs: header ? Number(header.timestamp) : null, duel, outcome };

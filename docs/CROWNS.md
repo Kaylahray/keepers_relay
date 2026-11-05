@@ -1,6 +1,6 @@
 # Keepers Relay — Crowns
 
-Crowns is the live game: a shrinking clock and a growing pot, with a crown that moves to whoever posts the best score. Players run a short arcade game (the lane runner) in the browser. A run that beats the standing score can be submitted, and the match script **replays the run on chain** before it lets the crown move. Nobody signs a steal, and nobody — host, server, or this site — can decide who wins.
+Crowns is the live game: a shrinking clock and a growing pot, with a crown that moves to whoever posts the best score. Players run a short arcade game (Crown Run) in the browser. A run that beats the standing score can be submitted, and the match script **replays the run on chain** before it lets the crown move. Nobody signs a steal, and nobody — host, server, or this site — can decide who wins.
 
 Version 2 (2026-10) replaced the four-option quiz. The quiz let the host win their own match (they knew every answer), let anyone copy an answer proof out of the mempool, and shipped a default bank whose salts were public. See "Why v2" at the end.
 
@@ -16,7 +16,7 @@ Version 2 (2026-10) replaced the four-option quiz. The quiz let the host win the
 
 The deadline is enforced only as "not before": CKB scripts cannot say "not after". After the clock hits zero the match is in overtime until a close lands, and a better run can still take the crown. Median time lags the wall clock by a couple of minutes, so a close lands a little after zero.
 
-A full two-minute run costs about 1.44M cycles to verify, under 0.05% of a block. The browser runs the same Rust rules compiled to wasm (`scripts/sudden-death/game-wasm`, served from `public/games/lane-runner.wasm`), so the score a player sees is the score the chain computes.
+The browser runs the same Rust rules compiled to wasm (`scripts/sudden-death/crown-run-wasm`, served from `public/games/crown-run.wasm`), so the score a player sees is the score the chain computes.
 
 ### Testing it locally
 

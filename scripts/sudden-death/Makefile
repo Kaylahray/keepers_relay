@@ -22,7 +22,7 @@ export MODE
 export CLANG
 export BUILD_DIR
 
-CONTRACTS := match-type bid-type treasury-lock lane-runner artillery duel-type
+CONTRACTS := match-type bid-type treasury-lock crown-run artillery duel-type
 
 default: build
 

@@ -8,6 +8,6 @@ export const ART = {
   win: 'https://cdn.magicpatterns.com/patterns/generated-images/dc26f65c-a857-4aaf-b5a9-c696e60d9cc5.jpg',
   lose: 'https://cdn.magicpatterns.com/patterns/generated-images/027aad4c-4a13-4a1a-976d-27410c969ac3.jpg',
   artillery: 'https://cdn.magicpatterns.com/patterns/generated-images/73af28e4-18ad-413b-a1a6-af37da4ea15a.jpg',
-  laneRace: 'https://cdn.magicpatterns.com/patterns/generated-images/df075241-7e02-4798-9de9-ad31d502c4f7.jpg',
+  crownRun: 'https://cdn.magicpatterns.com/patterns/generated-images/df075241-7e02-4798-9de9-ad31d502c4f7.jpg',
   friends: 'https://cdn.magicpatterns.com/patterns/generated-images/1531755b-e760-43a4-9c8f-6a04c82cd37b.jpg',
 } as const;

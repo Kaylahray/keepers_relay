@@ -14,6 +14,7 @@ import { leftMs, playClock, useNow } from '@/components/crown/BleedingClock';
 import { PlayCode } from '@/components/crown/PlayCode';
 import { VerifiedSeal } from '@/components/crown/VerifiedSeal';
 import { useCrown } from '@/components/crown/useCrown';
+import { usePrizeStanding } from '@/components/crown/usePrizeStanding';
 import { useWallet } from '@/hooks/useWallet';
 import { useMyLockHash } from '@/hooks/useMyLockHash';
 import { DEFAULT_DURATION_MS, ckbWhole } from '@/lib/crown/rooms';
@@ -29,6 +30,7 @@ export function CrownWatchView({ id }: { id: string }) {
   const myLockHash = useMyLockHash();
   const now = useNow(room?.status === 'live');
   const [kingPicture] = useChainPictures([room?.kingHash]);
+  const prize = usePrizeStanding(room);
   const playPath = `/play/${id}`;
 
   const panic =
@@ -128,6 +130,11 @@ export function CrownWatchView({ id }: { id: string }) {
                 <p className="text-xl text-mute">{closed ? 'Took the pot' : 'Holds the crown'}</p>
                 <p className="font-poster text-4xl font-black">{kingName}</p>
                 <p className="font-mono text-2xl font-bold text-gold">{room.kingScore}</p>
+                {prize?.late ? (
+                  <p className="mt-1 text-lg font-semibold text-danger">
+                    Landed too late to win. {prize.holder ? `Prize goes to ${prize.holder} at ${prize.score}.` : 'Prize goes back to the host.'}
+                  </p>
+                ) : null}
               </div>
             </div>
           ) : (

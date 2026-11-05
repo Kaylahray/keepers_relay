@@ -30,12 +30,6 @@ const { file: newest, recipes } = newestRecipes(DIR);
 const cell = (name: string) => {
   const found = recipes.find((recipe) => recipe.name === name);
   if (found) return found;
-  // A version that did not redeploy the game uses the last one that did: games are referenced by data
-  // hash. v5's lane runner is v4's cell (v2's code cells are retired).
-  if (name === 'lane-runner' && VERSION !== 'v2') {
-    const earlier = newestRecipes(dirFor(VERSION === 'v4' ? 'v2' : 'v4')).recipes.find((recipe) => recipe.name === name);
-    if (earlier) return earlier;
-  }
   throw new Error(`${newest} has no ${name}`);
 };
 
@@ -52,7 +46,7 @@ for (const [key, name] of [['MATCH', 'match-type'], ['BID', 'bid-type'], ['TREAS
     `NEXT_PUBLIC_SD_${key}_DEP_TYPE=code`,
   );
 }
-const game = cell('lane-runner');
+const game = cell('crown-run');
 lines.push(
   `NEXT_PUBLIC_SD_GAME_CODE_HASH=${game.data_hash}`,
   `NEXT_PUBLIC_SD_GAME_TX_HASH=${game.tx_hash}`,

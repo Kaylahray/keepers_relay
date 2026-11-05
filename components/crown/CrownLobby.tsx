@@ -59,10 +59,10 @@ export function CrownLobby({
     <div className="relative z-10">
       <div className="flex flex-wrap items-center gap-3">
         <StatusChip tone="lobby">Lobby</StatusChip>
-        <span className="font-mono text-[11px] text-mute">Lane runner · {seats.length} seated</span>
+        <span className="font-mono text-[11px] text-mute">Crown Run · {seats.length} seated</span>
       </div>
       <h1 className="mt-3 font-poster text-3xl font-black uppercase md:text-5xl">{room.title}</h1>
-      <p className="mt-2 max-w-xl text-mute">Share the link. Players connect and take a seat, then the host starts the clock.</p>
+      <p className="mt-2 max-w-xl text-mute">Share the link. Players connect and take a seat, then the host starts the game.</p>
 
       <div className="mt-8 grid gap-6 lg:grid-cols-[1.4fr_1fr]">
         <div className="space-y-6">
@@ -73,7 +73,7 @@ export function CrownLobby({
                 <Ckb value={ckbWhole(room.feeShannons)} size="xl" className="mt-2" />
               </div>
               <div className="sm:text-right">
-                <p className="font-mono text-[11px] uppercase tracking-wider text-mute">Clock starts at the first run</p>
+                <p className="font-mono text-[11px] uppercase tracking-wider text-mute">Clock length</p>
                 <p className="mt-1 font-poster text-4xl font-black tabular-nums">{Math.round(room.durationMs / 60_000)} min</p>
               </div>
             </div>

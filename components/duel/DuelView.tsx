@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { ccc } from '@ckb-ccc/connector-react';
-import { CheckCircle2, Loader2, Play } from 'lucide-react';
+import { CheckCircle2, Play } from 'lucide-react';
 import { ArenaStage } from '@/components/arena/ArenaStage';
 import { ChainLoader } from '@/components/arena/ChainLoader';
 import { InviteButton } from '@/components/InviteButton';
@@ -11,7 +11,6 @@ import { Ckb } from '@/components/ui/kit';
 import { ART } from '@/lib/art';
 import { ArtilleryReplay } from '@/components/duel/ArtilleryReplay';
 import { DuelBoard } from '@/components/duel/DuelBoard';
-import { RacePanel } from '@/components/duel/RacePanel';
 import { VsBanner } from '@/components/duel/VsBanner';
 import { useChainDuel } from '@/components/duel/useChainDuel';
 import { useChainPictures } from '@/components/duel/useChainPictures';
@@ -23,7 +22,7 @@ import { newSessionKey, returnKeyCell } from '@/lib/crown/chain';
 import { fire, replay, type ArtilleryState, type ShotRecord } from '@/lib/duel/artillery';
 import { acceptDuel, cancelDuel, finishDuel, fireShot, hasSessionCell, restoreSessionCell, skipTurns } from '@/lib/duel/chain';
 import { plainChainError } from '@/lib/ckb/errors';
-import { KIND_ARTILLERY, KIND_RACE, STATUS_OPEN, timerShrinkMs, turnMs } from '@/lib/duel/codec';
+import { KIND_ARTILLERY, STATUS_OPEN, timerShrinkMs, turnMs } from '@/lib/duel/codec';
 import { forgetDuelKey, loadDuelKey, pendingKeys, rememberPendingKey, saveDuelKey } from '@/lib/duel/keys';
 import { nameOf } from '@/lib/registry/chain-names';
 import { bytesToHex } from '@/lib/sudden-death/codec';
@@ -86,7 +85,7 @@ export function DuelView({ id }: { id: string }) {
   const [picture0, picture1] = useChainPictures([challengerHash, opponentHash]);
   const pictures: [string | null | undefined, string | null | undefined] = [picture0, picture1];
   const stakeCkb = duel ? Number(duel.stake / CKB) : 0;
-  const game = duel?.kind === KIND_RACE ? 'Lane race' : duel && timerShrinkMs(duel.timerMs) > 0n ? 'Artillery · Pressure' : 'Artillery';
+  const game = duel && timerShrinkMs(duel.timerMs) > 0n ? 'Artillery · Pressure' : 'Artillery';
   const isOpen = duel?.status === STATUS_OPEN;
 
   // Artillery: my shot shows straight away; theirs plays out when it lands on chain.
@@ -240,10 +239,7 @@ export function DuelView({ id }: { id: string }) {
   }
 
   const result = board?.winner ?? null;
-  const raceDone = duel?.kind === KIND_RACE && duel.submitted === 0b11;
-  const canCollect = !chain.gone && snapshot && duel?.status === 1 && (result !== null || raceDone);
-  // A race whose time is up is decided too: a racer who never handed in scores 0.
-  const raceTimeUp = !chain.gone && duel?.kind === KIND_RACE && duel.status === 1 && !raceDone && timeLeft != null && timeLeft <= 0;
+  const canCollect = !chain.gone && snapshot && duel?.status === 1 && result !== null;
   // Artillery: the other player's clock ran out.
   const theirClockOut =
     !chain.gone && duel?.kind === KIND_ARTILLERY && side !== null && Boolean(sessionKey) && turnSide !== null && turnSide !== side && timeLeft != null && timeLeft <= 0;
@@ -254,16 +250,16 @@ export function DuelView({ id }: { id: string }) {
   const refresh = chain.refresh;
   useEffect(() => {
     if (!snapshot) return;
-    const what = theirTimeUp ? `skip:${snapshot.point.txHash}` : canCollect || raceTimeUp ? `pay:${snapshot.point.txHash}` : null;
+    const what = theirTimeUp ? `skip:${snapshot.point.txHash}` : canCollect ? `pay:${snapshot.point.txHash}` : null;
     if (!what) return;
     const last = sent.current;
     if (last && last.what === what && now - last.at < 12_000) return;
     sent.current = { what, at: now };
     const task = theirTimeUp
       ? skipTurns(getCkbClient(), snapshot.point, sessionKey!, 1)
-      : finishDuel(getCkbClient(), snapshot.point, raceTimeUp);
+      : finishDuel(getCkbClient(), snapshot.point);
     void task.then(refresh).catch(() => undefined);
-  }, [snapshot, theirTimeUp, canCollect, raceTimeUp, sessionKey, now, refresh]);
+  }, [snapshot, theirTimeUp, canCollect, sessionKey, now, refresh]);
 
   if (chain.loading) {
     return (
@@ -421,7 +417,7 @@ export function DuelView({ id }: { id: string }) {
         <div className="mt-6">
           {canCollect ? (
             <ResultPanel
-              winner={duel?.kind === KIND_RACE ? null : result}
+              winner={result}
               names={names}
               stakeCkb={stakeCkb}
               side={side}
@@ -432,19 +428,12 @@ export function DuelView({ id }: { id: string }) {
             />
           ) : (
             <TurnBanner
-              kind={duel?.kind ?? KIND_ARTILLERY}
               myTurn={myTurn}
               spectating={side === null}
               mover={turnSide !== null ? names[turnSide] : ''}
               timeLeft={timeLeft}
             />
           )}
-
-          {raceTimeUp ? (
-            <p className="mt-4 flex items-center gap-2 rounded-xl bg-gold/10 p-4 text-sm text-gold">
-              <Loader2 className="h-4 w-4 animate-spin" /> The race time is up. Paying out on chain…
-            </p>
-          ) : null}
 
           <div className="mt-5">
             {duel?.kind === KIND_ARTILLERY && board && replaying && chainBoard ? (
@@ -492,12 +481,6 @@ export function DuelView({ id }: { id: string }) {
                   </div>
                 ) : null}
               </>
-            ) : duel?.kind === KIND_RACE && side !== null && sessionKey && me ? (
-              <RacePanel snapshot={snapshot} side={side} sessionKey={sessionKey} myLockHash={me} onMoved={chain.refresh} />
-            ) : duel?.kind === KIND_RACE ? (
-              <p className="rounded-2xl bg-ink-2 p-5 text-sm text-mute">
-                {side === null ? 'You’re watching this race.' : 'This race’s play key is in another browser.'}
-              </p>
             ) : (
               <div className="clip-panel bg-ink-2">
                 <ChainLoader compact title="Finding the duel on chain…" note="The battlefield appears once the accept lands." />
@@ -514,20 +497,18 @@ export function DuelView({ id }: { id: string }) {
 }
 
 function TurnBanner({
-  kind,
   myTurn,
   spectating,
   mover,
   timeLeft,
 }: {
-  kind: number;
   myTurn: boolean;
   spectating: boolean;
   mover: string;
   timeLeft: number | null;
 }) {
   const urgent = timeLeft != null && timeLeft < 15_000;
-  const title = kind === KIND_RACE ? 'Race on' : myTurn ? 'Your turn' : spectating ? `${mover} to fire` : `${mover} is aiming`;
+  const title = myTurn ? 'Your turn' : spectating ? `${mover} to fire` : `${mover} is aiming`;
   return (
     <div
       className={`clip-panel flex flex-wrap items-center justify-between gap-4 px-5 py-4 md:px-7 ${
@@ -538,7 +519,7 @@ function TurnBanner({
       {timeLeft != null ? (
         <div className="text-right">
           <p className={`font-mono text-[10px] uppercase tracking-wider ${myTurn ? 'text-ink/70' : 'text-mute'}`}>
-            {kind === KIND_RACE ? 'Race time left' : 'Turn time left'}
+            Turn time left
           </p>
           <p className={`font-poster text-3xl font-black tabular-nums leading-none ${urgent ? (myTurn ? 'text-danger-deep' : 'text-danger') : ''}`}>{clock(timeLeft)}</p>
         </div>
@@ -564,7 +545,7 @@ function ResultPanel({
 }) {
   const won = side !== null && winner === side;
   const title =
-    winner === 'draw' ? 'A draw' : winner === null ? (paid ? 'Duel over' : 'Race finished') : won ? 'You won!' : `${names[winner]} wins`;
+    winner === 'draw' ? 'A draw' : winner === null ? 'Duel over' : won ? 'You won!' : `${names[winner]} wins`;
   return (
     <div className="clip-panel mt-5 flex flex-col items-center bg-ink-2 px-6 py-10 text-center">
       {/* eslint-disable-next-line @next/next/no-img-element */}

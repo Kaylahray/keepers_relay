@@ -8,7 +8,7 @@ export const CROWN_STEPS = [
 ] as const;
 
 export const DUEL_STEPS = [
-  { title: 'Challenge a player', body: 'Pick Artillery or Lane race, and a stake.' },
+  { title: 'Challenge a player', body: 'Pick your opponent and a stake.' },
   { title: 'Both lock the same stake', body: 'It sits in a smart contract, not with us.' },
   { title: 'Play. Winner takes both', body: 'A draw sends each stake back.' },
 ] as const;
