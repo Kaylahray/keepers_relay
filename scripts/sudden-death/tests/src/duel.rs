@@ -27,7 +27,7 @@ const STAKE: u64 = 10 * CKB;
 const MAX_TX_FEE: u64 = 10_000_000;
 const TURN_MS: u64 = 60_000;
 const RACE_MS: u64 = 20 * 60 * 1000;
-const LAP_WINDOW_MS: u64 = 2 * 60 * 1000;
+const LAP_WINDOW_MS: u64 = 3 * 60 * 1000;
 const LAPS: usize = 5;
 /// The duel cell's capacity: room for its largest data and scripts, plus the challenger's stake.
 const DUEL_CAP: u64 = 600 * CKB;

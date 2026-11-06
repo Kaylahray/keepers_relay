@@ -2,10 +2,10 @@
   "cell_recipes": [
     {
       "name": "match-type",
-      "tx_hash": "0x2e39ef6ba56591cc29e5198e7428a723d7f959e5825ff759232eafac4d733563",
+      "tx_hash": "0xb404cae16f09b3dbc93b1e6bbc34acb8577e5fb724ed29f570667f85748dd334",
       "index": 0,
-      "occupied_capacity": 7103000000000,
-      "data_hash": "0x2096d41574c35ee6687fe9e5195c371c9551226316388f4313cca38ecd7b4f36",
+      "occupied_capacity": 7098200000000,
+      "data_hash": "0xa6a0e8e4e288d1ee59891a1f3b145642f473ed98e2b6ca711729b15fec323d9d",
       "type_id": "0x3e1240fd9efbb38e72466449301ef2a96f5554ca4cd9a0a0ff16623290a01d34"
     },
     {
@@ -42,10 +42,10 @@
     },
     {
       "name": "crown-run",
-      "tx_hash": "0x264212a2202baf7ae25be1df9d1c8a4eef0ba3c6f55548c863b681ef7da8aed2",
-      "index": 0,
+      "tx_hash": "0xb404cae16f09b3dbc93b1e6bbc34acb8577e5fb724ed29f570667f85748dd334",
+      "index": 1,
       "occupied_capacity": 4032500000000,
-      "data_hash": "0x162bd6157c8ebb64cb5ce3e9f0f776a08b0e1748286cc5895405b3681443b372",
+      "data_hash": "0x90ea541e70b04a064b7de2fdc4a0b98fe1416e7d795504020620074174cf2c0c",
       "type_id": null
     }
   ],

@@ -549,8 +549,10 @@ export async function joinCrown(
       bidOutPoint: seat.bidOutPoint ?? null,
     });
     const room = roomFromStored(existing.room);
+    // A player who pays mid-game arrives with their entry, so that is the news.
+    const name = seat.displayName || 'A player';
     room.feed = [
-      { id: `${now}`, text: `${seat.displayName || 'A player'} joined the lobby.`, good: true },
+      { id: `${now}`, text: seat.bidOutPoint ? `${name} paid an entry.` : `${name} joined the lobby.`, good: true },
       ...room.feed,
     ].slice(0, 8);
     existing.room = roomToStored(room);

@@ -42,8 +42,8 @@ const OFF_CERTIFIED_SCORE: usize = 206;
 const OFF_POW_BITS: usize = 214;
 /// Work each test entry needs: small, so tests stay fast, but real.
 const POW_BITS: u8 = 8;
-const LAP_WINDOW_MS: u64 = 2 * 60 * 1000;
-const MIN_LEFT_MS: u64 = 7 * 60 * 1000;
+const LAP_WINDOW_MS: u64 = 3 * 60 * 1000;
+const MIN_LEFT_MS: u64 = 10 * 60 * 1000;
 const LAPS: usize = 5;
 /// Each test lap's block lands this long after the one before it.
 const LAP_GAP_MS: u64 = 30_000;
@@ -52,13 +52,13 @@ const KEY_CELL_CAP: u64 = 62 * 100_000_000;
 /// A stand-in key lock hash for entries whose laps a test never seals.
 const SOME_KEY: [u8; 32] = [0x4b; 32];
 /// When test entries land. Their road comes from this block, and their window runs out before the deadline.
-const ENTRY_MS: u64 = DEADLINE_MS - 900_000;
+const ENTRY_MS: u64 = DEADLINE_MS - 1_200_000;
 /// When a test entry's last lap was sealed: one lap after the entry landed.
 const SEALED_MS: u64 = ENTRY_MS + LAP_GAP_MS;
 /// What an honest steal records: one lap window after the last seal, which here beats the deadline.
 const ENTRY_LAND_BY: u64 = SEALED_MS + LAP_WINDOW_MS;
-/// The clock that was running when a standing king stole: one 10-minute cut before DEADLINE_MS.
-const KING_STOLE_BY: u64 = DEADLINE_MS + 600_000;
+/// The clock that was running when a standing king stole: one 5-minute cut before DEADLINE_MS.
+const KING_STOLE_BY: u64 = DEADLINE_MS + 300_000;
 /// Default postmark: the match cell landed on time.
 const ON_TIME: u64 = DEADLINE_MS;
 const LATE: u64 = KING_STOLE_BY + 1;
@@ -537,10 +537,9 @@ fn bid_script_for(context: &mut Context, live: &Live, owner: &Script) -> Script 
 }
 
 /// Mirror of `shrunk_deadline` in sudden-death-common.
-fn shrunk(deadline: u64, round: u32, sealed_ms: u64) -> u64 {
-    let cut = (600_000u64 >> (round / 2).min(13)).max(72_000);
+fn shrunk(deadline: u64, sealed_ms: u64) -> u64 {
     let floor = (sealed_ms + MIN_LEFT_MS).min(deadline);
-    deadline.saturating_sub(cut).max(floor).max(1_000)
+    deadline.saturating_sub(5 * 60 * 1000).max(floor).max(1_000)
 }
 
 /// The standing crown a steal tries to take.
@@ -620,7 +619,7 @@ fn steal_claiming(
     let next = with_score(
         match_data(
             standing.round + 1,
-            standing.record_deadline.unwrap_or(shrunk(standing.deadline, standing.round, standing.sealed_at)),
+            standing.record_deadline.unwrap_or(shrunk(standing.deadline, standing.sealed_at)),
             pot + FEE,
             &script_hash(stealer),
             &live.game,
@@ -1369,7 +1368,7 @@ fn steal_with_two_owners_is_rejected() {
     let data = match_data(1, DEADLINE_MS, 0, &[0u8; 32], &live.game, &treasury_hash, &live.bid_code);
     let next = match_data(
         2,
-        DEADLINE_MS - 600_000,
+        DEADLINE_MS - 300_000,
         FEE,
         &script_hash(&live.king_lock),
         &live.game,
@@ -2434,9 +2433,9 @@ fn a_steal_cuts_the_clock_only_down_to_the_floor() {
     let mut context = Context::default();
     let live = live(&mut context);
     let (tape, score) = run_for(&live.match_id, &live.king_lock);
-    // A 10-minute cut would leave 3 minutes after this seal, so it stops at 5.
-    let sealed_at = DEADLINE_MS - 780_000;
-    let standing = Standing { sealed_at, record_deadline: Some(sealed_at + MIN_LEFT_MS), ..OPENING };
+    // A 5-minute cut would leave 8 minutes after this seal, so it stops at 10.
+    let deadline = SEALED_MS + 780_000;
+    let standing = Standing { deadline, record_deadline: Some(SEALED_MS + MIN_LEFT_MS), ..OPENING };
     let king = live.king_lock.clone();
     let tx = steal_with(&mut context, &live, &standing, &king, &tape, score);
     verify_and_dump_failed_tx(&context, &tx, MAX_CYCLES).expect("cut down to the floor");
@@ -2447,7 +2446,8 @@ fn a_steal_cutting_past_the_floor_is_rejected() {
     let mut context = Context::default();
     let live = live(&mut context);
     let (tape, score) = run_for(&live.match_id, &live.king_lock);
-    let standing = Standing { sealed_at: DEADLINE_MS - 780_000, record_deadline: Some(DEADLINE_MS - 600_000), ..OPENING };
+    let deadline = SEALED_MS + 780_000;
+    let standing = Standing { deadline, record_deadline: Some(deadline - 300_000), ..OPENING };
     let king = live.king_lock.clone();
     let tx = steal_with(&mut context, &live, &standing, &king, &tape, score);
     rejects_with(&context, &tx, -5);

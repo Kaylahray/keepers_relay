@@ -10,6 +10,7 @@ import {
   landByV4,
   runSeed,
   shrunkDeadlineV5,
+  shrunkDeadlineHalving,
   shrunkDeadline,
   decodeEntryRun,
   lapsFromWitness,
@@ -265,13 +266,17 @@ export async function replayMatch(client: ccc.Client, startTxHash: string, curre
 
     const roundOk = state.round === before.round + 1;
     const potOk = state.pot === before.pot + before.fee;
-    const expectedDeadline =
+    // Steals before the fixed 5-minute cut used the halving cut, so a v6 match may show either.
+    const expectedDeadlines =
       opened.version >= 6
         ? entry?.landedMs != null
-          ? shrunkDeadline(Number(before.deadlineMs), before.round, Number(entry.landedMs), before.rules.minLeftMs)
-          : null
-        : shrunkDeadlineV5(Number(before.deadlineMs), before.round);
-    const clockOk = Number(state.deadlineMs) === expectedDeadline;
+          ? [
+              shrunkDeadline(Number(before.deadlineMs), Number(entry.landedMs), before.rules.minLeftMs),
+              shrunkDeadlineHalving(Number(before.deadlineMs), before.round, Number(entry.landedMs), before.rules.minLeftMs),
+            ]
+          : []
+        : [shrunkDeadlineV5(Number(before.deadlineMs), before.round)];
+    const clockOk = expectedDeadlines.includes(Number(state.deadlineMs));
     const immutableOk =
       sameBytes(state.game, before.game) &&
       state.fee === before.fee &&

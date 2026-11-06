@@ -146,7 +146,7 @@ export function CrownWatchView({ id }: { id: string }) {
 
         <section aria-labelledby="board" className="rounded-3xl bg-ink-2 p-6">
           <h2 id="board" className="font-poster text-xl font-black uppercase">
-            Crown steals
+            Activity
           </h2>
           <ol className="mt-5 space-y-3">
             {room.feed.slice(0, 7).map((item, i) => (

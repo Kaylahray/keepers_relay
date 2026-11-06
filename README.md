@@ -53,9 +53,9 @@ The scripts that hold money do not contain game rules. They run the game script 
 
 Other components: the Input Type Proxy Lock, the username and profile registries (ckb-js-vm), Spore for profile pictures, and JoyID or any CCC-supported wallet.
 
-### Pudge testnet deployment (v5)
+### Pudge testnet deployment
 
-Deployed with `ckb-cli deploy` from `scripts/sudden-death/deployment/testnet-v5/crowns/`. All cell references are in `.env.local.example`.
+Deployed with `ckb-cli deploy` from `scripts/sudden-death/deployment/testnet/crowns/`. All cell references are in `.env.local.example`.
 
 | Script | Type ID |
 | --- | --- |
@@ -82,7 +82,7 @@ Crowns from earlier deployments (v1, v2, v4) can still be checked at `/verify`.
 | `hooks/`, `context/` | Wallet, sign-in and profile hooks |
 | `scripts/sudden-death/` | On-chain scripts, tests and deployments |
 | `scripts/crowns-devnet/` | Local devnet deployment and end-to-end tests |
-| `scripts/crowns-testnet/` | Testnet tools: config check, inventory, reclaim, stats backfill |
+| `scripts/crowns-testnet/` | Testnet tools: env values, config check, inventory, reclaim |
 
 ## Running locally
 
@@ -92,7 +92,7 @@ pnpm install
 pnpm dev
 ```
 
-Set `DATABASE_URL` (Neon, pooled connection) and `AUTH_SECRET` (a long random string) in `.env.local`. The other values already point to the Pudge testnet v5 scripts. The database stores crown lobbies and player data. Games and duels are read from the chain.
+Set `DATABASE_URL` (Neon, pooled connection) and `AUTH_SECRET` (a long random string) in `.env.local`. The other values already point to the Pudge testnet scripts. The database stores crown lobbies and player data. Games and duels are read from the chain.
 
 Players sign in by signing a message with their wallet. The server checks the signature and sets a session cookie that lasts seven days.
 
@@ -111,7 +111,7 @@ pnpm exec tsx scripts/crowns-devnet/duel-e2e.ts   # duels: artillery, race, skip
 
 ## Deploying the scripts
 
-From `scripts/sudden-death/deployment/testnet-v5/crowns/`, run `ckb-cli deploy gen-txs`, then `sign-txs`, then `apply-txs`. A new migrations folder creates new cells. An existing one upgrades them and keeps their type IDs.
+From `scripts/sudden-death/deployment/testnet/crowns/`, run `ckb-cli deploy gen-txs`, then `sign-txs`, then `apply-txs`. The steps are in that folder's README. Changed scripts are upgraded in place and keep their type IDs.
 
 After deploying:
 
@@ -121,9 +121,6 @@ pnpm exec tsx scripts/crowns-testnet/env-from-migration.ts
 
 # Check the app configuration against the chain
 pnpm exec tsx scripts/crowns-testnet/check-config.ts
-
-# Rebuild player stats from the chain
-pnpm exec tsx --env-file=.env.local scripts/crowns-testnet/backfill-steals.ts
 ```
 
 `NEXT_PUBLIC_` values are built into the app, so redeploy the site after changing them.

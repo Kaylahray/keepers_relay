@@ -15,7 +15,7 @@ type GameTile = { name: string; mode: string; body: string; img: string; href: s
 
 const GAMES: GameTile[] = [
   { name: 'Crown Run', mode: 'Crowns', body: 'Five laps. Pick your upgrades and your road. Risk it for the bigger score.', img: ART.crownRun, href: '/play', tone: 'lime', cta: 'Find a crown' },
-  { name: 'Practice', mode: 'Free', body: 'Crown Run on a random road. No wallet, no cost.', img: ART.crownRun, href: '/practice', tone: 'lime', cta: 'Practice' },
+  { name: 'Practice', mode: 'Free', body: 'Crown Run on a random road, for free.', img: ART.crownRun, href: '/practice', tone: 'lime', cta: 'Practice' },
   { name: 'Artillery', mode: 'Duels', body: 'Take turns firing over the tower. Read the wind.', img: ART.artillery, href: '/duels/new', tone: 'pink', cta: 'Challenge' },
 ];
 

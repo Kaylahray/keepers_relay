@@ -73,3 +73,54 @@ export function forgetLapRun(roomId: string, address: string): void {
     // Nothing to forget.
   }
 }
+
+/** Every run this browser keeps for one wallet, by crown. */
+export function savedLapRuns(address: string): { roomId: string; run: LapRun }[] {
+  const end = `:${address.trim().toLowerCase()}`;
+  const runs: { roomId: string; run: LapRun }[] = [];
+  try {
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const slot = window.localStorage.key(index);
+      if (!slot?.startsWith('crowns-lap-run:') || !slot.endsWith(end)) continue;
+      const raw = window.localStorage.getItem(slot);
+      if (raw) runs.push({ roomId: slot.slice('crowns-lap-run:'.length, -end.length), run: JSON.parse(raw) as LapRun });
+    }
+  } catch {
+    // Storage unavailable: nothing saved to look through.
+  }
+  return runs;
+}
+
+/** A run key a new entry replaced before its key cell came back. Kept so the cell can still be returned. */
+export type OldRunKey = { session: string; address: string; since: number };
+
+const OLD_KEYS = 'crowns-old-run-keys';
+
+function readOldKeys(): OldRunKey[] {
+  try {
+    return JSON.parse(window.localStorage.getItem(OLD_KEYS) ?? '[]') as OldRunKey[];
+  } catch {
+    return [];
+  }
+}
+
+function writeOldKeys(keys: OldRunKey[]): void {
+  try {
+    window.localStorage.setItem(OLD_KEYS, JSON.stringify(keys));
+  } catch {
+    // Storage unavailable: the key is lost with the page, as before.
+  }
+}
+
+export function keepOldRunKey(address: string, session: string): void {
+  const keys = readOldKeys().filter((key) => key.session !== session);
+  writeOldKeys([...keys, { session, address: address.trim().toLowerCase(), since: Date.now() }]);
+}
+
+export function oldRunKeys(address: string): OldRunKey[] {
+  return readOldKeys().filter((key) => key.address === address.trim().toLowerCase());
+}
+
+export function dropOldRunKey(session: string): void {
+  writeOldKeys(readOldKeys().filter((key) => key.session !== session));
+}

@@ -423,7 +423,7 @@ export function DuelView({ id }: { id: string }) {
               side={side}
               paid={false}
               action={
-                <ChainLoader inline title="Paying out on chain…" note="No wallet needed" />
+                <ChainLoader inline title="Paying out on chain…" />
               }
             />
           ) : (

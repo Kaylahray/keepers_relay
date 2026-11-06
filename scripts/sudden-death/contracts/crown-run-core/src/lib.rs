@@ -30,9 +30,9 @@ pub const MAX_EVENTS: usize = 4_096;
 /// Room for a whole run's picks across its laps.
 pub const MAX_PICK_BYTES: usize = 7;
 /// How long a lap may take to lock, from the block its road came from.
-pub const LAP_WINDOW_MS: u32 = 2 * 60 * 1000;
-/// The least a steal can leave on the clock after its last locked lap: a full run with some spare.
-pub const MIN_LEFT_MS: u32 = 7 * 60 * 1000;
+pub const LAP_WINDOW_MS: u32 = 3 * 60 * 1000;
+/// The least a steal can leave on the clock after its last locked lap: time for a full run.
+pub const MIN_LEFT_MS: u32 = 10 * 60 * 1000;
 
 pub const SHIELD: u8 = 0;
 pub const MAGNET: u8 = 1;

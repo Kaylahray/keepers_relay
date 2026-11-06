@@ -80,7 +80,7 @@ export function PracticeView() {
     return (
       <ArenaStage backHref="/games" backLabel="Play">
         <div className="mx-auto max-w-xl">
-          <PageTitle eyebrow="Free, no wallet" title="Practice Crown Run" intro="The real game on a random road. Nothing here is saved and nothing costs anything." />
+          <PageTitle eyebrow="Free" title="Practice Crown Run" intro="The real game on a random road. Nothing here is saved and nothing costs anything." />
           <ol className="mt-6 space-y-3 text-sm text-mute">
             <li><span className="font-semibold text-white">Drive.</span> Five laps of 30 seconds. Change lanes, dodge the blocks and grab the coins. A crash ends the run, and your points stay.</li>
             <li><span className="font-semibold text-white">Pick.</span> After laps 1, 2 and 3 pick an upgrade. After laps 1 to 4 pick the next road.</li>

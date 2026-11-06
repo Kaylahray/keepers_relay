@@ -27,20 +27,49 @@ export function UpgradeBadges({ owned, shieldReady, streak }: { owned: number; s
 }
 
 /** A choice shown as a picture with its name and what it does. */
-function PictureCard({ on, tone, name, detail, onClick, children }: { on: boolean; tone: 'lime' | 'danger'; name: string; detail: string; onClick: () => void; children: ReactNode }) {
+function PictureCard({
+  on,
+  tone,
+  name,
+  detail,
+  badge,
+  wide,
+  onClick,
+  children,
+}: {
+  on: boolean;
+  tone: 'lime' | 'danger';
+  name: string;
+  detail: string;
+  /** A short tag on the picture, like a road's bonus. */
+  badge?: string;
+  /** A shorter picture, for the two road cards. */
+  wide?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
   const ring = tone === 'lime' ? 'ring-lime' : 'ring-danger';
   const mark = tone === 'lime' ? 'bg-lime' : 'bg-danger';
   return (
-    <button type="button" role="radio" aria-checked={on} onClick={onClick} className={`relative overflow-hidden rounded-xl bg-ink-3 text-left transition-transform duration-150 ease-snap hover:bg-ink-4 ${on ? `-translate-y-0.5 ring-[3px] ${ring}` : ''}`}>
-      <span className="block aspect-[3/2] w-full overflow-hidden">{children}</span>
+    <button
+      type="button"
+      role="radio"
+      aria-checked={on}
+      onClick={onClick}
+      className={`relative flex flex-col overflow-hidden rounded-xl bg-ink-3 text-left ring-1 ring-white/10 transition-transform duration-150 ease-snap hover:bg-ink-4 ${on ? `-translate-y-0.5 ring-[3px] ${ring}` : ''}`}
+    >
+      <span className={`block w-full overflow-hidden ${wide ? 'aspect-[2/1]' : 'aspect-[3/2]'}`}>{children}</span>
+      {badge ? (
+        <span className={`absolute left-2 top-2 rounded-md px-1.5 py-0.5 font-mono text-[10px] font-bold ${tone === 'danger' ? 'bg-danger text-white' : 'bg-ink/80 text-white'}`}>{badge}</span>
+      ) : null}
       {on ? (
         <span className={`absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-full text-ink ${mark}`}>
           <Check className="h-4 w-4" strokeWidth={3} aria-hidden="true" />
         </span>
       ) : null}
-      <span className="block p-2">
+      <span className="block flex-1 p-2.5">
         <span className="block font-poster text-xs font-bold uppercase leading-tight">{name}</span>
-        <span className="mt-0.5 block text-[11px] leading-snug text-mute">{detail}</span>
+        <span className="mt-1 block text-[11px] leading-snug text-mute">{detail}</span>
       </span>
     </button>
   );
@@ -122,11 +151,11 @@ export function RunPicks({ lap, owned, score, seconds = CROWN_RUN.PICK_SECONDS, 
 
       <section className="mt-4">
         <h2 className="font-poster text-sm font-bold uppercase">Choose the next road</h2>
-        <div className="mt-2 grid grid-cols-2 gap-2 [&_svg]:max-h-24" role="radiogroup" aria-label="Next road">
-          <PictureCard on={road === SAFE} tone="lime" name="Safe" detail="Fewer blocks. Normal coins. No bonus." onClick={() => setRoad(SAFE)}>
+        <div className="mt-2 grid grid-cols-2 gap-2" role="radiogroup" aria-label="Next road">
+          <PictureCard on={road === SAFE} tone="lime" name="Safe" detail="Fewer blocks. Normal coins." badge="No bonus" wide onClick={() => setRoad(SAFE)}>
             <RoadArt road={SAFE} />
           </PictureCard>
-          <PictureCard on={road === DANGER} tone="danger" name="Danger" detail={`More blocks, moving blocks, more coins. +${bonus} if you finish the lap.`} onClick={() => setRoad(DANGER)}>
+          <PictureCard on={road === DANGER} tone="danger" name="Danger" detail="More blocks, some moving. More coins. Finish the lap for the bonus." badge={`+${bonus}`} wide onClick={() => setRoad(DANGER)}>
             <RoadArt road={DANGER} />
           </PictureCard>
         </div>

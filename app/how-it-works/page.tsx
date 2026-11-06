@@ -17,7 +17,7 @@ const DETAILS = [
   },
   {
     title: 'The clock',
-    body: 'Each grab takes time off: 10 minutes the first time, then 5, then less. A grab never takes it below 7 minutes. The more people play, the faster it ends.',
+    body: 'Each grab takes time off: 5 minutes every time. A grab never takes it below 10 minutes. The more people play, the faster it ends.',
   },
   {
     title: 'Your entry',
@@ -25,7 +25,7 @@ const DETAILS = [
   },
   {
     title: 'Your road',
-    body: 'A run is 5 laps of 30 seconds, with one try at each. After a lap you pick an upgrade and the next road, then lock them in with the lap, within 2 minutes: your browser signs, no wallet pops up. The next road is made from the block your lap lands in, so nobody can see it early. The road also reacts to your moves, and someone copying your moves would crash on their own road.',
+    body: 'A run is 5 laps of 30 seconds, with one try at each. After a lap you pick an upgrade and the next road, then lock them in with the lap, within 3 minutes. The next road is made from the block your lap lands in, so nobody can see it early. The road also reacts to your moves, and someone copying your moves would crash on their own road.',
   },
   {
     title: 'Holding the crown',
@@ -33,7 +33,7 @@ const DETAILS = [
   },
   {
     title: 'Ending the game',
-    body: 'When the clock hits zero, any open game page ends it by itself, with no wallet needed. The prize goes to whoever holds the crown, and unused entries go back to their owners.',
+    body: 'When the clock hits zero, any open game page ends it by itself. The prize goes to whoever holds the crown, and unused entries go back to their owners.',
   },
   {
     title: 'Too late is too late',
@@ -62,7 +62,7 @@ const DUEL_DETAILS = [
 ];
 
 const CHAIN_FLOW = [
-  { title: 'You play', body: 'Every shot or lap you make is signed in your browser. No wallet pops up mid-game.' },
+  { title: 'You play', body: 'Every shot or lap you make is signed in your browser.' },
   { title: 'Moves land on the chain', body: 'Each one is stored in a block, with the time and wind of that block.' },
   { title: 'The chain replays it', body: 'Before paying anyone, the contract runs the whole game again from those moves.' },
   { title: 'The real winner is paid', body: 'If the replay agrees, the prize goes out. If not, nobody gets paid.' },

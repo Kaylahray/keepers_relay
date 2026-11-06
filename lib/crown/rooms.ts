@@ -261,7 +261,7 @@ export function applySteal(room: CrownRoom, score: number, king: string, note: s
   const fee = ckbWhole(room.feeShannons);
   const now = Date.now();
   const before = room.deadlineAt ?? now;
-  const deadlineAt = shrunkDeadline(before, room.round, now, GAME_RULES.minLeftMs);
+  const deadlineAt = shrunkDeadline(before, now, GAME_RULES.minLeftMs);
   const cut = before - deadlineAt;
   return {
     ...room,

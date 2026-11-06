@@ -165,7 +165,7 @@ async function main() {
   check(cell.kingScore === BigInt(runA.score), `king score is A's run`, `${runA.score}`);
   check(cell.round === 2 && cell.pot === fee, 'round 2, pot holds one fee');
   const clock = cell.deadlineMs;
-  check(clock === codec.decodeMatchCell(codec.hexToBytes((await client.getTransaction(room.matchOutPoint!.txHash))!.transaction.outputsData[0]!)).deadlineMs, 'A’s grab left the short clock alone: it is under the 7-minute floor');
+  check(clock === codec.decodeMatchCell(codec.hexToBytes((await client.getTransaction(room.matchOutPoint!.txHash))!.transaction.outputsData[0]!)).deadlineMs, 'A’s grab left the short clock alone: it is under the 10-minute floor');
   room = { ...room, matchOutPoint: stolenA.room.matchOutPoint, treasuryOutPoint: stolenA.room.treasuryOutPoint };
   // A's run is over, so A's key cell goes back to A, signed by the session key.
   const beforeKeyA = await client.getBalance([lockA]);

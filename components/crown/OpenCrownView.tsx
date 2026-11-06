@@ -215,7 +215,7 @@ export function OpenCrownView() {
             {step === 2 ? (
               <fieldset>
                 <legend className="font-poster text-lg font-bold uppercase">Clock length</legend>
-                <p className="mt-1 text-sm text-mute">The clock gets shorter every time someone takes the crown: 10 minutes off first, then less. A grab never takes it below 7 minutes.</p>
+                <p className="mt-1 text-sm text-mute">Every time someone takes the crown, 5 minutes come off the clock. A grab never takes it below 10 minutes.</p>
                 <div role="radiogroup" className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
                   {CLOCKS.map((c) => (
                     <ChoiceChip

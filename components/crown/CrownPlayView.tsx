@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
-import { Crown, ShieldCheck, Timer } from 'lucide-react';
+import { Crown, LoaderCircle, ShieldCheck, Timer } from 'lucide-react';
 import { ArenaCta } from '@/components/arena/ArenaPrimitives';
 import { ChainLoader } from '@/components/arena/ChainLoader';
 import { Avatar } from '@/components/duel/Avatar';
@@ -26,7 +26,7 @@ import { HowToPlayIntro } from '@/components/explain/HowToPlayIntro';
 import { LapPanel } from '@/components/crown/LapPanel';
 import { ccc } from '@ckb-ccc/connector-react';
 import { bytesToHex, hexToBytes, LAPS, runSeed } from '@/lib/sudden-death/codec';
-import { loadLapRun, saveLapRun, type DrivenLapRecord } from '@/lib/crown/my-laps';
+import { keepOldRunKey, loadLapRun, saveLapRun, type DrivenLapRecord } from '@/lib/crown/my-laps';
 import { CROWN_RUN, picksDue, runState, withPicks, type LockedLap, unusedPicks } from '@/lib/game/crown-run';
 import {
   bidRefundAt,
@@ -494,11 +494,17 @@ export function CrownPlayView({ id }: { id: string }) {
   const crownName = iHold ? 'You' : room.king;
   const shortClock = live && !entryWindow && clock.counting && clockLeft < CROWN_RUN.RUN_NEEDS_MS;
   const entriesClosed = live && !entryWindow && clockLeft < CROWN_RUN.ENTRY_NEEDS_MS;
+  // An entry in progress shows its steps on the pay button itself.
+  const paying = busy != null && /entry|key cell/i.test(busy);
+  const showPay =
+    onChain && live && !entryWindow && !timeUp && !iHold && isConnected && matchReady && (!busy || paying) && (!entryBid || (nextLap && inSync && !beats && (runOver || outOfRoad || !roadOpen)));
 
   async function lockEntry(current: CrownRoom): Promise<CrownRoom> {
     if (!signer) throw new Error('Connect your wallet to pay the entry.');
     // A throwaway key for this run: it seals each lap without asking the wallet.
     if (lapRun && !lapRun.keyReturned) {
+      // The new run's key replaces this one, so keep it until its cell is back, even if this return fails.
+      if (address) keepOldRunKey(address, lapRun.session);
       setBusy('Returning your last run’s key cell…');
       // Best effort: a key cell too small to stand alone under the owner’s lock can’t go back by itself.
       await returnKeyCell(signer.client, lapRun.session as `0x${string}`, (await signer.getRecommendedAddressObj()).script).catch(
@@ -761,7 +767,7 @@ export function CrownPlayView({ id }: { id: string }) {
   }
 
   const closeButton =
-    chain && room.matchId && live && !confirmingOpen ? (
+    chain && room.matchId && live && !confirmingOpen && !entryWindow ? (
       <div className="clip-panel mt-4 bg-gold/10 p-6">
         <Button variant="gold" size="lg" onClick={() => void closeMatch()} disabled={Boolean(busy) || clock.counting || (medianAt != null && !sinceReady)}>
           {busy === 'Closing…' ? busy : 'End the game and pay the winner'}
@@ -770,7 +776,7 @@ export function CrownPlayView({ id }: { id: string }) {
           {clock.counting
             ? 'You can end it once the clock runs out.'
             : sinceReady || medianAt == null
-              ? 'No wallet needed. The prize goes to the last player who grabbed the crown in time.'
+              ? 'The prize goes to the last player who grabbed the crown in time.'
               : sinceWait != null && sinceWait > 0
                 ? `Opens in about ${formatWait(sinceWait)}.`
                 : 'Opening now…'}
@@ -820,7 +826,7 @@ export function CrownPlayView({ id }: { id: string }) {
                   <span className="font-mono text-base font-bold md:text-xl">CKB</span>
                 </p>
                 {chain && live && room.matchId && room.hostLockHash ? (
-                  <EntriesPaid matchId={room.matchId} hostLockHash={room.hostLockHash} feeShannons={room.feeShannons} landing={Boolean(entryBid) || /entry|key cell/i.test(busy ?? '')} />
+                  <EntriesPaid matchId={room.matchId} hostLockHash={room.hostLockHash} feeShannons={room.feeShannons} landing={Boolean(entryBid)} />
                 ) : null}
               </div>
               <div className="sm:text-right">
@@ -937,12 +943,12 @@ export function CrownPlayView({ id }: { id: string }) {
                     </p>
                   </>
                 ) : iHold ? (
-                  <div className="-m-6 flex items-start justify-between gap-4 bg-gold p-6 text-ink">
+                  <div className="-mx-6 -mt-6 flex items-start justify-between gap-4 bg-gold p-6 text-ink">
                     <div>
                       <p className="font-mono text-[11px] font-bold uppercase tracking-wider">You hold the crown</p>
                       <p className="mt-2 font-poster text-2xl font-black uppercase md:text-3xl">Hold it till zero</p>
                       <p className="mt-1 font-medium">
-                        Your score {room.kingScore} is the one to beat. {clockText} to go. If someone beats it, take it back.
+                        Your score {room.kingScore} is the one to beat. If someone beats it, take it back.
                       </p>
                     </div>
                     <Crown className="h-12 w-12 shrink-0 -rotate-6 fill-ink" aria-hidden="true" />
@@ -974,7 +980,7 @@ export function CrownPlayView({ id }: { id: string }) {
                   </div>
                 ) : null}
                 {cellMoving ? (
-                  <div className="mt-3">
+                  <div className="mt-4">
                     <ChainLoader inline title={iHold ? 'Your takeover is landing on chain…' : 'Someone just took the crown. Updating…'} />
                   </div>
                 ) : null}
@@ -992,7 +998,7 @@ export function CrownPlayView({ id }: { id: string }) {
                   </div>
                 ) : null}
                 {/* A lap's time starts when the entry lands, so entries open when the round starts, not before. */}
-                {onChain && live && !entryWindow && !timeUp && !iHold && isConnected && matchReady && !busy && (!entryBid || (nextLap && inSync && !beats && (runOver || outOfRoad || !roadOpen))) ? (
+                {showPay ? (
                   <div className="mt-4">
                     {entriesClosed ? (
                       <p className="rounded-lg bg-gold/10 px-3 py-2 text-xs font-semibold text-gold">
@@ -1007,7 +1013,7 @@ export function CrownPlayView({ id }: { id: string }) {
                       ) : null}
                       <ArenaCta
                         onClick={() => {
-                          setBusy('Paying your entry…');
+                          setBusy('Getting your entry ready…');
                           setChainError(null);
                           // An unused entry is still refunded at the close; this one gets a new road.
                           if (entryBid) forgetEntry();
@@ -1020,7 +1026,16 @@ export function CrownPlayView({ id }: { id: string }) {
                         }}
                         disabled={Boolean(busy)}
                       >
-                        {busy ?? (entryBid ? 'Pay a new entry' : 'Pay to enter')}
+                        {busy ? (
+                          <span className="inline-flex items-center gap-2">
+                            <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                            {/Proving work/.test(busy) ? 'Getting your entry ready…' : busy === 'Paying your entry…' ? 'Approve in your wallet…' : busy}
+                          </span>
+                        ) : entryBid ? (
+                          'Pay a new entry'
+                        ) : (
+                          'Pay to enter'
+                        )}
                       </ArenaCta>
                       </>
                     )}
@@ -1072,7 +1087,7 @@ export function CrownPlayView({ id }: { id: string }) {
           ) : null}
 
           {shownError ? <p className="rounded-xl bg-danger/10 p-3 text-sm text-danger">{shownError}</p> : null}
-          {busy && live ? <ChainLoader inline title={busy} /> : null}
+          {busy && live && !(showPay && paying) ? <ChainLoader inline title={busy} /> : null}
           {room.seals[0] ? <VerifiedSeal seal={room.seals[0]} /> : null}
         </div>
 
@@ -1116,7 +1131,7 @@ export function CrownPlayView({ id }: { id: string }) {
           ) : null}
           <section aria-labelledby="steals" className="rounded-2xl bg-ink-2 p-5">
             <h2 id="steals" className="font-poster text-sm font-bold uppercase">
-              Crown steals
+              Activity
             </h2>
             {room.feed.length ? (
               <ol className="mt-4 space-y-2">

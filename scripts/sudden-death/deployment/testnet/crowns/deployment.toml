@@ -1,9 +1,6 @@
-# Crowns v5 and Duels on Pudge testnet: five NEW cells in one transaction.
-# This directory has its own migrations/ on purpose, as v4's did: pointing ckb-cli at another
-# version's migrations would turn this into an upgrade of that version's cells.
+# The Crowns and Duels scripts on Pudge testnet. migrations/ holds what is deployed now, so
+# running ckb-cli here upgrades the type-id scripts in place and replaces a changed game cell.
 # Paths are WSL paths: ckb-cli is built in WSL (~/ckb-cli/target/release/ckb-cli).
-#
-# Games are referenced by data hash, so a new game is a new cell and the old game cells stay as they are.
 
 [[cells]]
 name = "match-type"
@@ -13,18 +10,21 @@ location = { file = "/mnt/c/Users/chiom/Desktop/spore/keepers_relay/keepers_rela
 [[cells]]
 name = "bid-type"
 enable_type_id = true
-location = { file = "/mnt/c/Users/chiom/Desktop/spore/keepers_relay/keepers_relay/scripts/sudden-death/build/release/bid-type" }
+location = { file = "/mnt/c/Users/chiom/Desktop/spore/keepers_relay/keepers_relay/scripts/sudden-death/build/onchain/bid-type" }
 
 [[cells]]
 name = "treasury-lock"
 enable_type_id = true
-location = { file = "/mnt/c/Users/chiom/Desktop/spore/keepers_relay/keepers_relay/scripts/sudden-death/build/release/treasury-lock" }
+location = { file = "/mnt/c/Users/chiom/Desktop/spore/keepers_relay/keepers_relay/scripts/sudden-death/build/onchain/treasury-lock" }
+
+# bid-type, treasury-lock and duel-type point at copies of their deployed code in build/onchain:
+# a rebuild only moves panic line numbers in them, so ckb-cli leaves them alone.
 
 # Duels: the escrow script (both the duel cell and the racer cells)...
 [[cells]]
 name = "duel-type"
 enable_type_id = true
-location = { file = "/mnt/c/Users/chiom/Desktop/spore/keepers_relay/keepers_relay/scripts/sudden-death/build/release/duel-type" }
+location = { file = "/mnt/c/Users/chiom/Desktop/spore/keepers_relay/keepers_relay/scripts/sudden-death/build/onchain/duel-type" }
 
 # ...and the artillery game it replays, referenced by data hash like the lane runner.
 [[cells]]

@@ -1,17 +1,13 @@
 /**
  * After `ckb-cli deploy apply-txs`, prints the NEXT_PUBLIC_SD_* block for .env.local and Vercel from
- * the newest migration in scripts/sudden-death/deployment/testnet-v5/crowns/migrations (or the
- * version named as the first argument). Read-only.
+ * the newest migration in scripts/sudden-death/deployment/testnet/crowns/migrations. Read-only.
  *
- *   pnpm exec tsx scripts/crowns-testnet/env-from-migration.ts        # v5, with Duels
- *   pnpm exec tsx scripts/crowns-testnet/env-from-migration.ts v4
+ *   pnpm exec tsx scripts/crowns-testnet/env-from-migration.ts
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const VERSION = process.argv[2] ?? 'v5';
-const dirFor = (version: string) => join(__dirname, `../sudden-death/deployment/testnet-${version}/crowns/migrations`);
-const DIR = dirFor(VERSION);
+const DIR = join(__dirname, '../sudden-death/deployment/testnet/crowns/migrations');
 const PROXY = '0xa5ef4970ba0a4446b9cd8abb3b650cdfb68bcdf5052966e41384900a8a5ad274';
 
 type Recipe = { name: string; tx_hash: string; index: number; data_hash: string; type_id: string | null };
@@ -33,7 +29,7 @@ const cell = (name: string) => {
   throw new Error(`${newest} has no ${name}`);
 };
 
-const lines = [`# Crowns ${VERSION} on Pudge testnet, from ${newest}`, 'NEXT_PUBLIC_CKB_NETWORK=testnet'];
+const lines = [`# Crowns on Pudge testnet, from ${newest}`, 'NEXT_PUBLIC_CKB_NETWORK=testnet'];
 for (const [key, name] of [['MATCH', 'match-type'], ['BID', 'bid-type'], ['TREASURY', 'treasury-lock']] as const) {
   const recipe = cell(name);
   if (!recipe.type_id) throw new Error(`${name} was deployed without a type id`);

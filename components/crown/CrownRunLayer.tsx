@@ -156,7 +156,7 @@ export function CrownRunLayer({
           </>
         ) : (
           <div className="mt-3 rounded-2xl bg-ink-2">
-            <ChainLoader compact title={busy ?? `Locking lap ${driven.lap + 1}…`} note="Your browser signs this. No wallet needed." />
+            <ChainLoader compact title={busy ?? `Locking lap ${driven.lap + 1}…`} />
           </div>
         )}
         {windowNote}
@@ -185,8 +185,8 @@ export function CrownRunLayer({
         <div className="rounded-2xl bg-ink-2">
           <ChainLoader
             compact
-            title={sealed.length === 0 ? 'Confirming your entry…' : `Lap ${sealed.length} sent. Waiting for it to land${waitedSeconds != null ? ` · ${waitedSeconds}s` : ''}`}
-            note={sealed.length === 0 ? 'Lap 1’s road appears the moment it lands.' : 'Your next road comes from the block it lands in, so nobody sees it early.'}
+            title={sealed.length === 0 ? 'Confirming your entry…' : `Locking lap ${sealed.length}…${waitedSeconds != null ? ` ${waitedSeconds}s` : ''}`}
+            note={sealed.length < CROWN_RUN.LAPS ? `Lap ${sealed.length + 1} starts when it lands.` : undefined}
           />
         </div>
         {leave}

@@ -79,7 +79,7 @@ export function CrownLobby({
             </div>
             {iHost ? (
               <p className="mt-6 rounded-2xl bg-ink p-4 text-sm text-mute">
-                {`Pressing start opens the match on chain, which takes 20 to 90 seconds. Players then get up to 3 minutes to get ready. When it ends, entries open and your ${Math.round(room.durationMs / 60_000)} minute clock starts for everyone at the same moment. Approve quickly: the time you take comes out of those 3 minutes (they never drop below 2; past that it comes off your clock).`}
+                {`Press start and approve in your wallet. A 3-minute countdown starts once you approve, then entries open and the ${Math.round(room.durationMs / 60_000)}-minute clock starts.`}
               </p>
             ) : null}
             <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap">

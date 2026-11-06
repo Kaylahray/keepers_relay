@@ -590,7 +590,7 @@ export async function stealCrown(
   if (BigInt(run.score) <= current.kingScore) {
     throw new RunBeatenError(run.score, Number(current.kingScore));
   }
-  const nextDeadline = BigInt(shrunkDeadline(Number(current.deadlineMs), current.round, Number(bidLanded.landedMs), current.rules.minLeftMs));
+  const nextDeadline = BigInt(shrunkDeadline(Number(current.deadlineMs), Number(bidLanded.landedMs), current.rules.minLeftMs));
   const next = encodeMatchCell({
     ...current,
     round: current.round + 1,
