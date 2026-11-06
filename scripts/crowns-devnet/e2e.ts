@@ -13,9 +13,10 @@
  * the close, sent by A with no signature, pays A: the last king whose steal landed in time.
  */
 import { ccc } from '@ckb-ccc/core';
+import type { LockedLap } from '@/lib/game/crown-run';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { devnetClient, HERE, loadDevnetEnv, signerFor, waitCommitted } from './devnet';
+import { driveLap, devnetClient, HERE, loadDevnetEnv, signerFor, waitCommitted } from './devnet';
 
 loadDevnetEnv();
 
@@ -43,8 +44,9 @@ async function main() {
   const chain: Chain = await import('@/lib/crown/chain');
   const codec: Codec = await import('@/lib/sudden-death/codec');
   const rooms: Rooms = await import('@/lib/crown/rooms');
-  const { loadLaneRunner } = await import('@/lib/game/lane-runner');
-  const game = await loadLaneRunner(readFileSync(join(HERE, '../../public/games/lane-runner.wasm')));
+  const { COMBO, FORTUNE, loadCrownRun, MAGNET, picksDue, SAFE } = await import('@/lib/game/crown-run');
+  const game = await loadCrownRun(readFileSync(join(HERE, '../../public/games/crown-run.wasm')));
+  const upgrades = [MAGNET, FORTUNE, COMBO];
 
   const client = devnetClient();
   const host = signerFor(client, 0);
@@ -60,34 +62,6 @@ async function main() {
     return codec.decodeMatchCell(codec.hexToBytes(cell.outputData));
   };
 
-  const LAP = 720;
-  /**
-   * The best of a few hundred tries at one lap, after the laps already sealed: a stand-in for a
-   * player practising a lap until they're happy, then sealing it.
-   */
-  const bestLap = (seeds: bigint[], done: Uint8Array[], tries = 300) => {
-    const lap = done.length;
-    const score = (tape: Uint8Array) => game.replayLaps([...done, tape].map((t, i) => ({ seed: seeds[i]!, tape: t }))) ?? -1;
-    let best = { tape: new Uint8Array(), score: score(new Uint8Array()) };
-    let state = Number(seeds[lap]! & 0xffffn) + 1;
-    const rand = () => (state = (state * 1103515245 + 12345) % 2147483648) / 2147483648;
-    for (let t = 0; t < tries; t += 1) {
-      const bytes: number[] = [];
-      let tick = lap * LAP + Math.floor(rand() * 30);
-      let lane = 1;
-      while (tick < (lap + 1) * LAP) {
-        const next = (lane + 1 + Math.floor(rand() * 2)) % 3;
-        bytes.push(tick & 0xff, tick >> 8, next);
-        lane = next;
-        tick += 6 + Math.floor(rand() * 50);
-      }
-      const tape = Uint8Array.from(bytes);
-      const got = score(tape);
-      if (got > best.score) best = { tape, score: got };
-    }
-    return best;
-  };
-
   /**
    * Plays and seals `count` laps on an entry, lap by lap: each lap's road only exists once the
    * previous seal has landed. Returns the run and where the entry now is.
@@ -98,27 +72,26 @@ async function main() {
     entry: { txHash: string; index: string },
     count: number,
     label: string,
-    tries = 300,
     // Spreads the seals out so the last one lands within a minute of this time.
     lastSealBy: number | null = null,
   ) => {
     const seeds: bigint[] = [];
-    const tapes: Uint8Array[] = [];
+    const locked: LockedLap[] = [];
     const laps: { block: Uint8Array; tape: Uint8Array }[] = [];
     let point = entry;
     let score = 0;
     for (let k = 0; k < count; k += 1) {
       const next = (await chain.entryLap(client, room.matchId!, lock.hash(), point))!;
       seeds.push(next.seed);
-      const best = bestLap(seeds, tapes, tries);
-      tapes.push(best.tape);
-      laps.push({ block: codec.hexToBytes(next.block), tape: best.tape });
-      score = best.score;
+      const lap = driveLap(game, locked, next.seed, picksDue(k) === 2 ? upgrades[k]! : null, picksDue(k) > 0 ? SAFE : null);
+      locked.push(lap);
+      laps.push({ block: codec.hexToBytes(next.block), tape: lap.bytes });
+      score = game.replay(locked) ?? -1;
       if (lastSealBy != null && k > 0) {
         const wait = Math.min(60_000, lastSealBy - 60_000 - Date.now());
         if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
       }
-      point = await chain.sealLap(client, point, session as `0x${string}`, best.tape);
+      point = await chain.sealLap(client, point, session as `0x${string}`, lap.bytes);
       await waitCommitted(client, point.txHash, `${label} lap ${k + 1} seal`);
     }
     return { run: { laps, score }, point, seeds };
@@ -152,7 +125,7 @@ async function main() {
   await waitCommitted(client, room.matchOutPoint!.txHash, 'open');
   let cell = await liveMatch(room.matchOutPoint!);
   check(cell.round === 1 && cell.kingScore === 0n, 'match cell opens at round 1 with no score to beat');
-  check(codec.bytesToHex(cell.game) === process.env.NEXT_PUBLIC_SD_GAME_CODE_HASH, 'match cell records the lane-runner game');
+  check(codec.bytesToHex(cell.game) === process.env.NEXT_PUBLIC_SD_GAME_CODE_HASH, 'match cell records the Crown Run game');
 
   console.log('\nEntries');
   const sessionA = await chain.newSessionKey(client);
@@ -181,8 +154,7 @@ async function main() {
   check(lapA.sealed === 0 && lapA.seed !== lapB.seed, 'A and B get different first laps, each from its own entry block');
 
   console.log('\nA plays one lap and takes the crown');
-  // A tries their one lap only a few times, so B's practised five laps beat it.
-  const playedA = await playLaps(lockA, sessionA.secret, roomA.bidOutPoint!, 1, 'A', 10);
+  const playedA = await playLaps(lockA, sessionA.secret, roomA.bidOutPoint!, 1, 'A');
   const sealedA = codec.decodeEntryRun(codec.hexToBytes((await client.getCellLive(playedA.point, true))!.outputData));
   check(sealedA.laps === 1, 'A’s entry holds one sealed lap, sealed through A’s key cell with no wallet');
   const runA = playedA.run;
@@ -193,7 +165,7 @@ async function main() {
   check(cell.kingScore === BigInt(runA.score), `king score is A's run`, `${runA.score}`);
   check(cell.round === 2 && cell.pot === fee, 'round 2, pot holds one fee');
   const clock = cell.deadlineMs;
-  check(clock === codec.decodeMatchCell(codec.hexToBytes((await client.getTransaction(room.matchOutPoint!.txHash))!.transaction.outputsData[0]!)).deadlineMs, 'A’s grab left the short clock alone: it is under the 5-minute floor');
+  check(clock === codec.decodeMatchCell(codec.hexToBytes((await client.getTransaction(room.matchOutPoint!.txHash))!.transaction.outputsData[0]!)).deadlineMs, 'A’s grab left the short clock alone: it is under the 10-minute floor');
   room = { ...room, matchOutPoint: stolenA.room.matchOutPoint, treasuryOutPoint: stolenA.room.treasuryOutPoint };
   // A's run is over, so A's key cell goes back to A, signed by the session key.
   const beforeKeyA = await client.getBalance([lockA]);
@@ -209,7 +181,7 @@ async function main() {
 
   console.log('\nB plays five laps, each seeded by the block the last one was sealed in');
   // B times the last seal for just before the clock runs out, so B's grab can go out late.
-  const playedB = await playLaps(lockB, sessionB.secret, roomB.bidOutPoint!, 5, 'B', 300, Number(clock));
+  const playedB = await playLaps(lockB, sessionB.secret, roomB.bidOutPoint!, 5, 'B', Number(clock));
   const runB = playedB.run;
   check(new Set(playedB.seeds.map(String)).size === 5, 'every lap had its own road');
   check(runB.score > runA.score, 'B’s five laps beat A', `${runB.score} > ${runA.score}`);
@@ -240,16 +212,16 @@ async function main() {
   const lapA2 = (await chain.entryLap(client, room.matchId!, lockA.hash(), roomA2.bidOutPoint!))!;
   const pointA2 = await chain.sealLap(client, roomA2.bidOutPoint!, sessionA2.secret, copiedLap);
   await waitCommitted(client, pointA2.txHash, 'A copied lap seal');
-  const onACourse = game.replayLaps([{ seed: lapA2.seed, tape: copiedLap }]);
+  const onACourse = game.replay([{ seed: lapA2.seed, bytes: copiedLap }]);
   const copied = await rejectedWith(
     chain.stealCrown(
       client,
       { ...roomA2, bidOutPoint: pointA2 },
       { laps: [{ block: codec.hexToBytes(lapA2.block), tape: copiedLap }], score: runB.score + 1 },
     ),
-    'error code -12',
+    'ValidationFailure',
   );
-  check(copied === 'error code -12', 'chain refuses a copied run (-12)', `on A's course it scores ${onACourse}`);
+  check(copied === 'ValidationFailure', 'chain refuses a copied run', `on A's course it scores ${onACourse}`);
 
   console.log('\nEarly refund');
   const early = await rejectedWith(chain.expireBid(client, pointA2), 'Immature');
@@ -272,7 +244,11 @@ async function main() {
     }
   }
   await waitCommitted(client, closed.txHash, 'close');
-  const gainA = (await client.getBalance([lockA])) - beforeA;
+  let gainA = 0n;
+  for (let wait = 0; wait < 20 && gainA <= 0n; wait += 1) {
+    gainA = (await client.getBalance([lockA])) - beforeA;
+    if (gainA <= 0n) await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
   const owedA = fee * 2n + codec.CLOSER_REWARD + BigInt(entryA?.cellOutput.capacity ?? 0);
   check(gainA === owedA, 'close pays A the pot, A’s spare entry and the closer’s reward', `${ccc.fixedPointToString(gainA)} CKB`);
   check((await client.getBalance([lockB])) === beforeB, 'the late king B gets nothing');

@@ -20,7 +20,7 @@ const MODES = [
   {
     title: 'Duels',
     tag: '1 v 1 · winner takes both',
-    body: 'Challenge one player to Artillery or a Lane race. Same stake each. Best player takes it all.',
+    body: 'Challenge one player to Artillery. Same stake each. Best player takes it all.',
     img: ART.duels,
     alt: 'Two friends challenging each other on their phones',
     href: '/duels',

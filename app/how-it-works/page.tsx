@@ -17,7 +17,7 @@ const DETAILS = [
   },
   {
     title: 'The clock',
-    body: 'Each grab takes time off: 10 minutes the first time, then 5, then less, never under 72 seconds. The more people play, the faster it ends.',
+    body: 'Each grab takes time off: 5 minutes every time. A grab never takes it below 10 minutes. The more people play, the faster it ends.',
   },
   {
     title: 'Your entry',
@@ -25,7 +25,7 @@ const DETAILS = [
   },
   {
     title: 'Your road',
-    body: 'A run is 5 laps of 30 seconds. Each lap’s road is made from the block where your last lap was sealed. You get two tries at each lap, then you seal your best within 2 minutes: your browser signs, no wallet pops up. The road also reacts to your moves, and someone copying your moves would crash on their own road.',
+    body: 'A run is 5 laps of 30 seconds, with one try at each. After a lap you pick an upgrade and the next road, then lock them in with the lap, within 3 minutes. The next road is made from the block your lap lands in, so nobody can see it early. The road also reacts to your moves, and someone copying your moves would crash on their own road.',
   },
   {
     title: 'Holding the crown',
@@ -33,7 +33,7 @@ const DETAILS = [
   },
   {
     title: 'Ending the game',
-    body: 'When the clock hits zero, any open game page ends it by itself, with no wallet needed. The prize goes to whoever holds the crown, and unused entries go back to their owners.',
+    body: 'When the clock hits zero, any open game page ends it by itself. The prize goes to whoever holds the crown, and unused entries go back to their owners.',
   },
   {
     title: 'Too late is too late',
@@ -49,11 +49,11 @@ const DUEL_DETAILS = [
   },
   {
     title: 'The games',
-    body: 'Artillery: take turns firing over the tower, with angle, power and the wind. Lane race: both drive the same five laps; the higher score wins.',
+    body: 'Artillery: take turns firing over the tower, with angle, power and the wind.',
   },
   {
     title: 'The turn timer',
-    body: 'Classic gives every turn the same time. Pressure takes 5 seconds off each turn, never under 30. Run out of time and your turn passes to the other player. Nobody is paid for a missed turn.',
+    body: 'Each turn is 5 seconds shorter than the last, never under 30. Run out of time and your turn passes to the other player. Nobody is paid for a missed turn.',
   },
   {
     title: 'The end',
@@ -62,7 +62,7 @@ const DUEL_DETAILS = [
 ];
 
 const CHAIN_FLOW = [
-  { title: 'You play', body: 'Every shot or lap you make is signed in your browser. No wallet pops up mid-game.' },
+  { title: 'You play', body: 'Every shot or lap you make is signed in your browser.' },
   { title: 'Moves land on the chain', body: 'Each one is stored in a block, with the time and wind of that block.' },
   { title: 'The chain replays it', body: 'Before paying anyone, the contract runs the whole game again from those moves.' },
   { title: 'The real winner is paid', body: 'If the replay agrees, the prize goes out. If not, nobody gets paid.' },
@@ -118,7 +118,7 @@ export default function HowItWorksPage() {
         </div>
         <div className="rounded-3xl bg-ink-2 p-6 md:p-8">
           <h2 className="font-poster text-2xl font-black uppercase text-pink">Duels</h2>
-          <p className="mt-1 text-sm text-mute">You vs one player. Artillery or Lane race.</p>
+          <p className="mt-1 text-sm text-mute">You vs one player. Artillery.</p>
           <div className="mt-6">
             <StepList steps={DUEL_STEPS} tone="pink" />
           </div>
@@ -149,13 +149,13 @@ export default function HowItWorksPage() {
             Why runs come in laps
           </h2>
           <p className="mt-3 text-mute">
-            A run is 5 short laps, and you seal each one as you go. Short laps are quick for the chain to replay, and they are hard for bots to fake: each lap&apos;s road is made from the
+            A run is 5 short laps, and you lock each one as you go. Short laps are quick for the chain to replay, and they are hard for bots to fake: each lap&apos;s road is made from the
             block your last lap landed in.
           </p>
         </div>
         <div className="flex flex-col items-center gap-3 rounded-2xl bg-ink p-6">
           <LapBoxes states={['done', 'done', 'crash', 'empty', 'empty']} scores={[312, 298]} />
-          <p className="text-center text-sm text-mute">Two laps sealed, one crash to run again.</p>
+          <p className="text-center text-sm text-mute">Two laps locked, then a crash. Your points stay.</p>
         </div>
       </section>
 

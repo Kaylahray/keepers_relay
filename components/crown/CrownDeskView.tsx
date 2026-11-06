@@ -126,7 +126,7 @@ export function CrownDeskView({ id }: { id: string }) {
                 {busy === 'Closing…' ? busy : 'End the game and pay the winner'}
               </Button>
               <p className="mt-3 max-w-xl text-sm text-mute">
-                {counting ? 'You can end it once the clock runs out.' : 'No wallet needed. The prize goes to the last player who grabbed the crown in time.'}
+                {counting ? 'You can end it once the clock runs out.' : 'The prize goes to the last player who grabbed the crown in time.'}
               </p>
             </section>
           ) : iHost && room.status !== 'live' ? (

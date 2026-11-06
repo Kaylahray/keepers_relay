@@ -1,10 +1,7 @@
 /** The entry window: what the extra minutes on the opening deadline actually are. */
 
-/** Written onto the opening deadline on top of the host's clock. */
+/** The countdown after the host approves the start. Also written onto the opening deadline on top of the host's clock. */
 export const CONFIRM_PAD_MS = 3 * 60 * 1000;
-
-/** The shortest entry window. */
-export const MIN_ENTRY_MS = 2 * 60 * 1000;
 
 export type PhaseRoom = {
   matchId: string | null;
@@ -21,10 +18,9 @@ export function gameStartAt(room: PhaseRoom): number | null {
   if (!room.matchId || room.deadlineAt == null || room.openedAt == null) return null;
   if (room.round > 1 || room.king || room.potShannons > 0n) return null;
   const planned = room.deadlineAt - room.durationMs;
-  // `openedAt` is stamped after the wallet approves, so the lead is the pad minus that approval.
   if (planned - room.openedAt > CONFIRM_PAD_MS) return null;
-  // Every screen derives the same moment from the same shared `openedAt`.
-  const start = Math.max(planned, room.openedAt + MIN_ENTRY_MS);
+  // The full countdown runs from the approval (`openedAt`); the time spent approving comes off the clock instead.
+  const start = room.openedAt + CONFIRM_PAD_MS;
   return start < room.deadlineAt ? start : null;
 }
 

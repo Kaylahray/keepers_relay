@@ -190,19 +190,15 @@ pub fn bytes<const N: usize>(data: &[u8], offset: usize) -> Result<[u8; N], i8> 
     Ok(out)
 }
 
-/// Time a steal removes from the deadline. Round 1 cuts 10 minutes, then halves every two rounds, floor 72s.
-pub fn shrink_ms(round: u32) -> u64 {
-    let shift = (round / 2).min(13);
-    let cut = 600_000u64 >> shift;
-    if cut < 72_000 { 72_000 } else { cut }
-}
+/// Time a steal removes from the deadline, every time.
+pub const STEAL_CUT_MS: u64 = 5 * 60 * 1000;
 
 /// Deadline after a steal, its run's last seal having landed at `sealed_ms`. It leaves at least
 /// `min_left_ms` after that seal, so players mid-run can still finish; it never moves later, and is
 /// never zero, so a close still has a timestamp to reach.
-pub fn shrunk_deadline(current_ms: u64, round: u32, sealed_ms: u64, min_left_ms: u64) -> u64 {
+pub fn shrunk_deadline(current_ms: u64, sealed_ms: u64, min_left_ms: u64) -> u64 {
     let floor = sealed_ms.saturating_add(min_left_ms).min(current_ms);
-    current_ms.saturating_sub(shrink_ms(round)).max(floor).max(1_000)
+    current_ms.saturating_sub(STEAL_CUT_MS).max(floor).max(1_000)
 }
 
 pub fn script_args() -> Result<Vec<u8>, i8> {

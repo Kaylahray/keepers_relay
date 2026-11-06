@@ -14,9 +14,9 @@ import { duelsConfigured } from '@/lib/registry/config';
 type GameTile = { name: string; mode: string; body: string; img: string; href: string; tone: 'lime' | 'pink'; cta: string };
 
 const GAMES: GameTile[] = [
-  { name: 'Lane runner', mode: 'Crowns', body: '5 laps. Dodge the blocks, grab the coins.', img: ART.laneRace, href: '/play', tone: 'lime', cta: 'Find a crown' },
-  { name: 'Artillery', mode: 'Duels', body: 'Take turns firing over the tower. Read the wind.', img: ART.artillery, href: '/duels/new?game=artillery', tone: 'pink', cta: 'Challenge' },
-  { name: 'Lane race', mode: 'Duels', body: 'Same 5 laps for both. Higher score wins.', img: ART.laneRace, href: '/duels/new?game=race', tone: 'pink', cta: 'Challenge' },
+  { name: 'Crown Run', mode: 'Crowns', body: 'Five laps. Pick your upgrades and your road. Risk it for the bigger score.', img: ART.crownRun, href: '/play', tone: 'lime', cta: 'Find a crown' },
+  { name: 'Practice', mode: 'Free', body: 'Crown Run on a random road, for free.', img: ART.crownRun, href: '/practice', tone: 'lime', cta: 'Practice' },
+  { name: 'Artillery', mode: 'Duels', body: 'Take turns firing over the tower. Read the wind.', img: ART.artillery, href: '/duels/new', tone: 'pink', cta: 'Challenge' },
 ];
 
 /** The front door to playing: two modes, then the games inside them. */

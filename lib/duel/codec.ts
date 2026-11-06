@@ -1,4 +1,4 @@
-import { LANE_RULES, V5_LAP_WINDOW_MS } from '@/lib/sudden-death/codec';
+import { GAME_RULES, V5_LAP_WINDOW_MS } from '@/lib/sudden-death/codec';
 import { ccc } from '@ckb-ccc/core';
 import { MAX_WIND, type ShotRecord } from '@/lib/duel/artillery';
 
@@ -33,7 +33,7 @@ const OFF_RACE_LAPS = 196;
 const OFF_RACE_WINDOW = 197;
 export const RACER_LEN = 42;
 /** The race lasts at least five lap windows. */
-export const MIN_RACE_MS = LANE_RULES.laps * LANE_RULES.lapWindowMs;
+export const MIN_RACE_MS = GAME_RULES.laps * GAME_RULES.lapWindowMs;
 /** A Pressure turn never gets shorter than this: a shot still needs a block to land in. */
 export const PRESSURE_FLOOR_MS = 30_000;
 
@@ -159,8 +159,8 @@ export function decodeDuel(raw: Uint8Array): DuelCell {
     scores: kind === KIND_RACE ? [dv.getBigUint64(OFF_SCORES, true), dv.getBigUint64(OFF_SCORES + 8, true)] : [0n, 0n],
     submitted: kind === KIND_RACE ? raw[OFF_SUBMITTED]! : 0,
     // A race from before per-game rules ran on the old lap window.
-    runLaps: kind === KIND_RACE && raw.length > OLD_RACE_LEN ? raw[OFF_RACE_LAPS]! : LANE_RULES.laps,
-    lapWindowMs: kind === KIND_RACE ? (raw.length > OLD_RACE_LEN ? dv.getUint32(OFF_RACE_WINDOW, true) : V5_LAP_WINDOW_MS) : LANE_RULES.lapWindowMs,
+    runLaps: kind === KIND_RACE && raw.length > OLD_RACE_LEN ? raw[OFF_RACE_LAPS]! : GAME_RULES.laps,
+    lapWindowMs: kind === KIND_RACE ? (raw.length > OLD_RACE_LEN ? dv.getUint32(OFF_RACE_WINDOW, true) : V5_LAP_WINDOW_MS) : GAME_RULES.lapWindowMs,
   };
 }
 
@@ -188,8 +188,8 @@ export function newDuel(input: {
     shots: [],
     scores: [0n, 0n],
     submitted: 0,
-    runLaps: LANE_RULES.laps,
-    lapWindowMs: LANE_RULES.lapWindowMs,
+    runLaps: GAME_RULES.laps,
+    lapWindowMs: GAME_RULES.lapWindowMs,
   };
 }
 

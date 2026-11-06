@@ -73,8 +73,7 @@ export async function listCrownVaults(): Promise<CrownRoom[]> {
   const vaults = rows
     .filter((row) => !(asVault(row.payload).room.status === 'lobby' && new Date(row.updated_at).getTime() < cutoff))
     .map((row) => asVault(row.payload))
-    .map((vault) => ({ room: roomFromStored(vault.room), seats: vault.seats }))
-    .filter(({ room }) => !room.legacy);
+    .map((vault) => ({ room: roomFromStored(vault.room), seats: vault.seats }));
   // The cards show the king by name, the same name the lobby shows.
   return Promise.all(vaults.map(async ({ room, seats }) => publicRoom(await nameKing(room, seats))));
 }
@@ -550,8 +549,10 @@ export async function joinCrown(
       bidOutPoint: seat.bidOutPoint ?? null,
     });
     const room = roomFromStored(existing.room);
+    // A player who pays mid-game arrives with their entry, so that is the news.
+    const name = seat.displayName || 'A player';
     room.feed = [
-      { id: `${now}`, text: `${seat.displayName || 'A player'} joined the lobby.`, good: true },
+      { id: `${now}`, text: seat.bidOutPoint ? `${name} paid an entry.` : `${name} joined the lobby.`, good: true },
       ...room.feed,
     ].slice(0, 8);
     existing.room = roomToStored(room);

@@ -11,7 +11,7 @@ import { RunPlayback } from '@/components/game/RunPlayback';
 import { duelIdOf, replayDuel, type DuelReplay } from '@/lib/duel/verify';
 import { getCkbClient } from '@/lib/ckb/client';
 import { ckbWhole } from '@/lib/crown/rooms';
-import { loadLaneRunner, loadLegacyLaneRunner } from '@/lib/game/lane-runner';
+import { loadCrownRun } from '@/lib/game/crown-run';
 import { chainNames } from '@/lib/registry/chain-names';
 import { replayMatch, VerifyError, type MatchReplay, type StealCheck } from '@/lib/sudden-death/verify';
 
@@ -60,7 +60,7 @@ function StealRow({ steal, fee, names }: { steal: StealCheck; fee: bigint; names
         <span className="font-mono text-[11px] text-mute">
           score <span className="text-white">{steal.score}</span> · replayed here{' '}
           <span className={steal.replayed === steal.score ? 'text-lime' : 'text-danger'}>
-            {steal.replayed ?? 'older build'}
+            {steal.replayed ?? 'another game'}
           </span>{' '}
           · {steal.moves} moves
         </span>
@@ -77,7 +77,7 @@ function StealRow({ steal, fee, names }: { steal: StealCheck; fee: bigint; names
       <p className="mt-1 font-mono text-[10px] text-mute">{stamp(steal.deadlineAfter)} deadline</p>
 
       <div className="mt-3 flex flex-wrap gap-1.5">
-        <Rule ok={steal.runOk} label={steal.replayed == null ? 'beats the crown (older game build, replayed by the chain only)' : 'run replayed, beats the crown'} />
+        <Rule ok={steal.runOk} label={steal.replayed == null ? 'beats the crown (another game, replayed by the chain only)' : 'run replayed, beats the crown'} />
         <Rule ok={steal.roundOk} label="round +1" />
         <Rule ok={steal.potOk} label="pot +fee" />
         <Rule ok={steal.clockOk} label="clock cut" />
@@ -131,13 +131,13 @@ export function VerifyView({ initialTx }: { initialTx?: string }) {
     setReplay(null);
     setDuel(null);
     try {
-      const [game, older] = await Promise.all([loadLaneRunner(), loadLegacyLaneRunner()]);
+      const game = await loadCrownRun();
       // A duel or a crown: whichever this transaction belongs to.
       if (await duelIdOf(getCkbClient(), target)) {
-        setDuel(await replayDuel(getCkbClient(), target, game, older));
+        setDuel(await replayDuel(getCkbClient(), target));
         return;
       }
-      const result = await replayMatch(getCkbClient(), target, game, older);
+      const result = await replayMatch(getCkbClient(), target, game);
       setReplay(result);
       const kings = [...result.steals.map((steal) => steal.kingAfter), ...(result.winner ? [result.winner] : [])];
       void chainNames(getCkbClient(), kings)

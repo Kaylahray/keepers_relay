@@ -1,5 +1,5 @@
 [workspace]
-exclude = ["game-wasm"]
+exclude = ["crown-run-wasm"]
 resolver = "2"
 
 members = [
@@ -7,9 +7,9 @@ members = [
   "contracts/match-type",
   "contracts/bid-type",
   "contracts/treasury-lock",
-  "contracts/game-core",
+  "contracts/crown-run-core",
   "contracts/artillery-core",
-  "contracts/lane-runner",
+  "contracts/crown-run",
   "contracts/artillery",
   "contracts/duel-type",
   "tests",

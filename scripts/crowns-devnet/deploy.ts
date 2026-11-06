@@ -19,7 +19,7 @@ const CELLS = [
   { key: 'MATCH', file: join(BUILD, 'match-type') },
   { key: 'BID', file: join(BUILD, 'bid-type') },
   { key: 'TREASURY', file: join(BUILD, 'treasury-lock') },
-  { key: 'GAME', file: join(BUILD, 'lane-runner') },
+  { key: 'GAME', file: join(BUILD, 'crown-run') },
   { key: 'DUEL', file: join(BUILD, 'duel-type') },
   { key: 'ARTILLERY', file: join(BUILD, 'artillery') },
   { key: 'PROXY', file: join(HERE, '../sudden-death/tests/bin/input-type-proxy-lock') },

@@ -1,0 +1,14 @@
+[package]
+name = "crowns-crown-run"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+description = "Crowns game script: scores a Crown Run for match-type (game ABI v2)"
+
+[dependencies]
+ckb-std = { workspace = true }
+crowns-crown-run-core = { path = "../crown-run-core" }
+
+[[bin]]
+name = "crown-run"
+path = "src/main.rs"

@@ -2,7 +2,7 @@
 
 use super::replay::bot_laps;
 use super::{verify_and_dump_failed_tx, Loader};
-use crowns_game_core::{replay_laps, Lap};
+use crowns_crown_run_core::{replay_laps, Lap};
 use blake2b_ref::Blake2bBuilder;
 use ckb_testtool::{
     builtin::ALWAYS_SUCCESS,
@@ -42,8 +42,8 @@ const OFF_CERTIFIED_SCORE: usize = 206;
 const OFF_POW_BITS: usize = 214;
 /// Work each test entry needs: small, so tests stay fast, but real.
 const POW_BITS: u8 = 8;
-const LAP_WINDOW_MS: u64 = 2 * 60 * 1000;
-const MIN_LEFT_MS: u64 = 5 * 60 * 1000;
+const LAP_WINDOW_MS: u64 = 3 * 60 * 1000;
+const MIN_LEFT_MS: u64 = 10 * 60 * 1000;
 const LAPS: usize = 5;
 /// Each test lap's block lands this long after the one before it.
 const LAP_GAP_MS: u64 = 30_000;
@@ -52,13 +52,13 @@ const KEY_CELL_CAP: u64 = 62 * 100_000_000;
 /// A stand-in key lock hash for entries whose laps a test never seals.
 const SOME_KEY: [u8; 32] = [0x4b; 32];
 /// When test entries land. Their road comes from this block, and their window runs out before the deadline.
-const ENTRY_MS: u64 = DEADLINE_MS - 900_000;
+const ENTRY_MS: u64 = DEADLINE_MS - 1_200_000;
 /// When a test entry's last lap was sealed: one lap after the entry landed.
 const SEALED_MS: u64 = ENTRY_MS + LAP_GAP_MS;
 /// What an honest steal records: one lap window after the last seal, which here beats the deadline.
 const ENTRY_LAND_BY: u64 = SEALED_MS + LAP_WINDOW_MS;
-/// The clock that was running when a standing king stole: one 10-minute cut before DEADLINE_MS.
-const KING_STOLE_BY: u64 = DEADLINE_MS + 600_000;
+/// The clock that was running when a standing king stole: one 5-minute cut before DEADLINE_MS.
+const KING_STOLE_BY: u64 = DEADLINE_MS + 300_000;
 /// Default postmark: the match cell landed on time.
 const ON_TIME: u64 = DEADLINE_MS;
 const LATE: u64 = KING_STOLE_BY + 1;
@@ -114,7 +114,7 @@ fn put_u64(buf: &mut [u8], offset: usize, value: u64) {
 }
 
 fn game_bin() -> Bytes {
-    Loader::default().load_binary("lane-runner")
+    Loader::default().load_binary("crown-run")
 }
 
 /// The match cell names its game by the data hash of the game script.
@@ -169,7 +169,7 @@ fn run_for(match_id: &[u8; 32], owner: &Script) -> (Vec<u8>, u64) {
     let blocks = lap_blocks(LAPS);
     let seeds: Vec<u64> = blocks.iter().map(|block| seed_of(match_id, &script_hash(owner), block)).collect();
     let tapes = bot_laps(&seeds, 45);
-    let laps: Vec<Lap> = seeds.iter().zip(&tapes).map(|(seed, tape)| Lap { seed: *seed, tape }).collect();
+    let laps: Vec<Lap> = seeds.iter().zip(&tapes).map(|(seed, tape)| Lap { seed: *seed, moves: tape }).collect();
     let score = replay_laps(&laps).expect("legal laps").score;
     (lap_payload(&blocks, &tapes), score)
 }
@@ -397,7 +397,7 @@ fn create_match_opens_an_empty_pot() {
         .output_data(Bytes::new().pack())
         .cell_dep(payer_dep)
         .cell_dep(proxy_dep)
-        .cell_dep(Deployed::load(&mut context, "lane-runner").dep)
+        .cell_dep(Deployed::load(&mut context, "crown-run").dep)
         .cell_dep(match_bin.dep)
         .cell_dep(bid_bin.dep)
         .cell_dep(treasury_bin.dep)
@@ -448,7 +448,7 @@ fn a_match_with_rules_its_game_did_not_declare_is_rejected() {
         .output_data(Bytes::new().pack())
         .cell_dep(payer_dep)
         .cell_dep(proxy_dep)
-        .cell_dep(Deployed::load(&mut context, "lane-runner").dep)
+        .cell_dep(Deployed::load(&mut context, "crown-run").dep)
         .cell_dep(match_bin.dep)
         .cell_dep(bid_bin.dep)
         .cell_dep(treasury_bin.dep)
@@ -487,7 +487,7 @@ fn live_as(context: &mut Context, host_arg: u8) -> Live {
     let match_bin = Deployed::load(context, "match-type");
     let bid_bin = Deployed::load(context, "bid-type");
     let treasury_bin = Deployed::load(context, "treasury-lock");
-    let game_bin = Deployed::load(context, "lane-runner");
+    let game_bin = Deployed::load(context, "crown-run");
     let (proxy_out, proxy_dep) = proxy_pair(context);
     let out_point = context.deploy_cell(ALWAYS_SUCCESS.clone());
     let lock_dep = CellDep::new_builder().out_point(out_point.clone()).build();
@@ -537,10 +537,9 @@ fn bid_script_for(context: &mut Context, live: &Live, owner: &Script) -> Script 
 }
 
 /// Mirror of `shrunk_deadline` in sudden-death-common.
-fn shrunk(deadline: u64, round: u32, sealed_ms: u64) -> u64 {
-    let cut = (600_000u64 >> (round / 2).min(13)).max(72_000);
+fn shrunk(deadline: u64, sealed_ms: u64) -> u64 {
     let floor = (sealed_ms + MIN_LEFT_MS).min(deadline);
-    deadline.saturating_sub(cut).max(floor).max(1_000)
+    deadline.saturating_sub(5 * 60 * 1000).max(floor).max(1_000)
 }
 
 /// The standing crown a steal tries to take.
@@ -620,7 +619,7 @@ fn steal_claiming(
     let next = with_score(
         match_data(
             standing.round + 1,
-            standing.record_deadline.unwrap_or(shrunk(standing.deadline, standing.round, standing.sealed_at)),
+            standing.record_deadline.unwrap_or(shrunk(standing.deadline, standing.sealed_at)),
             pot + FEE,
             &script_hash(stealer),
             &live.game,
@@ -686,7 +685,8 @@ fn steal_with_a_run_copied_from_another_player_is_rejected() {
     let mut context = Context::default();
     let live = live(&mut context);
     let tx = steal_tx(&mut context, &live, true);
-    rejects_with(&context, &tx, -12);
+    // On another road the copied moves crash, and a crashed lap can't carry picks, so the game refuses the run.
+    rejects_with(&context, &tx, -7);
 }
 
 #[test]
@@ -973,7 +973,7 @@ fn create_rejects_a_zero_host_hash() {
         .output(cell(CELL_CAP, payer, None))
         .output_data(Bytes::new().pack())
         .cell_dep(payer_dep)
-        .cell_dep(Deployed::load(&mut context, "lane-runner").dep)
+        .cell_dep(Deployed::load(&mut context, "crown-run").dep)
         .cell_dep(match_bin.dep)
         .cell_dep(bid_bin.dep)
         .cell_dep(treasury_bin.dep)
@@ -1368,7 +1368,7 @@ fn steal_with_two_owners_is_rejected() {
     let data = match_data(1, DEADLINE_MS, 0, &[0u8; 32], &live.game, &treasury_hash, &live.bid_code);
     let next = match_data(
         2,
-        DEADLINE_MS - 600_000,
+        DEADLINE_MS - 300_000,
         FEE,
         &script_hash(&live.king_lock),
         &live.game,
@@ -1601,7 +1601,7 @@ fn match_created_with_the_proxy_code_hash_but_type_hash_type_is_rejected() {
         .output(cell(CELL_CAP, payer, None))
         .output_data(Bytes::new().pack())
         .cell_dep(payer_dep)
-        .cell_dep(Deployed::load(&mut context, "lane-runner").dep)
+        .cell_dep(Deployed::load(&mut context, "crown-run").dep)
         .cell_dep(match_bin.dep)
         .cell_dep(bid_bin.dep)
         .cell_dep(treasury_bin.dep)
@@ -1642,7 +1642,7 @@ fn match_created_with_proxy_args_longer_than_32_bytes_is_rejected() {
         .output_data(Bytes::new().pack())
         .cell_dep(payer_dep)
         .cell_dep(proxy_dep)
-        .cell_dep(Deployed::load(&mut context, "lane-runner").dep)
+        .cell_dep(Deployed::load(&mut context, "crown-run").dep)
         .cell_dep(match_bin.dep)
         .cell_dep(bid_bin.dep)
         .cell_dep(treasury_bin.dep)
@@ -2142,7 +2142,7 @@ fn a_steal_with_only_the_first_two_laps_sealed_scores_them() {
     let (full, _) = run_for(&live.match_id, &live.king_lock);
     let (blocks, tapes) = split_payload(&full);
     let seeds: Vec<u64> = blocks[..2].iter().map(|block| seed_of(&live.match_id, &script_hash(&live.king_lock), block)).collect();
-    let laps: Vec<Lap> = seeds.iter().zip(&tapes[..2]).map(|(seed, tape)| Lap { seed: *seed, tape }).collect();
+    let laps: Vec<Lap> = seeds.iter().zip(&tapes[..2]).map(|(seed, tape)| Lap { seed: *seed, moves: tape }).collect();
     let score = replay_laps(&laps).expect("legal laps").score;
     let king = live.king_lock.clone();
     let tx = steal_with(&mut context, &live, &OPENING, &king, &lap_payload(&blocks[..2], &tapes[..2]), score);
@@ -2225,7 +2225,7 @@ fn a_match_asking_for_more_work_than_the_limit_is_rejected() {
         .output_data(Bytes::new().pack())
         .cell_dep(payer_dep)
         .cell_dep(proxy_dep)
-        .cell_dep(Deployed::load(&mut context, "lane-runner").dep)
+        .cell_dep(Deployed::load(&mut context, "crown-run").dep)
         .cell_dep(match_bin.dep)
         .cell_dep(bid_bin.dep)
         .cell_dep(treasury_bin.dep)
@@ -2433,9 +2433,9 @@ fn a_steal_cuts_the_clock_only_down_to_the_floor() {
     let mut context = Context::default();
     let live = live(&mut context);
     let (tape, score) = run_for(&live.match_id, &live.king_lock);
-    // A 10-minute cut would leave 3 minutes after this seal, so it stops at 5.
-    let sealed_at = DEADLINE_MS - 780_000;
-    let standing = Standing { sealed_at, record_deadline: Some(sealed_at + MIN_LEFT_MS), ..OPENING };
+    // A 5-minute cut would leave 8 minutes after this seal, so it stops at 10.
+    let deadline = SEALED_MS + 780_000;
+    let standing = Standing { deadline, record_deadline: Some(SEALED_MS + MIN_LEFT_MS), ..OPENING };
     let king = live.king_lock.clone();
     let tx = steal_with(&mut context, &live, &standing, &king, &tape, score);
     verify_and_dump_failed_tx(&context, &tx, MAX_CYCLES).expect("cut down to the floor");
@@ -2446,7 +2446,8 @@ fn a_steal_cutting_past_the_floor_is_rejected() {
     let mut context = Context::default();
     let live = live(&mut context);
     let (tape, score) = run_for(&live.match_id, &live.king_lock);
-    let standing = Standing { sealed_at: DEADLINE_MS - 780_000, record_deadline: Some(DEADLINE_MS - 600_000), ..OPENING };
+    let deadline = SEALED_MS + 780_000;
+    let standing = Standing { deadline, record_deadline: Some(deadline - 300_000), ..OPENING };
     let king = live.king_lock.clone();
     let tx = steal_with(&mut context, &live, &standing, &king, &tape, score);
     rejects_with(&context, &tx, -5);

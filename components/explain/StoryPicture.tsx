@@ -172,7 +172,7 @@ export const DUEL_STORY = [
 
 /** The game in five lines, said the way you'd tell a friend. Shared by every page that explains it. */
 export const STORY = [
-  { kind: 'race' as const, title: 'Pay in and race', body: 'Pay the entry and drive five laps of the lane runner on your phone. Each lap’s road appears as you finish the last.' },
+  { kind: 'race' as const, title: 'Pay in and race', body: 'Pay the entry and drive five laps of Crown Run on your phone. After each lap, pick an upgrade and your next road.' },
   { kind: 'grab' as const, title: 'Beat the best score', body: 'Beat it and you can grab the crown. Your entry goes into the prize, and the clock gets shorter.' },
   { kind: 'win' as const, title: 'Hold it at zero', body: 'Whoever holds the crown when the clock hits zero wins the whole prize.' },
   { kind: 'fair' as const, title: 'Nobody can cheat the score', body: 'The CKB chain replays your moves itself, so the score is the same for everyone.' },

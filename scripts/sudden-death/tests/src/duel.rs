@@ -18,7 +18,7 @@ use ckb_testtool::{
     context::Context,
 };
 use crowns_artillery_core::{Shot, State, Winner};
-use crowns_game_core::{replay_laps, Lap};
+use crowns_crown_run_core::{replay_laps, Lap};
 
 const MAX_CYCLES: u64 = 70_000_000;
 const PROXY_BIN: &[u8] = include_bytes!("../bin/input-type-proxy-lock");
@@ -27,7 +27,7 @@ const STAKE: u64 = 10 * CKB;
 const MAX_TX_FEE: u64 = 10_000_000;
 const TURN_MS: u64 = 60_000;
 const RACE_MS: u64 = 20 * 60 * 1000;
-const LAP_WINDOW_MS: u64 = 2 * 60 * 1000;
+const LAP_WINDOW_MS: u64 = 3 * 60 * 1000;
 const LAPS: usize = 5;
 /// The duel cell's capacity: room for its largest data and scripts, plus the challenger's stake.
 const DUEL_CAP: u64 = 600 * CKB;
@@ -131,7 +131,7 @@ impl Arena {
     fn new(context: &mut Context) -> Self {
         let duel_bin = Loader::default().load_binary("duel-type");
         let artillery_bin = Loader::default().load_binary("artillery");
-        let lane_bin = Loader::default().load_binary("lane-runner");
+        let lane_bin = Loader::default().load_binary("crown-run");
         let artillery = data_hash(&artillery_bin);
         let lane = data_hash(&lane_bin);
         let duel_out = context.deploy_cell(duel_bin);
@@ -955,14 +955,14 @@ fn a_race_lap_after_a_late_one_is_rejected() {
 }
 
 /// A full five-lap race for `side`, sealed against blocks a lap apart from the accept: the run
-/// payload, the lap chain, and the score the lane runner gives it.
+/// payload, the lap chain, and the score Crown Run gives it.
 fn raced(arena: &Arena, side: usize) -> (Vec<u8>, [u8; 32], u64) {
     let owner = if side == 0 { hash_of(&arena.challenger) } else { hash_of(&arena.opponent) };
     let blocks: Vec<[u8; 32]> = (0..LAPS as u64).map(|k| block_at(ACCEPT_MS + k * 60_000)).collect();
     let seeds: Vec<u64> = blocks.iter().map(|block| run_seed(&arena.duel_id, &owner, block)).collect();
     // The two players drive differently, so their scores differ.
     let tapes = bot_laps(&seeds, if side == 0 { 45 } else { 6 });
-    let laps: Vec<Lap> = seeds.iter().zip(&tapes).map(|(seed, tape)| Lap { seed: *seed, tape }).collect();
+    let laps: Vec<Lap> = seeds.iter().zip(&tapes).map(|(seed, tape)| Lap { seed: *seed, moves: tape }).collect();
     let score = replay_laps(&laps).expect("legal laps").score;
     let mut payload = vec![LAPS as u8];
     let mut chain = [0u8; 32];

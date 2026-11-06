@@ -1,0 +1,54 @@
+//! Game script for Crown Run. Never a lock or type script: match-type spawns it.
+//!
+//! Game ABI v2 (see `score_run` in sudden-death-common): one argument, the hex of
+//! `lap count u8` then per lap `seed u64 LE ‖ length u16 LE ‖ moves and picks`, and one inherited fd.
+//! Writes the score as u64 LE to the fd and exits 0; exits non-zero for an illegal run.
+//! Spawned with an empty argument, it writes the game's rules to the fd instead.
+
+#![no_std]
+#![no_main]
+
+use ckb_std::default_alloc;
+use ckb_std::entry;
+use ckb_std::env::argv;
+use ckb_std::high_level::{decode_hex, inherited_fds};
+use ckb_std::syscalls::write;
+
+entry!(program_entry);
+default_alloc!();
+
+const ERR_ARGS: i8 = 1;
+const ERR_TAPE: i8 = 2;
+const ERR_FD: i8 = 3;
+
+fn program_entry() -> i8 {
+    let args = argv();
+    if args.len() != 1 {
+        return ERR_ARGS;
+    }
+    let Ok(raw) = decode_hex(&args[0]) else {
+        return ERR_ARGS;
+    };
+    let fds = inherited_fds();
+    if fds.len() != 1 {
+        return ERR_FD;
+    }
+    if raw.is_empty() {
+        return send(fds[0], &crowns_crown_run_core::rules());
+    }
+    let Ok(outcome) = crowns_crown_run_core::replay_encoded(&raw) else {
+        return ERR_TAPE;
+    };
+    send(fds[0], &outcome.score.to_le_bytes())
+}
+
+fn send(fd: u64, bytes: &[u8]) -> i8 {
+    let mut sent = 0;
+    while sent < bytes.len() {
+        match write(fd, &bytes[sent..]) {
+            Ok(0) | Err(_) => return ERR_FD,
+            Ok(n) => sent += n,
+        }
+    }
+    0
+}

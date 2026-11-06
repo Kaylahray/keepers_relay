@@ -12,6 +12,7 @@ import { useMyBuilder } from '@/hooks/useBuilder';
 import { loadAvatarSpore } from '@/hooks/usePublicProfile';
 import { useUsername } from '@/hooks/useUsername';
 import { useWallet } from '@/hooks/useWallet';
+import { useKeyCellSweep } from '@/hooks/useKeyCellSweep';
 
 const NAV = [
   { href: '/', label: 'Home' },
@@ -80,6 +81,7 @@ function MyFace({ name }: { name: string }) {
 export function SiteHeader() {
   const pathname = usePathname();
   const { disconnect, isReady, isConnected, balance, address: walletAddress, formattedAddress } = useWallet();
+  useKeyCellSweep();
   const { signOut, ensureAuth, busy: authBusy, authenticated, checked, address: sessionAddress } = useAuth();
   const { username } = useUsername();
   const handle = username?.username ?? null;

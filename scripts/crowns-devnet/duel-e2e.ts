@@ -1,6 +1,6 @@
 /**
- * Duels end to end on a local devnet, through the app's own chain code (`lib/duel/chain.ts`), the
- * browser's artillery rules and the browser's wasm build of the lane runner. Three devnet accounts:
+ * Duels end to end on a local devnet, through the app's own chain code (`lib/duel/chain.ts`) and the
+ * browser's artillery rules. Three devnet accounts:
  * the challenger, the opponent, and a stranger.
  *
  *   offckb node
@@ -11,13 +11,10 @@
  * it and the challenger can; the named opponent accepts with the same stake; an artillery duel is
  * played shot by shot with no wallet, each shot in the wind of the block the last landed in, and a
  * finish nobody signs pays the winner both stakes; a turn left to run out is skipped (not lost) once
- * its time has passed, and not before, with Pressure shortening later turns; a lane race is raced lap by lap, each player hands in their
- * own run, an inflated score is refused, and the faster driver is paid.
+ * its time has passed, and not before, with Pressure shortening later turns.
  */
 import { ccc } from '@ckb-ccc/core';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { devnetClient, HERE, loadDevnetEnv, signerFor, waitCommitted } from './devnet';
+import { devnetClient, loadDevnetEnv, signerFor, waitCommitted } from './devnet';
 
 loadDevnetEnv();
 
@@ -49,8 +46,6 @@ async function main() {
   const rules = await import('@/lib/duel/artillery');
   const crown = await import('@/lib/crown/chain');
   const sd = await import('@/lib/sudden-death/codec');
-  const { loadLaneRunner } = await import('@/lib/game/lane-runner');
-  const game = await loadLaneRunner(readFileSync(join(HERE, '../../public/games/lane-runner.wasm')));
 
   const client = devnetClient();
   const challenger = signerFor(client, 0);
@@ -78,7 +73,6 @@ async function main() {
   console.log('\nOpen and cancel');
   const spare = await crown.newSessionKey(client);
   const opened = await duels.openDuel(challenger, {
-    kind: codec.KIND_ARTILLERY,
     stake,
     timerMs: 60_000n,
     opponentLockHash: lockO.hash(),
@@ -100,7 +94,6 @@ async function main() {
   const sessionC = await crown.newSessionKey(client);
   const sessionO = await crown.newSessionKey(client);
   const duel = await duels.openDuel(challenger, {
-    kind: codec.KIND_ARTILLERY,
     stake,
     timerMs: 60_000n,
     opponentLockHash: lockO.hash(),
@@ -162,7 +155,6 @@ async function main() {
   const slowC = await crown.newSessionKey(client);
   const slowO = await crown.newSessionKey(client);
   const slow = await duels.openDuel(challenger, {
-    kind: codec.KIND_ARTILLERY,
     stake,
     timerMs: codec.artilleryTimer(40_000, 5_000),
     opponentLockHash: lockO.hash(),
@@ -207,85 +199,6 @@ async function main() {
     const back = await crown.returnKeyCell(client, session.secret, owner);
     if (back) await waitCommitted(client, back, 'key cell return');
   }
-
-  console.log('\nLane race');
-  const raceC = await crown.newSessionKey(client);
-  const raceO = await crown.newSessionKey(client);
-  const race = await duels.openDuel(challenger, {
-    kind: codec.KIND_RACE,
-    stake,
-    timerMs: BigInt(codec.MIN_RACE_MS),
-    opponentLockHash: lockO.hash(),
-    session: raceC,
-  });
-  await waitCommitted(client, race.point.txHash, 'race open');
-  let racePoint = await duels.acceptDuel(opponent, race.point, raceO);
-  await waitCommitted(client, racePoint.txHash, 'race accept');
-
-  const LAP = 720;
-  const bestLap = (seeds: bigint[], done: Uint8Array[], tries: number) => {
-    const lap = done.length;
-    const score = (tape: Uint8Array) => game.replayLaps([...done, tape].map((t, i) => ({ seed: seeds[i]!, tape: t }))) ?? -1;
-    let best = { tape: new Uint8Array(), score: score(new Uint8Array()) };
-    let state = Number(seeds[lap]! & 0xffffn) + 1;
-    const rand = () => (state = (state * 1103515245 + 12345) % 2147483648) / 2147483648;
-    for (let t = 0; t < tries; t += 1) {
-      const bytes: number[] = [];
-      let tick = lap * LAP + Math.floor(rand() * 30);
-      let lane = 1;
-      while (tick < (lap + 1) * LAP) {
-        const next = (lane + 1 + Math.floor(rand() * 2)) % 3;
-        bytes.push(tick & 0xff, tick >> 8, next);
-        lane = next;
-        tick += 6 + Math.floor(rand() * 50);
-      }
-      const tape = Uint8Array.from(bytes);
-      const got = score(tape);
-      if (got > best.score) best = { tape, score: got };
-    }
-    return best;
-  };
-  const racePlayers = [
-    { session: raceC, owner: lockC, tries: 300, label: 'challenger' },
-    { session: raceO, owner: lockO, tries: 5, label: 'opponent' },
-  ];
-  const runs: { laps: { block: Uint8Array; tape: Uint8Array }[]; score: number }[] = [];
-  for (const player of racePlayers) {
-    const seeds: bigint[] = [];
-    const tapes: Uint8Array[] = [];
-    const laps: { block: Uint8Array; tape: Uint8Array }[] = [];
-    let score = 0;
-    for (let k = 0; k < sd.LAPS; k += 1) {
-      const next = (await duels.raceLap(client, racePoint, player.session.secret, player.owner.hash()))!;
-      seeds.push(next.seed);
-      const best = bestLap(seeds, tapes, player.tries);
-      tapes.push(best.tape);
-      laps.push({ block: sd.hexToBytes(next.block), tape: best.tape });
-      score = best.score;
-      const sealed = await duels.sealRaceLap(client, racePoint, player.session.secret, best.tape);
-      await waitCommitted(client, sealed.txHash, `${player.label} lap ${k + 1}`);
-    }
-    runs.push({ laps, score });
-  }
-  check(runs[0]!.score !== runs[1]!.score, 'both raced five laps on their own roads', `${runs[0]!.score} vs ${runs[1]!.score}`);
-  const inflated = await outcome(duels.submitRace(client, racePoint, raceO.secret, lockO, runs[1]!.laps, runs[1]!.score + 50));
-  check(inflated === 'error code -17', 'the chain refuses a submitted run with an inflated score (-17)', inflated);
-  for (const [i, player] of racePlayers.entries()) {
-    racePoint = await duels.submitRace(client, racePoint, player.session.secret, player.owner, runs[i]!.laps, runs[i]!.score);
-    await waitCommitted(client, racePoint.txHash, `${player.label} submit`);
-  }
-  const submitted = (await duelCell(racePoint))!.duel;
-  check(
-    submitted.submitted === 3 && submitted.scores[0] === BigInt(runs[0]!.score) && submitted.scores[1] === BigInt(runs[1]!.score),
-    'both runs were replayed on chain and their scores recorded',
-    `${submitted.scores.join(' vs ')}`,
-  );
-  const faster = runs[0]!.score > runs[1]!.score ? lockC : lockO;
-  const beforeRace = await balance(faster);
-  const raceDone = await duels.finishDuel(client, racePoint);
-  await waitCommitted(client, raceDone, 'race finish');
-  const raceGain = await gained(faster, beforeRace, 2n * stake);
-  check(raceGain > 2n * stake, 'the faster driver took both stakes', ckb(raceGain));
 
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');
   process.exit(failures ? 1 : 0);

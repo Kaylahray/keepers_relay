@@ -171,7 +171,7 @@ fn steal(match_id: &[u8; 32], match_type_hash: &[u8; 32]) -> Result<(), i8> {
     if !lap_on_time(read_u64(&entry, OFF_BID_LAP_START)?, sealed_ms, rules.lap_window_ms) {
         return Err(ERR_CLOCK);
     }
-    if read_u64(&output, OFF_DEADLINE)? != shrunk_deadline(in_deadline, round, sealed_ms, rules.min_left_ms) {
+    if read_u64(&output, OFF_DEADLINE)? != shrunk_deadline(in_deadline, sealed_ms, rules.min_left_ms) {
         return Err(ERR_CLOCK);
     }
     let chain = bytes::<32>(&entry, OFF_BID_CHAIN)?;

@@ -4,7 +4,7 @@ Crowns is a set of skill games on Nervos CKB. Players stake CKB, and the chain d
 
 ## Games
 
-**Crowns** are king-of-the-hill games for many players. A host opens a crown with an entry fee and a clock. Players drive 5 laps of the lane runner. A higher score takes the crown, adds the entry to the pot and shortens the clock. The player holding the crown when the clock runs out wins the pot.
+**Crowns** are king-of-the-hill games for many players. A host opens a crown with an entry fee and a clock. Players drive 5 laps of Crown Run, picking upgrades and roads between laps. A higher score takes the crown, adds the entry to the pot and shortens the clock. The player holding the crown when the clock runs out wins the pot.
 
 **Duels** are one-on-one games. Both players lock the same stake and play one of two games:
 
@@ -41,9 +41,9 @@ The scripts are written in Rust for CKB-VM v2 and live in `scripts/sudden-death/
 | `treasury-lock` | Holds the crown pot and pays the winner at close |
 | `bid-type` | A player's entry: proof of work, saved laps, refund |
 | `duel-type` | Duels: open, cancel, accept, shot, skip, race result, finish |
-| `lane-runner` | Replays a lane runner run and returns the score |
+| `crown-run` | Replays a Crown Run run and returns the score |
 | `artillery` | Replays a duel's shots and returns the result |
-| `game-core` | Lane runner rules, shared by the chain and the browser (WebAssembly) |
+| `crown-run-core` | Crown Run rules, shared by the chain and the browser (WebAssembly) |
 | `artillery-core` | Artillery rules, mirrored in `lib/duel/artillery.ts` and tested for matching results |
 | `common` | Shared cell layouts, clock rules and helpers |
 
@@ -53,9 +53,9 @@ The scripts that hold money do not contain game rules. They run the game script 
 
 Other components: the Input Type Proxy Lock, the username and profile registries (ckb-js-vm), Spore for profile pictures, and JoyID or any CCC-supported wallet.
 
-### Pudge testnet deployment (v5)
+### Pudge testnet deployment
 
-Deployed with `ckb-cli deploy` from `scripts/sudden-death/deployment/testnet-v5/crowns/`. All cell references are in `.env.local.example`.
+Deployed with `ckb-cli deploy` from `scripts/sudden-death/deployment/testnet/crowns/`. All cell references are in `.env.local.example`.
 
 | Script | Type ID |
 | --- | --- |
@@ -73,16 +73,16 @@ Crowns from earlier deployments (v1, v2, v4) can still be checked at `/verify`.
 | `app/` | Pages and API routes |
 | `components/ui/` | Shared UI components |
 | `components/crown/`, `components/duel/` | Crown and duel screens, including the artillery game |
-| `components/game/` | Lane runner game and run playback |
+| `components/game/` | Crown Run screens and run playback |
 | `lib/crown/`, `lib/duel/` | Building and reading crown and duel transactions |
-| `lib/game/` | Lane runner WebAssembly loader |
+| `lib/game/` | Crown Run WebAssembly loader |
 | `lib/sudden-death/` | Cell layouts, seeds and the replay check used by `/verify` |
 | `lib/registry/` | Usernames, profiles and script configuration |
 | `lib/server/`, `lib/db/` | Database access (Neon Postgres): crowns, players, sign-in |
 | `hooks/`, `context/` | Wallet, sign-in and profile hooks |
 | `scripts/sudden-death/` | On-chain scripts, tests and deployments |
 | `scripts/crowns-devnet/` | Local devnet deployment and end-to-end tests |
-| `scripts/crowns-testnet/` | Testnet tools: config check, inventory, reclaim, stats backfill |
+| `scripts/crowns-testnet/` | Testnet tools: env values, config check, inventory, reclaim |
 
 ## Running locally
 
@@ -92,7 +92,7 @@ pnpm install
 pnpm dev
 ```
 
-Set `DATABASE_URL` (Neon, pooled connection) and `AUTH_SECRET` (a long random string) in `.env.local`. The other values already point to the Pudge testnet v5 scripts. The database stores crown lobbies and player data. Games and duels are read from the chain.
+Set `DATABASE_URL` (Neon, pooled connection) and `AUTH_SECRET` (a long random string) in `.env.local`. The other values already point to the Pudge testnet scripts. The database stores crown lobbies and player data. Games and duels are read from the chain.
 
 Players sign in by signing a message with their wallet. The server checks the signature and sets a session cookie that lasts seven days.
 
@@ -111,7 +111,7 @@ pnpm exec tsx scripts/crowns-devnet/duel-e2e.ts   # duels: artillery, race, skip
 
 ## Deploying the scripts
 
-From `scripts/sudden-death/deployment/testnet-v5/crowns/`, run `ckb-cli deploy gen-txs`, then `sign-txs`, then `apply-txs`. A new migrations folder creates new cells. An existing one upgrades them and keeps their type IDs.
+From `scripts/sudden-death/deployment/testnet/crowns/`, run `ckb-cli deploy gen-txs`, then `sign-txs`, then `apply-txs`. The steps are in that folder's README. Changed scripts are upgraded in place and keep their type IDs.
 
 After deploying:
 
@@ -121,9 +121,6 @@ pnpm exec tsx scripts/crowns-testnet/env-from-migration.ts
 
 # Check the app configuration against the chain
 pnpm exec tsx scripts/crowns-testnet/check-config.ts
-
-# Rebuild player stats from the chain
-pnpm exec tsx --env-file=.env.local scripts/crowns-testnet/backfill-steals.ts
 ```
 
 `NEXT_PUBLIC_` values are built into the app, so redeploy the site after changing them.

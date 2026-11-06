@@ -10,15 +10,15 @@ const V2_DATA_LEN = 166;
 /** v4 only: a run counted if it landed within this long after the entry's block. Kept to verify old matches. */
 export const RUN_WINDOW_MS = 10 * 60 * 1000;
 /** Each lap's window, from the block its road came from to the block its seal lands in. */
-export const LAP_WINDOW_MS = 2 * 60 * 1000;
+export const LAP_WINDOW_MS = 3 * 60 * 1000;
 /** v5 and older gave each lap this long. Kept to verify old matches. */
 export const V5_LAP_WINDOW_MS = 3 * 60 * 1000;
 /** A game's rules, as its script declares them and the chain holds it to. */
 export type GameRules = { laps: number; lapWindowMs: number; minLeftMs: number };
-/** The least a steal can leave on the clock in the lane runner, counted from its run's last seal. */
-export const MIN_LEFT_MS = 5 * 60 * 1000;
-/** The lane runner's rules. The chain refuses a match or race that names anything else for it. */
-export const LANE_RULES: GameRules = { laps: 5, lapWindowMs: LAP_WINDOW_MS, minLeftMs: MIN_LEFT_MS };
+/** The least a steal can leave on the clock in Crown Run, counted from its run's last locked lap. */
+export const MIN_LEFT_MS = 10 * 60 * 1000;
+/** Crown Run's rules. The chain refuses a match that names anything else for it. */
+export const GAME_RULES: GameRules = { laps: 5, lapWindowMs: LAP_WINDOW_MS, minLeftMs: MIN_LEFT_MS };
 /** What every match before per-game rules ran on. Kept to verify old matches. */
 const OLD_RULES: GameRules = { laps: 5, lapWindowMs: V5_LAP_WINDOW_MS, minLeftMs: 0 };
 /** Laps in a full run. */
@@ -52,20 +52,29 @@ const SEED_DOMAIN = new TextEncoder().encode('crowns/run-seed/v2');
 const V1_SEED_DOMAIN = new TextEncoder().encode('crowns/run-seed/v1');
 const POW_DOMAIN = new TextEncoder().encode('crowns/entry-pow/v1');
 
-/** Time a steal removes. Round 1 cuts 10 minutes, then halves every two rounds, floor 72s. */
+/** Time a steal removed before the fixed cut: 10 minutes, then halving every two rounds, floor 72s. Kept to verify old matches. */
 export function shrinkMs(round: number): number {
   const shift = Math.min(Math.floor(round / 2), 13);
   const cut = 600_000 >> shift;
   return cut < 72_000 ? 72_000 : cut;
 }
 
+/** Time a steal removes now, every time. */
+export const STEAL_CUT_MS = 5 * 60 * 1000;
+
 /** The deadline after a steal, its run's last seal having landed at `sealedMs`. Mirrors `shrunk_deadline`: never later, never under the floor. */
-export function shrunkDeadline(currentMs: number, round: number, sealedMs: number, minLeftMs: number): number {
+export function shrunkDeadline(currentMs: number, sealedMs: number, minLeftMs: number): number {
+  const floor = Math.min(sealedMs + minLeftMs, currentMs);
+  return Math.max(currentMs - STEAL_CUT_MS, floor, 1_000);
+}
+
+/** v5 and older had no floor. Kept to verify old matches. */
+/** The deadline after a steal under the halving cut, before the fixed cut came in. Kept to verify old matches. */
+export function shrunkDeadlineHalving(currentMs: number, round: number, sealedMs: number, minLeftMs: number): number {
   const floor = Math.min(sealedMs + minLeftMs, currentMs);
   return Math.max(currentMs - shrinkMs(round), floor, 1_000);
 }
 
-/** v5 and older had no floor. Kept to verify old matches. */
 export function shrunkDeadlineV5(currentMs: number, round: number): number {
   const cut = shrinkMs(round);
   return currentMs <= cut ? 1_000 : currentMs - cut;
@@ -303,7 +312,7 @@ export function decodeMatchCell(raw: Uint8Array): MatchCell {
 }
 
 /** A new entry: no laps sealed yet, and the lock hash of the key cell that will seal them. */
-export function encodeBidData(owner: ccc.Script, refundAfterMs: bigint, nonce = 0n, key: Uint8Array = new Uint8Array(32), rules: GameRules = LANE_RULES): Uint8Array {
+export function encodeBidData(owner: ccc.Script, refundAfterMs: bigint, nonce = 0n, key: Uint8Array = new Uint8Array(32), rules: GameRules = GAME_RULES): Uint8Array {
   const script = owner.toBytes();
   const data = new Uint8Array(BID_HEADER_LEN + script.length);
   data[0] = BID_VERSION;

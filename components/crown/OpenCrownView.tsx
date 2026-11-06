@@ -25,6 +25,7 @@ const CLOCKS = [
   { label: '6 hours', minutes: 360 },
 ];
 const FIELD = 'w-full rounded-xl bg-ink-2 px-4 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-lime';
+const MIN_MINUTES = 10;
 const MAX_MINUTES = 48 * 60;
 
 function minutesOf(durationMs?: number): number {
@@ -39,7 +40,7 @@ export function OpenCrownView() {
   // Sends a host with no username to /join, and saves a name claimed elsewhere to their profile.
   useRequireUsername();
   const [step, setStep] = useState(0);
-  const [setup, setSetup] = useState<CrownSetup>(() => ({ ...FLOOR_CROWN, title: duel ? 'Duel' : 'Lane Runner crown' }));
+  const [setup, setSetup] = useState<CrownSetup>(() => ({ ...FLOOR_CROWN, title: duel ? 'Duel' : 'Crown match' }));
   const [lengthText, setLengthText] = useState(() => String(minutesOf(FLOOR_CROWN.durationMs)));
   const [feeText, setFeeText] = useState(() => String(Number(FLOOR_CROWN.feeShannons / 100_000_000n)));
   const [shareError, setShareError] = useState<string | null>(null);
@@ -51,7 +52,7 @@ export function OpenCrownView() {
       setLengthText(String(minutesOf(setup.durationMs)));
       return;
     }
-    const clamped = Math.min(MAX_MINUTES, Math.max(1, minutes));
+    const clamped = Math.min(MAX_MINUTES, Math.max(MIN_MINUTES, minutes));
     setLengthText(String(clamped));
     setSetup((current) => ({ ...current, durationMs: clamped * 60_000 }));
   }
@@ -155,7 +156,7 @@ export function OpenCrownView() {
         <div>
           <Stepper steps={[...STEPS]} current={step} tone="lime" onJump={setStep} />
 
-          <div className="mt-8 min-h-[280px]">
+          <div className="mt-8 min-h-[400px]">
             {step === 0 ? (
               <fieldset>
                 <legend className="font-poster text-lg font-bold uppercase">Pick the game</legend>
@@ -163,7 +164,7 @@ export function OpenCrownView() {
                   {(Object.keys(GAMES) as GameId[]).map((game) => (
                     <ChoiceChip key={game} selected={setup.game === game} tone="lime" onClick={() => setSetup((current) => ({ ...current, game }))} className="overflow-hidden p-0">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={ART.laneRace} alt="" className="aspect-video w-full object-cover" />
+                      <img src={ART.crownRun} alt="" className="aspect-video w-full object-cover" />
                       <div className="p-4">
                         <p className="font-poster text-sm font-bold uppercase">{GAMES[game].title}</p>
                         <p className="mt-1 text-sm text-mute">{GAMES[game].blurb}</p>
@@ -214,7 +215,7 @@ export function OpenCrownView() {
             {step === 2 ? (
               <fieldset>
                 <legend className="font-poster text-lg font-bold uppercase">Clock length</legend>
-                <p className="mt-1 text-sm text-mute">The clock gets shorter every time someone takes the crown: 10 minutes off first, then less.</p>
+                <p className="mt-1 text-sm text-mute">Every time someone takes the crown, 5 minutes come off the clock. A grab never takes it below 10 minutes.</p>
                 <div role="radiogroup" className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
                   {CLOCKS.map((c) => (
                     <ChoiceChip
@@ -236,7 +237,7 @@ export function OpenCrownView() {
                   <span className="text-sm font-semibold">Or any length (minutes)</span>
                   <input
                     type="number"
-                    min={1}
+                    min={MIN_MINUTES}
                     max={MAX_MINUTES}
                     inputMode="numeric"
                     value={lengthText}
@@ -284,7 +285,7 @@ export function OpenCrownView() {
                 <Button size="xl" className="w-full sm:w-auto" disabled={sealing || !setup.title.trim()} onClick={open}>
                   {sealing ? 'Saving the lobby…' : 'Open the lobby'}
                 </Button>
-                <p className="text-xs text-mute">Share the link, then start the clock when players are in. Starting it is one wallet approval.</p>
+                <p className="text-xs text-mute">Share the link, then start the game when players are in. Starting it is one wallet approval.</p>
               </div>
             )}
           </div>

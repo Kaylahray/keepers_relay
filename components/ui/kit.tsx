@@ -45,7 +45,7 @@ export function StatusChip({ tone, children }: { tone: ChipTone; children: React
 
 export type LapState = 'empty' | 'done' | 'crash' | 'current';
 
-/** Five lap boxes: filled when sealed, red on a crash, ringed for the lap being driven. */
+/** Five lap boxes: filled when locked, red on a crash, ringed for the lap being driven. */
 export function LapBoxes({
   states,
   scores,
@@ -66,7 +66,7 @@ export function LapBoxes({
       {states.map((s, i) => (
         <div
           key={i}
-          aria-label={`Lap ${i + 1}: ${s === 'done' ? `sealed${scores?.[i] != null ? ` ${scores[i]}` : ''}` : s}`}
+          aria-label={`Lap ${i + 1}: ${s === 'done' ? `locked${scores?.[i] != null ? ` ${scores[i]}` : ''}` : s}`}
           className={`flex items-center justify-center font-mono font-bold ${size === 'sm' ? 'h-6 w-8 rounded-md text-[9px]' : 'h-9 w-12 rounded-lg text-[11px]'} ${
             s === 'empty' ? 'bg-white/10 text-white/40' : s === 'done' ? fill : s === 'crash' ? 'bg-danger text-ink' : `bg-white/10 text-white ring-2 ring-inset ${ring}`
           }`}

@@ -1,17 +1,19 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { createCarRig } from '@/lib/game/apex/car-model';
-import { LANE, type LaneRow } from '@/lib/game/lane-runner';
+import { CROWN_RUN as LANE, type RunRow } from '@/lib/game/crown-run';
 
-/** The lane runner drawn as a daytime highway: your car in three lanes of asphalt, grass verges, trees and a town going by, striped road barriers to dodge and gold coins to grab. */
+/** Crown Run drawn as a daytime highway: your car in three lanes of asphalt, grass verges, trees and a town going by, striped road barriers to dodge and gold coins to grab. */
 
 export type DriveState = {
   /** Car position from the rules: 0 is the left lane's centre, 2000 the right lane's. */
   x: number;
-  rows: LaneRow[];
+  rows: RunRow[];
   tick: number;
   /** The run ended by hitting a barrier (not by reaching the time limit). */
   crashed: boolean;
+  /** The road's speed when an upgrade changes it. */
+  speed?: number;
 };
 
 export type NightDrive = {
@@ -288,6 +290,12 @@ export function createNightDrive(canvas: HTMLCanvasElement, options: DriveOption
     BARRIER_CAP,
   );
   scene.add(barrierTops);
+  const shiftMarks = new THREE.InstancedMesh(
+    keep(new THREE.BoxGeometry(LANE_UNITS * 0.82, 0.04, 1.1)),
+    keep(new THREE.MeshBasicMaterial({ color: 0xff3b3b, transparent: true, opacity: 0.75 })),
+    MAX_ROWS,
+  );
+  scene.add(shiftMarks);
   const coins = new THREE.InstancedMesh(
     keep(new THREE.CylinderGeometry(0.42, 0.42, 0.12, 24)),
     keep(new THREE.MeshStandardMaterial({ color: COLORS.coin, metalness: 0.85, roughness: 0.3, emissive: 0x5a3a00 })),
@@ -365,7 +373,7 @@ export function createNightDrive(canvas: HTMLCanvasElement, options: DriveOption
     resize();
     // A new run starts back at tick 0.
     if (state.tick < lastTick) distance = 0;
-    for (let t = lastTick; t < state.tick; t += 1) distance += speedAt(t);
+    for (let t = lastTick; t < state.tick; t += 1) distance += state.speed ?? speedAt(t);
     lastTick = state.tick;
     const travelled = distance * Z_SCALE;
 
@@ -424,6 +432,7 @@ export function createNightDrive(canvas: HTMLCanvasElement, options: DriveOption
     // Barriers and coins, exactly where the rules put them.
     let barrierCount = 0;
     let coinCount = 0;
+    let markCount = 0;
     for (const row of state.rows) {
       if (row.y < -200 || row.y > LANE.VIEW_DEPTH) continue;
       const z = -row.y * Z_SCALE;
@@ -436,6 +445,11 @@ export function createNightDrive(canvas: HTMLCanvasElement, options: DriveOption
         barrierTops.setMatrixAt(barrierCount, matrix);
         barrierCount += 1;
       }
+      if (row.shift != null && row.shift >= 0 && markCount < MAX_ROWS) {
+        matrix.makeTranslation((row.shift - 1) * LANE_UNITS, 0.03, z);
+        shiftMarks.setMatrixAt(markCount, matrix);
+        markCount += 1;
+      }
       if (row.coin >= 0 && coinCount < COIN_CAP) {
         spin.setFromAxisAngle(up, now / 300 + row.y * 0.01).multiply(coinTilt);
         position.set((row.coin - 1) * LANE_UNITS, 0.9 + Math.sin(now / 200 + row.y) * 0.08, z);
@@ -447,6 +461,8 @@ export function createNightDrive(canvas: HTMLCanvasElement, options: DriveOption
     barriers.count = barrierCount;
     barrierTops.count = barrierCount;
     coins.count = coinCount;
+    shiftMarks.count = markCount;
+    shiftMarks.instanceMatrix.needsUpdate = true;
     barriers.instanceMatrix.needsUpdate = true;
     barrierTops.instanceMatrix.needsUpdate = true;
     coins.instanceMatrix.needsUpdate = true;
@@ -467,10 +483,11 @@ export function createNightDrive(canvas: HTMLCanvasElement, options: DriveOption
   }
 
   // Pools are sized for the most rows at once; counts are set each frame.
-  for (const pooled of [dashes, buildings, foliage, trunks, barriers, barrierTops, coins]) pooled.frustumCulled = false;
+  for (const pooled of [dashes, buildings, foliage, trunks, barriers, barrierTops, coins, shiftMarks]) pooled.frustumCulled = false;
   barriers.count = 0;
   barrierTops.count = 0;
   coins.count = 0;
+  shiftMarks.count = 0;
 
   return { canvas, render, dispose };
 }

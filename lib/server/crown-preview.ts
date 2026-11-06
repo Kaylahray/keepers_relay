@@ -45,7 +45,7 @@ export async function crownPreview(id: string): Promise<CrownPreview | null> {
       ])
     : null;
   const king = kingName ? `@${kingName}` : room.king;
-  const game = GAMES[room.game]?.title ?? 'Lane Runner';
+  const game = GAMES[room.game]?.title ?? 'Crown Run';
   const pot = ckbWhole(room.potShannons);
   const fee = ckbWhole(room.feeShannons);
   const clock =

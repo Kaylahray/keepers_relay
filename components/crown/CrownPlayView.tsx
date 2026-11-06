@@ -2,8 +2,8 @@
 
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
-import { Crown, ShieldCheck, Timer } from 'lucide-react';
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
+import { Crown, LoaderCircle, ShieldCheck, Timer } from 'lucide-react';
 import { ArenaCta } from '@/components/arena/ArenaPrimitives';
 import { ChainLoader } from '@/components/arena/ChainLoader';
 import { Avatar } from '@/components/duel/Avatar';
@@ -17,15 +17,17 @@ import { VerifiedSeal } from '@/components/crown/VerifiedSeal';
 import { CrownLobby } from '@/components/crown/CrownLobby';
 import { CrownReceipt } from '@/components/crown/CrownReceipt';
 import { useCrown } from '@/components/crown/useCrown';
-import { LaneRunnerGame, type FinishedRun, type LapPlan } from '@/components/game/LaneRunnerGame';
+import { CrownRunLayer } from '@/components/crown/CrownRunLayer';
+import { usePrizeStanding } from '@/components/crown/usePrizeStanding';
+import type { DrivenLap } from '@/components/game/CrownRunDrive';
 import { arenaCoverForSeed } from '@/lib/poster';
 import { InviteButton } from '@/components/InviteButton';
 import { HowToPlayIntro } from '@/components/explain/HowToPlayIntro';
 import { LapPanel } from '@/components/crown/LapPanel';
 import { ccc } from '@ckb-ccc/connector-react';
-import { ckbHash, hexToBytes, LAPS, runSeed, runSeedV1 } from '@/lib/sudden-death/codec';
-import { loadLapRun, saveLapRun } from '@/lib/crown/my-laps';
-import { addTry, loadLapTries, saveLapTries, SEAL_MARGIN_MS, tapeOf, triesLeft, TRY_NEEDS_MS, type LapTries } from '@/lib/game/lap-tries';
+import { bytesToHex, hexToBytes, LAPS, runSeed } from '@/lib/sudden-death/codec';
+import { keepOldRunKey, loadLapRun, saveLapRun, type DrivenLapRecord } from '@/lib/crown/my-laps';
+import { CROWN_RUN, picksDue, runState, withPicks, type LockedLap, unusedPicks } from '@/lib/game/crown-run';
 import {
   bidRefundAt,
   closeCrown,
@@ -46,7 +48,6 @@ import {
   type EntryLap,
 } from '@/lib/crown/chain';
 import { forgetBid, rememberBid, rememberedBid } from '@/lib/crown/my-bid';
-import { forgetBestRun, loadBestRun, saveBestRun } from '@/lib/crown/my-run';
 import { deleteCrownRemote, fetchCrownList, joinCrownRemote, pushCrownState } from '@/lib/crown/remote';
 import { useWallet } from '@/hooks/useWallet';
 import { useMyLockHash } from '@/hooks/useMyLockHash';
@@ -59,7 +60,6 @@ import { isHostWallet } from '@/lib/crown/standing';
 import { nowMs } from '@/lib/crown/clock';
 import { gameStartAt, inEntryWindow } from '@/lib/crown/phase';
 import {
-  applySteal,
   ckbWhole,
   DEFAULT_DURATION_MS,
   forgetCrown,
@@ -76,8 +76,19 @@ function scriptHash(lock: { codeHash: string; hashType: 'type' | 'data' | 'data1
   return ccc.Script.from({ codeHash: lock.codeHash, hashType: lock.hashType, args: lock.args }).hash();
 }
 
+/** The tab title's words. The server only sets the title once, when the page loads. */
+function tabHeadline(room: CrownRoom, now: number) {
+  if (room.status === 'settled') return room.king ? `${room.king} took the crown with ${room.kingScore}` : 'This crown is closed';
+  if (room.status === 'lobby') return 'Join the lobby before the clock starts';
+  if (inEntryWindow(room, now)) return 'Starting soon';
+  if (room.deadlineAt != null && room.deadlineAt <= now) {
+    return room.king ? `Time’s up: ${room.king} holds the crown at ${room.kingScore}` : 'Time ran out with the crown open';
+  }
+  return room.kingScore > 0 ? `Beat ${room.kingScore} to take the crown` : 'The crown is open. Take it.';
+}
+
 /** Entries paid so far, read from the chain. Separate from the pot: an entry only joins it by taking the crown. */
-function EntriesPaid({ matchId, hostLockHash, feeShannons }: { matchId: string; hostLockHash: string; feeShannons: bigint }) {
+function EntriesPaid({ matchId, hostLockHash, feeShannons, landing }: { matchId: string; hostLockHash: string; feeShannons: bigint; landing: boolean }) {
   const { data: count } = useQuery({
     queryKey: ['crown-entries', matchId, hostLockHash],
     queryFn: () => countEntries(getCkbClient(), matchId, hostLockHash),
@@ -85,7 +96,7 @@ function EntriesPaid({ matchId, hostLockHash, feeShannons }: { matchId: string; 
   });
   return (
     <p className="mt-2 min-h-4 font-mono text-[11px] text-mute">
-      {count == null ? null : count === 0 ? 'No entries paid yet' : `${count} ${count === 1 ? 'entry' : 'entries'} paid · ${ckbWhole(feeShannons * BigInt(count))} CKB`}
+      {count == null ? null : count === 0 ? (landing ? 'Your entry is landing…' : 'No entries paid yet') : `${count} ${count === 1 ? 'entry' : 'entries'} paid · ${ckbWhole(feeShannons * BigInt(count))} CKB`}
     </p>
   );
 }
@@ -124,18 +135,13 @@ function chainMessage(error: unknown, fallback: string): string {
   return plainChainError(error, fallback);
 }
 
-/** A practice course for a crown with no match cell, or a visitor with no wallet. */
-function floorSeed(roomId: string, who: string): bigint {
-  const encode = (text: string) => new TextEncoder().encode(text);
-  return runSeedV1(ckbHash([encode(roomId)]), ckbHash([encode(who || 'guest')]));
-}
-
 export function CrownPlayView({ id }: { id: string }) {
   const router = useRouter();
   const { room, seats, ready, unreachable } = useCrown(id);
   // A connected wallet with no username is sent to /join and comes back here after claiming one.
   const named = useRequireUsername();
   const [kingPicture] = useChainPictures([room?.kingHash]);
+  const prize = usePrizeStanding(room);
   const { address, formattedAddress, isConnected } = useWallet();
   const { ensureAuth, authenticated } = useAuth();
   const signer = ccc.useSigner();
@@ -148,7 +154,10 @@ export function CrownPlayView({ id }: { id: string }) {
   const [committed, setCommitted] = useState<{ txHash: string; ok: boolean } | null>(null);
   // The chain's median time and when this page read it, so the wait can count down between reads.
   const [median, setMedian] = useState<{ at: number; readAt: number } | null>(null);
-  const [bestRun, setBest] = useState<FinishedRun | null>(null);
+  // The run plays on its own full screen, opened from this page.
+  const [inRun, setInRun] = useState(false);
+  const [driving, setDriving] = useState(false);
+  const [takeAfterLock, setTakeAfterLock] = useState(false);
   const [refund, setRefund] = useState<{ at: number | null; sent: string | null }>({ at: null, sent: null });
   const now = useNow(room?.status === 'live');
   const matchOver =
@@ -276,6 +285,11 @@ export function CrownPlayView({ id }: { id: string }) {
     );
   }, [room, now]);
 
+  const tabTitle = room ? `${tabHeadline(room, now)} · ${room.title}` : null;
+  useEffect(() => {
+    if (tabTitle) document.title = tabTitle;
+  }, [tabTitle]);
+
   const seatBid = room ? seats.find((seat) => seat.address === address.trim().toLowerCase())?.bidOutPoint ?? null : null;
   const savedBid = room ? rememberedBid(room.id, address) : null;
   const entryBid = room?.bidOutPoint ?? seatBid ?? savedBid;
@@ -304,29 +318,32 @@ export function CrownPlayView({ id }: { id: string }) {
   }, [chain, matchIdForRoad, myLockHash, entryKey]);
   const foundLap = lapFound && lapFound.entry === entryKey ? lapFound.next : null;
 
-  // This browser's run: the session key that seals its laps and every lap sealed so far.
+  // This browser's run: the session key that locks its laps and every lap locked so far.
   const [runVersion, setRunVersion] = useState(0);
   const roomKey = room?.id ?? null;
   const lapRun = useMemo(
     () => (roomKey && address && typeof window !== 'undefined' ? loadLapRun(roomKey, address) : null),
-    // runVersion re-reads storage after a seal or a new entry.
+    // runVersion re-reads storage after a lock or a new entry.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [roomKey, address, runVersion],
   );
   // Right after a new entry the page can still be reading the old one; its lap is not this run's.
   const nextLap = foundLap && (!lapRun?.entryTx || foundLap.point.txHash === lapRun.entryTx) ? foundLap : null;
   const sealedLaps = useMemo(() => lapRun?.laps ?? [], [lapRun]);
-  // A grab spends the entry, so a run sent as a grab has no more laps.
-  const runOver = sealedLaps.length >= LAPS || Boolean(sealedLaps.at(-1)?.crashed) || Boolean(lapRun?.finished);
-  // The chain and this browser agree on how many laps are sealed.
+  const driven = lapRun?.driven ?? null;
+  // A run ends with its last lap, a crash, or the crown.
+  const lateLap = Boolean(nextLap?.late);
+  const runOver = sealedLaps.length >= LAPS || Boolean(sealedLaps.at(-1)?.crashed) || Boolean(driven?.crashed) || Boolean(lapRun?.finished) || lateLap;
+  // The chain and this browser agree on how many laps are locked.
   const inSync = !nextLap || nextLap.sealed === sealedLaps.length;
-  const lapPlan = useMemo<LapPlan | null>(() => {
-    if (!matchIdForRoad || !myLockHash || !nextLap || nextLap.late || !lapRun || !inSync || runOver) return null;
-    return {
-      seeds: [...sealedLaps.map((lap) => runSeed(matchIdForRoad, myLockHash, lap.block)), nextLap.seed],
-      sealed: sealedLaps.map((lap) => hexToBytes(lap.tape)),
-    };
-  }, [matchIdForRoad, myLockHash, nextLap, lapRun, inSync, runOver, sealedLaps]);
+  const lockedLaps = useMemo<LockedLap[]>(
+    () =>
+      matchIdForRoad && myLockHash
+        ? sealedLaps.map((lap) => ({ seed: runSeed(matchIdForRoad, myLockHash, lap.block), bytes: hexToBytes(lap.tape) }))
+        : [],
+    [matchIdForRoad, myLockHash, sealedLaps],
+  );
+  const nextSeed = nextLap && !nextLap.late && lapRun && inSync && !runOver ? nextLap.seed : null;
   // A run that can no longer be sent (its window shut, or the game ended) gives its key cell back.
   const runDone =
     lapRun != null &&
@@ -363,17 +380,6 @@ export function CrownPlayView({ id }: { id: string }) {
     return () => window.removeEventListener('online', retryReturn);
   }, [runDone]);
 
-  // The best try at the lap being played.
-  // This entry's tries at the current lap, kept so a reload can't hand out more of them or lose the best one.
-  const tryScope = roomKey && lapRun ? `crown:${roomKey}:${lapRun.session.slice(2, 18)}` : null;
-  const [lapTry, setLapTry] = useState<LapTries | null>(null);
-  const [triedScope, setTriedScope] = useState<string | null>(null);
-  if (tryScope !== triedScope) {
-    setTriedScope(tryScope);
-    setLapTry(tryScope ? loadLapTries(tryScope) : null);
-  }
-  const [stamp, setStamp] = useState<{ lap: number; at: number } | null>(null);
-
   // An entry left over after the close can come back once its refund time passes.
   useEffect(() => {
     if (!chain || room?.status !== 'settled' || !entryBid) return;
@@ -388,45 +394,16 @@ export function CrownPlayView({ id }: { id: string }) {
     };
   }, [chain, room?.status, entryBid]);
 
-  const seed = useMemo(() => {
-    if (!room) return null;
-    if (chain && room.matchId && myLockHash) {
-      return lapPlan ? lapPlan.seeds.at(-1)! : floorSeed(`${room.id}:practice`, myLockHash);
-    }
-    return floorSeed(room.id, address.trim().toLowerCase());
-  }, [room, chain, myLockHash, address, lapPlan]);
-
-  // The best finished run counts only on the course it was played on.
-  const roomId = room?.id ?? null;
-  const storedBest = useMemo(
-    () => (roomId && seed != null && typeof window !== 'undefined' ? loadBestRun(roomId, seed) : null),
-    [roomId, seed],
-  );
-  const fresh = bestRun && seed != null && bestRun.seed === seed ? bestRun : null;
-  const best = fresh && (!storedBest || fresh.score >= storedBest.score) ? fresh : storedBest;
-  const lapIndex = lapPlan ? lapPlan.sealed.length + 1 : null;
-  const onFinish = useCallback(
-    (run: FinishedRun) => {
-      if (lapIndex != null) {
-        // A lap try: keep the best one for this lap until the player seals it.
-        setLapTry((current) => {
-          const next = addTry(current, lapIndex, run);
-          if (tryScope) saveLapTries(tryScope, next);
-          return next;
-        });
-        return;
-      }
-      setBest((current) => {
-        const keep = current && current.seed === run.seed && current.score >= run.score ? current : run;
-        if (roomId && keep === run) {
-          const saved = loadBestRun(roomId, run.seed);
-          if (!saved || run.score > saved.score) saveBestRun(roomId, run);
-        }
-        return keep;
-      });
-    },
-    [roomId, lapIndex, tryScope],
-  );
+  // A crashed lap that beats the crown is locked first, then takes it once the lock has landed.
+  const takeNow = useEffectEvent(() => {
+    setTakeAfterLock(false);
+    void takeCrown();
+  });
+  const lockLanded = takeAfterLock && nextLap != null && sealedLaps.length > 0 && nextLap.sealed === sealedLaps.length;
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (lockLanded) takeNow();
+  }, [lockLanded]);
 
   if (!ready) {
     return (
@@ -461,14 +438,6 @@ export function CrownPlayView({ id }: { id: string }) {
           body={unreachable ? 'Could not reach this game. Retrying…' : 'This game does not exist or was deleted.'}
           action={<Button href="/play">Find a crown</Button>}
         />
-      </ArenaStage>
-    );
-  }
-
-  if (room.legacy) {
-    return (
-      <ArenaStage backHref="/play" backLabel="Crowns">
-        <EmptyState title="Old game" body="A quiz crown from before the game update. It can no longer be played." action={<Button href="/play">Find a crown</Button>} />
       </ArenaStage>
     );
   }
@@ -508,25 +477,34 @@ export function CrownPlayView({ id }: { id: string }) {
     median != null && room.deadlineAt != null ? Math.max(0, room.deadlineAt - (median.at + (now - median.readAt))) : null;
   const shownError = !matchReady && chainError && /not on chain yet|still confirming/i.test(chainError) ? null : chainError;
   const onChain = chain && Boolean(room.matchId);
-  // On chain the run is played in laps on an entry; the score is the run's score after its last sealed lap.
+  // On chain the run is played in laps on an entry; the score is the run's score after its last locked lap.
   const lapMode = onChain && Boolean(entryBid);
   const runScore = sealedLaps.at(-1)?.score ?? 0;
-  const beats = lapMode ? sealedLaps.length > 0 && runScore > room.kingScore : best != null && best.score > room.kingScore;
+  const beats = lapMode && sealedLaps.length > 0 && runScore > room.kingScore && !lateLap;
   // Stop offering steals once the clock hits zero, even before the chain enforces it.
   const timeUp = live && room.deadlineAt != null && !clock.counting;
   const roadLeft = nextLap ? nextLap.windowEndsMs - now : null;
-  const roadOpen = roadLeft != null && roadLeft > SEAL_MARGIN_MS;
-  // Too little time left to race this lap, and no try to seal: only a new entry can help.
-  const outOfRoad = roadLeft != null && roadLeft - SEAL_MARGIN_MS <= TRY_NEEDS_MS && !(lapTry?.lap === sealedLaps.length + 1 && (lapTry.clean || lapTry.crash));
-  const canTake =
-    live && !entryWindow && !timeUp && beats && !iHold && isConnected && (!onChain || (matchReady && inSync && roadOpen)) && !busy;
+  const roadOpen = roadLeft != null && roadLeft > CROWN_RUN.LOCK_MARGIN_MS;
+  const windowLeft = roadLeft != null ? Math.max(0, roadLeft - CROWN_RUN.LOCK_MARGIN_MS) : null;
+  // Too little time left to drive this lap, and nothing driven to lock: only a new entry can help.
+  const outOfRoad = windowLeft != null && windowLeft < CROWN_RUN.LAP_NEEDS_MS && !driven;
+  const canTake = live && !entryWindow && !timeUp && beats && !iHold && isConnected && onChain && matchReady && inSync && roadOpen && !busy;
   const currentLap = sealedLaps.length + 1;
-  const stamping = stamp != null && now - stamp.at < 2_600;
+  const { owned } = runState(lockedLaps.map((lap) => lap.bytes));
+  const crownName = iHold ? 'You' : room.king;
+  const shortClock = live && !entryWindow && clock.counting && clockLeft < CROWN_RUN.RUN_NEEDS_MS;
+  const entriesClosed = live && !entryWindow && clockLeft < CROWN_RUN.ENTRY_NEEDS_MS;
+  // An entry in progress shows its steps on the pay button itself.
+  const paying = busy != null && /entry|key cell/i.test(busy);
+  const showPay =
+    onChain && live && !entryWindow && !timeUp && !iHold && isConnected && matchReady && (!busy || paying) && (!entryBid || (nextLap && inSync && !beats && (runOver || outOfRoad || !roadOpen)));
 
   async function lockEntry(current: CrownRoom): Promise<CrownRoom> {
     if (!signer) throw new Error('Connect your wallet to pay the entry.');
     // A throwaway key for this run: it seals each lap without asking the wallet.
     if (lapRun && !lapRun.keyReturned) {
+      // The new run's key replaces this one, so keep it until its cell is back, even if this return fails.
+      if (address) keepOldRunKey(address, lapRun.session);
       setBusy('Returning your last run’s key cell…');
       // Best effort: a key cell too small to stand alone under the owner’s lock can’t go back by itself.
       await returnKeyCell(signer.client, lapRun.session as `0x${string}`, (await signer.getRecommendedAddressObj()).script).catch(
@@ -539,7 +517,6 @@ export function CrownPlayView({ id }: { id: string }) {
     if (address) {
       saveLapRun(current.id, address, { session: session.secret, laps: [], entryTx: next.bidOutPoint?.txHash });
       setRunVersion((version) => version + 1);
-      setLapTry(null);
     }
     if (address && next.bidOutPoint) {
       rememberBid(current.id, address, next.bidOutPoint);
@@ -549,10 +526,11 @@ export function CrownPlayView({ id }: { id: string }) {
         bidOutPoint: next.bidOutPoint,
       }).catch(() => undefined);
     }
+    setInRun(true);
     return next;
   }
 
-  /** The entry moved (a seal spends it and makes it again): remember where it is now, everywhere. */
+  /** The entry moved (a lock spends it and makes it again): remember where it is now, everywhere. */
   function moveEntry(point: { txHash: string; index: string }) {
     if (!room) return;
     const local = loadCrown(id) ?? room;
@@ -565,26 +543,46 @@ export function CrownPlayView({ id }: { id: string }) {
     }
   }
 
-  async function sealCurrentLap(kind: 'clean' | 'crash') {
-    const chosen = lapTry?.lap === sealedLaps.length + 1 ? lapTry[kind] : null;
-    if (!room || !address || !nextLap || !chosen || !lapRun) return;
+  /** A lap just driven: kept at once, so a reload can't lose it. A crash that can't take the crown ends the run here. */
+  function onDriven(lap: DrivenLap) {
+    if (!room || !address || !lapRun) return;
+    const record: DrivenLapRecord = { lap: sealedLaps.length, moves: bytesToHex(lap.moves), score: lap.score, coins: lap.coins, crashed: lap.crashed };
+    const noPicks = !lap.crashed && picksDue(record.lap) === 0;
+    if (noPicks) record.picks = { upgrade: null, road: null };
+    saveLapRun(room.id, address, { ...lapRun, driven: record, finished: lap.crashed && lap.score <= room.kingScore });
+    setRunVersion((version) => version + 1);
+    setDriving(false);
+    if (noPicks) void lockDriven(record);
+  }
+
+  function onPick(upgrade: number | null, road: number) {
+    if (!room || !address || !lapRun || !driven) return;
+    const record: DrivenLapRecord = { ...driven, picks: { upgrade, road } };
+    saveLapRun(room.id, address, { ...lapRun, driven: record });
+    setRunVersion((version) => version + 1);
+    void lockDriven(record);
+  }
+
+  /** Sends a driven lap and its picks to the chain. They are fixed before the next road exists. */
+  async function lockDriven(record: DrivenLapRecord) {
+    if (!room || !address || !nextLap || !lapRun) return;
     setChainError(null);
-    const lap = sealedLaps.length + 1;
-    setBusy(`Sealing lap ${lap}…`);
+    setBusy(`Locking lap ${record.lap + 1}…`);
     try {
-      const point = await sealLap(getCkbClient(), nextLap.point, lapRun.session as `0x${string}`, tapeOf(chosen), setBusy);
+      const bytes = withPicks(hexToBytes(record.moves), record.picks?.upgrade ?? null, record.picks?.road ?? null);
+      const point = await sealLap(getCkbClient(), nextLap.point, lapRun.session as `0x${string}`, bytes, setBusy);
       saveLapRun(room.id, address, {
         ...lapRun,
-        laps: [...lapRun.laps, { block: nextLap.block, tape: chosen.tape, score: chosen.score, crashed: chosen.crashed }],
+        laps: [...lapRun.laps, { block: nextLap.block, tape: bytesToHex(bytes), score: record.score, crashed: record.crashed, coins: record.coins }],
+        driven: null,
         sealedAt: Date.now(),
         entryTx: point.txHash,
       });
       moveEntry(point);
       setRunVersion((version) => version + 1);
-      setLapTry(null);
-      setStamp({ lap, at: Date.now() });
     } catch (error) {
-      setChainError(chainMessage(error, 'The lap could not be sealed.'));
+      setTakeAfterLock(false);
+      setChainError(chainMessage(error, 'The lap could not be locked.'));
     } finally {
       setBusy(null);
     }
@@ -603,7 +601,7 @@ export function CrownPlayView({ id }: { id: string }) {
   }
 
   async function takeCrown() {
-    if (!room || (!lapMode && !best)) return;
+    if (!room || !lapMode) return;
     setChainError(null);
     try {
       await ensureAuth();
@@ -612,14 +610,6 @@ export function CrownPlayView({ id }: { id: string }) {
       return;
     }
     const name = formattedAddress || 'Player';
-    if (!chain || !room.matchId) {
-      if (!best) return;
-      const next = applySteal(room, best.score, name, `Run of ${best.tape.length / 3} moves (practice floor)`);
-      saveCrown(next);
-      void pushCrownState(next).catch(() => undefined);
-      setBest(null);
-      return;
-    }
     if (!signer) {
       setChainError('Connect your wallet. You only sign once, to pay the entry.');
       return;
@@ -629,7 +619,7 @@ export function CrownPlayView({ id }: { id: string }) {
       if (nextLap) current = { ...current, bidOutPoint: nextLap.point };
       else if (!current.bidOutPoint && entryBid) current = { ...current, bidOutPoint: entryBid };
       if (!current.bidOutPoint || sealedLaps.length === 0) {
-        setChainError('Pay to enter and seal at least one lap first.');
+        setChainError('Pay to enter and lock at least one lap first.');
         return;
       }
       setBusy('Sending your run…');
@@ -664,7 +654,6 @@ export function CrownPlayView({ id }: { id: string }) {
       }
       const named = { ...result.room, king: name };
       if (address) forgetBid(room.id, address);
-      if (best) forgetBestRun(room.id, best.seed);
       // The run is over. Its session key is kept until the key cell is back with the player.
       if (address && lapRun) saveLapRun(room.id, address, { ...lapRun, finished: true });
       setRunVersion((version) => version + 1);
@@ -673,7 +662,7 @@ export function CrownPlayView({ id }: { id: string }) {
       if (address) {
         void joinCrownRemote(room.id, { address, displayName: name, clearBid: true }).catch(() => undefined);
       }
-      setBest(null);
+      setInRun(false);
     } catch (error) {
       if (error instanceof MatchMovedError) saveCrown(error.room);
       if (error instanceof RunBeatenError || error instanceof RoadExpiredError) {
@@ -778,7 +767,7 @@ export function CrownPlayView({ id }: { id: string }) {
   }
 
   const closeButton =
-    chain && room.matchId && live && !confirmingOpen ? (
+    chain && room.matchId && live && !confirmingOpen && !entryWindow ? (
       <div className="clip-panel mt-4 bg-gold/10 p-6">
         <Button variant="gold" size="lg" onClick={() => void closeMatch()} disabled={Boolean(busy) || clock.counting || (medianAt != null && !sinceReady)}>
           {busy === 'Closing…' ? busy : 'End the game and pay the winner'}
@@ -787,7 +776,7 @@ export function CrownPlayView({ id }: { id: string }) {
           {clock.counting
             ? 'You can end it once the clock runs out.'
             : sinceReady || medianAt == null
-              ? 'No wallet needed. The prize goes to the last player who grabbed the crown in time.'
+              ? 'The prize goes to the last player who grabbed the crown in time.'
               : sinceWait != null && sinceWait > 0
                 ? `Opens in about ${formatWait(sinceWait)}.`
                 : 'Opening now…'}
@@ -837,7 +826,7 @@ export function CrownPlayView({ id }: { id: string }) {
                   <span className="font-mono text-base font-bold md:text-xl">CKB</span>
                 </p>
                 {chain && live && room.matchId && room.hostLockHash ? (
-                  <EntriesPaid matchId={room.matchId} hostLockHash={room.hostLockHash} feeShannons={room.feeShannons} />
+                  <EntriesPaid matchId={room.matchId} hostLockHash={room.hostLockHash} feeShannons={room.feeShannons} landing={Boolean(entryBid)} />
                 ) : null}
               </div>
               <div className="sm:text-right">
@@ -861,18 +850,23 @@ export function CrownPlayView({ id }: { id: string }) {
                   <>
                     <Avatar name={room.king} tone="#e1bf47" size={56} src={kingPicture} />
                     <div className="min-w-0">
-                      <p className="text-[11px] text-mute">Crown holder</p>
+                      <p className="text-[11px] text-mute">{live && !timeUp ? 'Crown holder' : 'Last holder'}</p>
                       <p className="truncate font-poster text-base font-bold">{iHold ? 'You' : room.king}</p>
+                      {prize?.late ? (
+                        <p className="mt-1 text-xs font-semibold text-danger">
+                          Landed too late to win. {prize.holder ? `The prize goes to ${prize.holder} at ${prize.score}.` : 'The prize goes back to the host.'}
+                        </p>
+                      ) : null}
                     </div>
                   </>
                 ) : (
-                  <p className="text-sm text-mute">Nobody holds it yet.</p>
+                  <p className="text-sm text-mute">{live && !timeUp ? 'Nobody holds it yet.' : 'Nobody took the crown.'}</p>
                 )}
               </div>
               <div className="rounded-2xl bg-ink p-4">
-                <p className="text-[11px] text-mute">Score to beat</p>
+                <p className="text-[11px] text-mute">{live && !timeUp ? 'Score to beat' : 'Best score'}</p>
                 <p className="font-poster text-3xl font-black tabular-nums">{room.kingScore || '—'}</p>
-                <p className="font-mono text-[10px] text-mute">+{ckbWhole(room.feeShannons)} CKB into the pot per crown</p>
+                {live && !timeUp ? <p className="font-mono text-[10px] text-mute">+{ckbWhole(room.feeShannons)} CKB into the pot per crown</p> : null}
               </div>
             </div>
           </section>
@@ -934,37 +928,9 @@ export function CrownPlayView({ id }: { id: string }) {
             </div>
           ) : null}
 
-          {live && seed != null ? (
+          {live ? (
             <div>
-              <LaneRunnerGame
-                title={room.title}
-                sealLeftMs={lapMode && lapPlan && !entryWindow && roadLeft != null ? Math.max(0, roadLeft - SEAL_MARGIN_MS) : null}
-                seed={seed}
-                toBeat={room.kingScore}
-                onFinish={onFinish}
-                startLabel={lapPlan && roadOpen && !entryWindow ? `Race lap ${currentLap} of ${LAPS}` : 'Practise'}
-                lap={lapPlan && !entryWindow ? lapPlan : undefined}
-                triesLeft={triesLeft(lapTry, currentLap)}
-                sealOptions={
-                  lapPlan && !entryWindow && !busy && roadOpen && lapTry?.lap === currentLap
-                    ? [
-                        ...(lapTry.clean ? [{ label: `Seal lap ${currentLap} · ${lapTry.clean.score}`, onClick: () => void sealCurrentLap('clean') }] : []),
-                        ...(lapTry.crash
-                          ? [{ label: `Seal crash · ${lapTry.crash.score} · ends run`, danger: true, onClick: () => void sealCurrentLap('crash') }]
-                          : []),
-                      ]
-                    : undefined
-                }
-              />
-              {stamping ? (
-                <div className="pointer-events-none relative z-20 -mt-40 mb-16 flex justify-center" aria-live="polite">
-                  <div className="lap-stamp clip-sm bg-lime px-6 py-3 text-center text-ink shadow-[0_0_40px_rgba(153,238,45,0.35)]">
-                    <p className="font-poster text-3xl font-black uppercase leading-none">Lap {stamp!.lap} sealed</p>
-                    <p className="mt-1 font-mono text-[10px] font-bold uppercase tracking-wider text-ink/70">on chain · no wallet needed</p>
-                  </div>
-                </div>
-              ) : null}
-              <div className="clip-panel mt-4 bg-ink-2 p-6">
+              <div className="clip-panel bg-ink-2 p-6">
                 {entryWindow ? (
                   <>
                     <p className="font-mono text-[11px] uppercase tracking-wider text-lime">{entryBid ? 'You’re in' : 'Starting soon'}</p>
@@ -977,12 +943,12 @@ export function CrownPlayView({ id }: { id: string }) {
                     </p>
                   </>
                 ) : iHold ? (
-                  <div className="-m-6 flex items-start justify-between gap-4 bg-gold p-6 text-ink">
+                  <div className="-mx-6 -mt-6 flex items-start justify-between gap-4 bg-gold p-6 text-ink">
                     <div>
                       <p className="font-mono text-[11px] font-bold uppercase tracking-wider">You hold the crown</p>
                       <p className="mt-2 font-poster text-2xl font-black uppercase md:text-3xl">Hold it till zero</p>
                       <p className="mt-1 font-medium">
-                        Your score {room.kingScore} is the one to beat. {clockText} to go. If someone beats it, take it back.
+                        Your score {room.kingScore} is the one to beat. If someone beats it, take it back.
                       </p>
                     </div>
                     <Crown className="h-12 w-12 shrink-0 -rotate-6 fill-ink" aria-hidden="true" />
@@ -990,51 +956,32 @@ export function CrownPlayView({ id }: { id: string }) {
                 ) : lapMode ? (
                   <LapPanel
                     laps={sealedLaps.map((lap) => ({ score: lap.score, crashed: lap.crashed }))}
-                    current={currentLap}
-                    cleanScore={lapTry?.lap === currentLap ? (lapTry.clean?.score ?? null) : null}
-                    crashScore={lapTry?.lap === currentLap ? (lapTry.crash?.score ?? null) : null}
+                    crashScore={driven?.crashed ? driven.score : null}
+                    owned={owned}
                     toBeat={room.kingScore}
+                    unused={unusedPicks(sealedLaps.map((lap) => hexToBytes(lap.tape)))}
                     runOver={runOver}
-                    pitStop={!nextLap || !inSync ? (sealedLaps.length ? 'seal' : 'entry') : null}
+                    late={lateLap}
                     otherDevice={!lapRun}
-                    waitedSeconds={lapRun?.sealedAt ? Math.max(0, Math.floor((now - lapRun.sealedAt) / 1000)) : null}
-                    windowLeft={roadLeft != null ? Math.max(0, roadLeft - SEAL_MARGIN_MS) : null}
-                    busy={Boolean(busy)}
-                    onSeal={(kind) => void sealCurrentLap(kind)}
-                    formatWait={formatWait}
+                    onOpen={lapRun && !timeUp && (!runOver || beats || (driven?.crashed && driven.score > room.kingScore)) ? () => setInRun(true) : null}
+                    openLabel={driven || runOver ? 'Continue your run' : `Drive lap ${currentLap} of ${LAPS}`}
                   />
-                ) : best ? (
+                ) : (
                   <>
-                    <p className="font-mono text-[11px] uppercase tracking-wider text-lime">Your best run</p>
-                    <p className="mt-2 font-poster text-3xl font-black tabular-nums">
-                      {best.score} <span className="text-xl text-mute">vs {room.kingScore}</span>
-                    </p>
-                    <p className="mt-2 max-w-xl text-sm text-mute">
-                      {beats
-                        ? `That beats the crown! Grab it: ${ckbWhole(room.feeShannons)} CKB goes into the prize.`
-                        : onChain
-                          ? 'Not enough yet. Keep trying while your road is open.'
-                          : 'Not enough yet. Your road is the same every time, so you can learn it.'}
+                    <p className="font-mono text-[11px] uppercase tracking-wider text-lime">Crown Run</p>
+                    <p className="mt-2 text-sm text-mute">
+                      {room.kingScore ? `Beat ${room.kingScore} to take the crown.` : 'Nobody holds it yet. Lock in one lap and you can take it.'} Each lap is 30 seconds and you get one try at it.
                     </p>
                   </>
-                ) : (
-                  <p className="text-sm text-mute">
-                    {room.kingScore ? `Practice is free. Beat ${room.kingScore} to take the crown.` : 'Practice is free. Be the first to finish and the crown is yours.'}
-                  </p>
                 )}
                 {!isConnected ? (
                   <div className="mt-4">
                     <ArenaCta onClick={() => void ensureAuth().catch(() => undefined)}>Connect to play for the prize</ArenaCta>
                   </div>
                 ) : null}
-                {onChain && live && !timeUp && !entryWindow && !iHold && !entryBid ? (
-                  <p className="mt-3 text-sm text-mute">
-                    {`This is a practice road. Pay to enter and the chain hands you your real run, ${LAPS} laps of 30 seconds, each lap’s road revealed only once the lap before it is sealed.`}
-                  </p>
-                ) : null}
                 {cellMoving ? (
-                  <div className="mt-3">
-                    <ChainLoader inline title={iHold ? 'Your grab is landing on chain…' : 'Someone just grabbed the crown. Updating…'} />
+                  <div className="mt-4">
+                    <ChainLoader inline title={iHold ? 'Your takeover is landing on chain…' : 'Someone just took the crown. Updating…'} />
                   </div>
                 ) : null}
                 {timeUp ? (
@@ -1042,48 +989,105 @@ export function CrownPlayView({ id }: { id: string }) {
                     Time&apos;s up. {room.king ? `${iHold ? 'You hold' : `${room.king} holds`} the crown at ${room.kingScore}.` : 'Nobody took the crown.'}
                   </p>
                 ) : null}
-                {beats && !entryWindow && !timeUp && !iHold && isConnected && (!onChain || lapMode) && !(roadLeft != null && !roadOpen) ? (
+                {beats && !inRun && !entryWindow && !timeUp && !iHold && isConnected && !(roadLeft != null && !roadOpen) ? (
                   <div className="mt-4">
                     <ArenaCta onClick={() => void takeCrown()} disabled={!canTake}>
-                      {busy ??
-                        (lapMode && (!nextLap || !inSync)
-                          ? `Grab with ${runScore} once your seal lands…`
-                          : `Grab the crown with ${lapMode ? runScore : best?.score}`)}
+                      {busy ?? (!nextLap || !inSync ? `Take it with ${runScore} once your lap lands…` : `Take the crown with ${runScore}`)}
                     </ArenaCta>
-                    {lapMode && !runOver ? (
-                      <p className="mt-2 text-xs text-mute">Grabbing now ends your run with the laps sealed so far.</p>
-                    ) : null}
+                    {!runOver ? <p className="mt-2 text-xs text-mute">Taking the crown ends your run with the laps locked so far.</p> : null}
                   </div>
                 ) : null}
                 {/* A lap's time starts when the entry lands, so entries open when the round starts, not before. */}
-                {onChain && live && !entryWindow && !timeUp && !iHold && isConnected && matchReady && (!entryBid || (nextLap && inSync && !runOver && (!roadOpen || outOfRoad))) ? (
+                {showPay ? (
                   <div className="mt-4">
-                    <ArenaCta
-                      onClick={() => {
-                        setBusy('Paying your entry…');
-                        setChainError(null);
-                        // A spent road's entry is still refunded at the close; this one gets a new road.
-                        if (entryBid) forgetEntry();
-                        void lockEntry({ ...(loadCrown(id) ?? room), bidOutPoint: null })
-                          .catch((error: unknown) => {
-                            if (error instanceof MatchMovedError) saveCrown(error.room);
-                            setChainError(chainMessage(error, 'The entry payment failed.'));
-                          })
-                          .finally(() => setBusy(null));
-                      }}
-                      disabled={Boolean(busy)}
-                    >
-                      {busy ?? (entryBid ? 'Pay a new entry' : 'Pay to enter')}
-                    </ArenaCta>
+                    {entriesClosed ? (
+                      <p className="rounded-lg bg-gold/10 px-3 py-2 text-xs font-semibold text-gold">
+                        {`New entries are closed. Only ${clockText} left, which is too short for an entry to land and a lap to lock.`}
+                      </p>
+                    ) : (
+                      <>
+                      {shortClock ? (
+                        <p className="mb-3 rounded-lg bg-gold/10 px-3 py-2 text-xs font-semibold text-gold">
+                          {`Only ${clockText} left on the clock, and a full run takes about 6 minutes. It may end before you finish. You can take the crown with the laps you've locked.`}
+                        </p>
+                      ) : null}
+                      <ArenaCta
+                        onClick={() => {
+                          setBusy('Getting your entry ready…');
+                          setChainError(null);
+                          // An unused entry is still refunded at the close; this one gets a new road.
+                          if (entryBid) forgetEntry();
+                          void lockEntry({ ...(loadCrown(id) ?? room), bidOutPoint: null })
+                            .catch((error: unknown) => {
+                              if (error instanceof MatchMovedError) saveCrown(error.room);
+                              setChainError(chainMessage(error, 'The entry payment failed.'));
+                            })
+                            .finally(() => setBusy(null));
+                        }}
+                        disabled={Boolean(busy)}
+                      >
+                        {busy ? (
+                          <span className="inline-flex items-center gap-2">
+                            <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                            {/Proving work/.test(busy) ? 'Getting your entry ready…' : busy === 'Paying your entry…' ? 'Approve in your wallet…' : busy}
+                          </span>
+                        ) : entryBid ? (
+                          'Pay a new entry'
+                        ) : (
+                          'Pay to enter'
+                        )}
+                      </ArenaCta>
+                      </>
+                    )}
                   </div>
                 ) : null}
+                <Button href="/practice" variant="ghost" size="sm" className="mt-4">
+                  Practice for free
+                </Button>
               </div>
+              {inRun && lapRun && !iHold ? (
+                <CrownRunLayer
+                  driving={driving}
+                  laps={lockedLaps}
+                  seed={nextSeed}
+                  sealed={sealedLaps}
+                  driven={driven}
+                  runOver={runOver}
+                  late={Boolean(nextLap?.late)}
+                  toBeat={room.kingScore}
+                  holder={crownName}
+                  timeUp={timeUp}
+                  windowLeft={windowLeft}
+                  canTake={canTake}
+                  busy={busy}
+                  error={shownError}
+                  waitedSeconds={lapRun.sealedAt ? Math.max(0, Math.floor((now - lapRun.sealedAt) / 1000)) : null}
+                  formatWait={formatWait}
+                  onStartLap={() => {
+                    setChainError(null);
+                    setDriving(true);
+                  }}
+                  onDriven={onDriven}
+                  onPick={onPick}
+                  onLock={() => driven && void lockDriven(driven)}
+                  onTake={() => void takeCrown()}
+                  onLockAndTake={() => {
+                    if (!driven) return;
+                    setTakeAfterLock(true);
+                    void lockDriven(driven);
+                  }}
+                  onLeave={() => {
+                    setDriving(false);
+                    setInRun(false);
+                  }}
+                />
+              ) : null}
               {closeButton}
             </div>
           ) : null}
 
           {shownError ? <p className="rounded-xl bg-danger/10 p-3 text-sm text-danger">{shownError}</p> : null}
-          {busy && live ? <ChainLoader inline title={busy} /> : null}
+          {busy && live && !(showPay && paying) ? <ChainLoader inline title={busy} /> : null}
           {room.seals[0] ? <VerifiedSeal seal={room.seals[0]} /> : null}
         </div>
 
@@ -1127,7 +1131,7 @@ export function CrownPlayView({ id }: { id: string }) {
           ) : null}
           <section aria-labelledby="steals" className="rounded-2xl bg-ink-2 p-5">
             <h2 id="steals" className="font-poster text-sm font-bold uppercase">
-              Crown steals
+              Activity
             </h2>
             {room.feed.length ? (
               <ol className="mt-4 space-y-2">

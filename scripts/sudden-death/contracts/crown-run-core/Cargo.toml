@@ -1,0 +1,8 @@
+[package]
+name = "crowns-crown-run-core"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+description = "Crown Run: deterministic rules shared by the browser (wasm) and CKB-VM (riscv)"
+
+[dependencies]

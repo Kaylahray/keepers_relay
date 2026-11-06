@@ -6,6 +6,7 @@
 import { ccc } from '@ckb-ccc/core';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { CROWN_RUN, restore, withPicks, type CrownRun, type LockedLap } from '@/lib/game/crown-run';
 
 export const HERE = __dirname;
 export const RPC_URL = process.env.DEVNET_RPC_URL ?? 'http://127.0.0.1:8114';
@@ -43,4 +44,30 @@ export function loadDevnetEnv(): void {
     const match = /^([A-Z0-9_]+)=(.*)$/.exec(line.trim());
     if (match) process.env[match[1]!] = match[2]!;
   }
+}
+
+/** Drives one lap by looking down the road, and adds the picks. Tries other reactions until one finishes. */
+export function driveLap(game: CrownRun, done: LockedLap[], seed: bigint, upgrade: number | null, road: number | null): LockedLap {
+  const end = (done.length + 1) * CROWN_RUN.LAP_TICKS;
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const warning = 18 + attempt % 30;
+    restore(game, done, seed);
+    const bytes: number[] = [];
+    while (!game.over() && game.tick() < end) {
+      const clear = [0, 1, 2].map((lane) => {
+        const hit = game.rows().filter((row) => row.y > 0 && ((row.blocked >> lane) & 1 || row.shift === lane)).map((row) => row.y);
+        return hit.length ? Math.min(...hit) : Infinity;
+      });
+      const target = game.target();
+      let lane: number | null = null;
+      if (clear[target]! < game.speed() * warning) {
+        const best = [0, 1, 2].sort((a, b) => clear[b]! - clear[a]! || Math.abs(a - target) - Math.abs(b - target))[0]!;
+        if (best !== target) lane = best > target ? target + 1 : target - 1;
+      }
+      if (lane != null) bytes.push(game.tick() & 0xff, game.tick() >> 8, lane);
+      game.step(lane);
+    }
+    if (!game.crashed()) return { seed, bytes: withPicks(Uint8Array.from(bytes), upgrade, road) };
+  }
+  throw new Error('The bot could not finish this lap.');
 }

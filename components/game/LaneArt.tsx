@@ -1,4 +1,4 @@
-/** The lane runner as players see it: the daytime highway from behind the car, with the road blocks and coins of the real game. */
+/** Crown Run as players see it: the daytime highway from behind the car, with the road blocks and coins of the real game. */
 export function LaneArt({ className = '', shape = 'wide' }: { className?: string; shape?: 'wide' | 'tall' }) {
   const id = shape === 'tall' ? 'lane-tall' : 'lane-wide';
   return (
@@ -7,7 +7,7 @@ export function LaneArt({ className = '', shape = 'wide' }: { className?: string
       preserveAspectRatio={shape === 'tall' ? 'xMidYMax slice' : 'xMidYMid slice'}
       className={`bg-[#8cc6f0] ${className}`}
       role="img"
-      aria-label="The lane runner: a car on a three-lane highway, dodging road blocks and grabbing coins"
+      aria-label="Crown Run: a car on a three-lane highway, dodging road blocks and grabbing coins"
     >
       <defs>
         <linearGradient id={`${id}-sky`} x1="0" y1="0" x2="0" y2="1">
