@@ -45,6 +45,7 @@ export function NewDuelView() {
   const players = useQuery({ queryKey: ['builders', 'roster'], queryFn: listBuilders });
   const [stake, setStake] = useState(25);
   const [timerMs, setTimerMs] = useState(60_000);
+  const [pressure, setPressure] = useState(false);
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -84,7 +85,7 @@ export function NewDuelView() {
       setBusy('Approve in your wallet to lock your stake…');
       const opened = await openDuel(signer, {
         stake: BigInt(stake) * CKB,
-        timerMs: artilleryTimer(timerMs, PRESSURE_SHRINK_MS),
+        timerMs: artilleryTimer(timerMs, pressure ? PRESSURE_SHRINK_MS : 0),
         opponentLockHash,
         session,
       });
@@ -211,7 +212,20 @@ export function NewDuelView() {
                 ))}
               </div>
             </fieldset>
-            <p className="text-sm text-mute">The first turn gets {timerLabel}. Each turn after that is 5 seconds shorter, never below 30 seconds. Miss your turn and it passes to the other player.</p>
+            <fieldset>
+              <legend className="font-poster text-lg font-bold uppercase">Pace</legend>
+              <div role="radiogroup" className="mt-4 grid gap-3 sm:grid-cols-2">
+                <ChoiceChip selected={!pressure} tone="pink" onClick={() => setPressure(false)}>
+                  <span className="block font-semibold">Classic</span>
+                  <span className="mt-1 block text-sm text-mute">Every turn gets {timerLabel}.</span>
+                </ChoiceChip>
+                <ChoiceChip selected={pressure} tone="pink" onClick={() => setPressure(true)}>
+                  <span className="block font-semibold">Pressure</span>
+                  <span className="mt-1 block text-sm text-mute">Each turn is 5 seconds shorter than the last, never below 30 seconds.</span>
+                </ChoiceChip>
+              </div>
+              <p className="mt-3 text-sm text-mute">Miss your turn and it passes to the other player.</p>
+            </fieldset>
           </div>
         ) : null}
 
@@ -242,7 +256,7 @@ export function NewDuelView() {
             <dl className="divide-y divide-white/5 rounded-2xl bg-ink-2 px-5">
               {[
                 ['Game', 'Artillery'],
-                ['Timer', `${timerLabel}, then 5 seconds less each turn`],
+                ['Timer', `${timerLabel} · ${pressure ? 'Pressure' : 'Classic'}`],
                 ['You lock', `${stake} CKB stake`],
                 ['Storage deposit', `About ${DEPOSIT_CKB} CKB · comes back when the duel ends`],
               ].map(([k, v]) => (

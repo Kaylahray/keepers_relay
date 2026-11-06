@@ -53,7 +53,7 @@ const DUEL_DETAILS = [
   },
   {
     title: 'The turn timer',
-    body: 'Each turn is 5 seconds shorter than the last, never under 30. Run out of time and your turn passes to the other player. Nobody is paid for a missed turn.',
+    body: 'Classic gives every turn the same time. Pressure takes 5 seconds off each turn, never under 30. Run out of time and your turn passes to the other player. Nobody is paid for a missed turn.',
   },
   {
     title: 'The end',
