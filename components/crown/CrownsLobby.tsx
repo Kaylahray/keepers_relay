@@ -1,26 +1,22 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Plus, Zap } from 'lucide-react';
+import { Gamepad2, Plus } from 'lucide-react';
 import { ArenaStage } from '@/components/arena/ArenaStage';
 import { ChainLoader } from '@/components/arena/ChainLoader';
 import { CrownCard } from '@/components/crown/CrownCard';
 import { Button } from '@/components/ui/Button';
 import { EmptyState, PageTitle, Tabs } from '@/components/ui/kit';
-import { fetchCrownList, publishCrown } from '@/lib/crown/remote';
-import { FLOOR_CROWN, listCrowns, saveCrown, sealCrown, type CrownRoom } from '@/lib/crown/rooms';
-import { useWallet } from '@/hooks/useWallet';
-import { useUsername } from '@/hooks/useUsername';
-import { registryConfigured } from '@/lib/registry/config';
+import { fetchCrownList } from '@/lib/crown/remote';
+import { listCrowns, type CrownRoom } from '@/lib/crown/rooms';
 
 type Filter = 'live' | 'lobby' | 'finished' | 'all';
 
 const FILTERS: { id: Filter; label: string; empty: string }[] = [
-  { id: 'live', label: 'Live', empty: 'No game is running right now. Start one, or play a quick game.' },
+  { id: 'live', label: 'Live', empty: 'No game is running right now. Host one to start.' },
   { id: 'lobby', label: 'Lobby', empty: 'No lobbies are waiting for players right now.' },
   { id: 'finished', label: 'Finished', empty: 'No finished games yet.' },
-  { id: 'all', label: 'All', empty: 'No games yet. Start one, or play a quick game.' },
+  { id: 'all', label: 'All', empty: 'No games yet. Host one to start.' },
 ];
 
 /** Live means the clock is still running; a game whose time is up counts as finished. */
@@ -31,18 +27,13 @@ function stageOf(room: CrownRoom, now: number): Exclude<Filter, 'all'> {
 }
 
 export function CrownsLobby() {
-  const router = useRouter();
-  const { isConnected, address } = useWallet();
-  const { username: onChainUsername } = useUsername();
   // null until the first read finishes, so the page never says "nothing here" while it is still looking.
   const [rooms, setRooms] = useState<CrownRoom[] | null>(null);
   const [listFailed, setListFailed] = useState(false);
-  const [openingFloor, setOpeningFloor] = useState(false);
   // The time of the last list read, so live and finished are judged without reading the clock while drawing.
   const [listedAt, setListedAt] = useState(0);
   // null until the player picks a tab: then Live if anything is live, otherwise All.
   const [chosen, setChosen] = useState<Filter | null>(null);
-  const [shareError, setShareError] = useState<string | null>(null);
 
   useEffect(() => {
     let stop = false;
@@ -83,30 +74,6 @@ export function CrownsLobby() {
   const filter: Filter = chosen ?? (counts.live > 0 ? 'live' : 'all');
   const shown = (rooms ?? []).filter((room) => filter === 'all' || stageOf(room, listedAt) === filter);
 
-  const quickGame = () => {
-    if (!isConnected || !address) {
-      setShareError('Connect your wallet from the header first.');
-      return;
-    }
-    if (registryConfigured() && !onChainUsername?.username) {
-      router.push('/join?next=/play');
-      return;
-    }
-    const room = {
-      ...sealCrown(FLOOR_CROWN),
-      hostAddress: address.toLowerCase(),
-    };
-    saveCrown(room);
-    setShareError(null);
-    setOpeningFloor(true);
-    void publishCrown(room, room.hostAddress)
-      .then(() => router.push(`/play/${room.id}`))
-      .catch((error: unknown) => {
-        setShareError(error instanceof Error ? error.message : 'The lobby could not be saved.');
-        setOpeningFloor(false);
-      });
-  };
-
   return (
     <ArenaStage>
       <PageTitle
@@ -115,8 +82,8 @@ export function CrownsLobby() {
         intro="Beat the score to take it. Hold it at zero to win the pot."
         action={
           <div className="flex flex-wrap gap-3">
-            <Button variant="ghost" onClick={quickGame} disabled={openingFloor}>
-              <Zap className="h-4 w-4" aria-hidden="true" /> {openingFloor ? 'Opening…' : 'Quick game'}
+            <Button variant="ghost" href="/practice">
+              <Gamepad2 className="h-4 w-4" aria-hidden="true" /> Practice for free
             </Button>
             <Button href="/create">
               <Plus className="h-4 w-4" aria-hidden="true" /> Host a crown
@@ -124,7 +91,6 @@ export function CrownsLobby() {
           </div>
         }
       />
-      {shareError ? <p className="mt-4 text-sm text-danger">{shareError}</p> : null}
 
       {rooms != null && rooms.length > 0 ? (
         <div className="mt-8">

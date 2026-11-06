@@ -15,7 +15,6 @@ import { ArenaRailCard, ArenaStage } from '@/components/arena/ArenaStage';
 import { leftMs, playClock, useNow } from '@/components/crown/BleedingClock';
 import { VerifiedSeal } from '@/components/crown/VerifiedSeal';
 import { CrownLobby } from '@/components/crown/CrownLobby';
-import { CrownReceipt } from '@/components/crown/CrownReceipt';
 import { useCrown } from '@/components/crown/useCrown';
 import { CrownRunLayer } from '@/components/crown/CrownRunLayer';
 import { usePrizeStanding } from '@/components/crown/usePrizeStanding';
@@ -900,18 +899,21 @@ export function CrownPlayView({ id }: { id: string }) {
                   ? `${ckbWhole(room.potShannons)} CKB went to ${iHold ? 'you' : room.king}, who held the crown at ${room.kingScore}.`
                   : 'Nobody grabbed the crown, so the host got everything back.'}
               </p>
+              {room.deadlineAt != null ? (
+                <p className="mt-2 font-mono text-[11px] uppercase tracking-wider text-mute">
+                  Ended {new Date(room.deadlineAt).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                  {room.round > 1 ? ` · taken ${room.round - 1} ${room.round === 2 ? 'time' : 'times'}` : ''}
+                </p>
+              ) : null}
               {room.matchOutPoint ? (
-                <>
-                  <div className="mt-5 flex flex-wrap gap-3">
-                    <Button href={`/verify/${room.matchOutPoint.txHash}`} variant="pink">
-                      Check this crown
-                    </Button>
-                    <Button href="/play" variant="ghost">
-                      Find another crown
-                    </Button>
-                  </div>
-                  <CrownReceipt room={room} youWon={iHold} />
-                </>
+                <div className="mt-5 flex flex-wrap gap-3">
+                  <Button href={`/verify/${room.matchOutPoint.txHash}`} variant="pink">
+                    Check this crown
+                  </Button>
+                  <Button href="/play" variant="ghost">
+                    Find another crown
+                  </Button>
+                </div>
               ) : null}
               {chain && entryBid && refund.at != null && !refund.sent ? (
                 <div className="mt-6 rounded-2xl bg-ink p-4">
