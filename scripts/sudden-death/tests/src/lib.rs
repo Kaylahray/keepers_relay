@@ -52,6 +52,11 @@ pub fn verify_and_dump_failed_tx(
     max_cycles: u64,
 ) -> Result<Cycle, Error> {
     let result = context.verify_tx(tx, max_cycles);
+    // DUMP_TX=path writes this transaction for ckb-debugger even when it passes.
+    if let Ok(out) = env::var("DUMP_TX") {
+        let mock_tx = context.dump_tx(tx).expect("dump tx");
+        std::fs::write(out, serde_json::to_string_pretty(&mock_tx).expect("json")).expect("write");
+    }
     if result.is_err() {
         let mut path = env::current_dir().expect("current dir");
         path.push("failed_txs");
