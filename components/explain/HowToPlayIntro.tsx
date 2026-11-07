@@ -2,11 +2,16 @@
 
 import { useState, useSyncExternalStore } from 'react';
 import { X } from 'lucide-react';
-import { STORY, StoryPicture } from '@/components/explain/StoryPicture';
+import { DEPTHS_STORY, STORY, StoryPicture } from '@/components/explain/StoryPicture';
+import type { GameId } from '@/lib/crown/rooms';
 import { Button } from '@/components/ui/Button';
 
 const SEEN_KEY = 'crowns-intro-seen';
 const SEEN_EVENT = 'crowns-intro-seen';
+
+function seenKey(game: GameId): string {
+  return game === 'depths' ? `${SEEN_KEY}-depths` : SEEN_KEY;
+}
 
 function subscribe(onChange: () => void) {
   window.addEventListener(SEEN_EVENT, onChange);
@@ -17,9 +22,9 @@ function subscribe(onChange: () => void) {
   };
 }
 
-function seenOnThisDevice(): boolean {
+function seenOnThisDevice(key: string): boolean {
   try {
-    return window.localStorage.getItem(SEEN_KEY) === '1';
+    return window.localStorage.getItem(key) === '1';
   } catch {
     // Private mode or blocked storage: show it once per visit rather than never.
     return false;
@@ -27,17 +32,19 @@ function seenOnThisDevice(): boolean {
 }
 
 /** How to play, card by card with the pictures, the first time someone opens a game. */
-export function HowToPlayIntro() {
-  const seen = useSyncExternalStore(subscribe, seenOnThisDevice, () => true);
+export function HowToPlayIntro({ game = 'crown-run' }: { game?: GameId }) {
+  const key = seenKey(game);
+  const seen = useSyncExternalStore(subscribe, () => seenOnThisDevice(key), () => true);
+  const cards = game === 'depths' ? DEPTHS_STORY : STORY;
   const [step, setStep] = useState(0);
   const [closed, setClosed] = useState(false);
   if (seen || closed) return null;
 
-  const card = STORY.at(step) ?? STORY[0];
-  const last = step === STORY.length - 1;
+  const card = cards.at(step) ?? cards[0];
+  const last = step === cards.length - 1;
   const done = () => {
     try {
-      window.localStorage.setItem(SEEN_KEY, '1');
+      window.localStorage.setItem(key, '1');
     } catch {
       // Nothing to do: it simply shows again next visit.
     }
@@ -54,14 +61,14 @@ export function HowToPlayIntro() {
         <StoryPicture kind={card.kind} className="aspect-[4/3] border-0" />
         <div className="px-6 pt-6 text-center">
           <p className="font-mono text-[10px] font-bold uppercase tracking-wider text-lime">
-            How to play · {step + 1} of {STORY.length}
+            How to play · {step + 1} of {cards.length}
           </p>
           <h2 className="mt-2 font-poster text-xl font-extrabold uppercase">{card.title}</h2>
           <p className="mx-auto mt-2 max-w-xs text-mute">{card.body}</p>
         </div>
         <div className="flex items-center justify-between gap-4 p-6">
-          <div className="flex gap-1.5" aria-label={`Card ${step + 1} of ${STORY.length}`}>
-            {STORY.map((item, index) => (
+          <div className="flex gap-1.5" aria-label={`Card ${step + 1} of ${cards.length}`}>
+            {cards.map((item, index) => (
               <span key={item.kind} className={`h-2 rounded-full transition-[width,background-color] duration-200 ${index === step ? 'w-6 bg-lime' : 'w-2 bg-white/25'}`} />
             ))}
           </div>

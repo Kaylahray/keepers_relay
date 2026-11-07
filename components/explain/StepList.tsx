@@ -2,7 +2,7 @@ type Step = { readonly title: string; readonly body: string };
 
 export const CROWN_STEPS = [
   { title: 'Pay the entry', body: 'Join any crown for its entry fee.' },
-  { title: 'Drive 5 laps', body: 'Dodge the road blocks. Grab the coins.' },
+  { title: 'Play your run', body: 'Five laps of Crown Run or four dungeon floors of Crown Depths.' },
   { title: 'Beat the best score', body: 'Your entry joins the pot and the clock gets shorter.' },
   { title: 'Hold it at zero', body: 'Still on top when the clock runs out? The whole pot is yours.' },
 ] as const;

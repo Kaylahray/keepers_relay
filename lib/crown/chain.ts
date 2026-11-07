@@ -19,7 +19,6 @@ import {
   MATCH_VERSION,
   MAX_TX_FEE,
   REFUND_GRACE_MS,
-  GAME_RULES,
   lapOnTime,
   runSeed,
   runWitness,
@@ -28,6 +27,7 @@ import {
   winnerOf,
   type MatchCell,
 } from '@/lib/sudden-death/codec';
+import { crownGame, gameHash } from '@/lib/crown/games';
 import { applySteal, DEFAULT_DURATION_MS, type CrownRoom, type LockRef, type OutPointRef } from '@/lib/crown/rooms';
 import { requestWalletRefresh } from '@/lib/wallet-refresh';
 import { readLiveCell } from '@/lib/ckb/live-cell';
@@ -40,7 +40,6 @@ import {
   getSuddenDeathMatchScript,
   getSuddenDeathProxyLock,
   getSuddenDeathTreasuryScript,
-  suddenDeathGameHash,
 } from '@/lib/crown/scripts';
 
 const SHANNONS_PER_CKB = 100_000_000n;
@@ -402,7 +401,7 @@ export async function openMatch(signer: Signer, room: CrownRoom): Promise<CrownR
   const hostHash = host.hash();
   // The cell's deadline is fixed at send time and confirmation takes a minute or more.
   const deadlineMs = BigInt(Date.now() + (room.durationMs || DEFAULT_DURATION_MS) + CONFIRM_PAD_MS);
-  const game = suddenDeathGameHash();
+  const game = gameHash(room.game);
   const cellFor = (matchId: Uint8Array, treasury: ccc.Script) =>
     encodeMatchCell({
       version: MATCH_VERSION,
@@ -419,7 +418,7 @@ export async function openMatch(signer: Signer, room: CrownRoom): Promise<CrownR
       certified: ZERO_32,
       certifiedScore: 0n,
       powBits: DEFAULT_POW_BITS,
-      rules: GAME_RULES,
+      rules: crownGame(room.game).rules,
     });
   // The type id depends on the first input, which is only known once the wallet funds the transaction.
   const matchScript = getSuddenDeathMatchScript(concatArgs(ccc.hexFrom(ZERO_32), hostHash));

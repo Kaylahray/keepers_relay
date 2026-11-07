@@ -40,6 +40,8 @@ const OFF_LAND_BY: usize = 166;
 const OFF_CERTIFIED: usize = 174;
 const OFF_CERTIFIED_SCORE: usize = 206;
 const OFF_POW_BITS: usize = 214;
+/// Where an entry carries its game's lap count.
+const OFF_BID_RUN_LAPS: usize = 90;
 /// Work each test entry needs: small, so tests stay fast, but real.
 const POW_BITS: u8 = 8;
 const LAP_WINDOW_MS: u64 = 3 * 60 * 1000;
@@ -119,8 +121,12 @@ fn game_bin() -> Bytes {
 
 /// The match cell names its game by the data hash of the game script.
 fn game_hash() -> [u8; 32] {
+    data_hash(&game_bin())
+}
+
+fn data_hash(bin: &Bytes) -> [u8; 32] {
     let mut out = [0u8; 32];
-    out.copy_from_slice(CellOutput::calc_data_hash(&game_bin()).as_slice());
+    out.copy_from_slice(CellOutput::calc_data_hash(bin).as_slice());
     out
 }
 
@@ -181,6 +187,12 @@ fn run_witness(payload: &[u8]) -> Bytes {
 }
 
 
+
+fn with_laps(data: Bytes, laps: u8) -> Bytes {
+    let mut raw = data.to_vec();
+    raw[OFF_GAME_RULES] = laps;
+    Bytes::from(raw)
+}
 
 fn with_score(data: Bytes, score: u64) -> Bytes {
     let mut raw = data.to_vec();
@@ -359,101 +371,65 @@ fn witness(proof: Option<Bytes>) -> Bytes {
         .as_bytes()
 }
 
-#[test]
-fn create_match_opens_an_empty_pot() {
-    let mut context = Context::default();
-    let match_bin = Deployed::load(&mut context, "match-type");
-    let bid_bin = Deployed::load(&mut context, "bid-type");
-    let treasury_bin = Deployed::load(&mut context, "treasury-lock");
-    let (payer, payer_dep) = always(&mut context, &[0x01]);
+/// A host opening a match for `game`, with its data passed through `edit` first.
+fn open_tx(context: &mut Context, game: &str, edit: impl FnOnce(&mut Vec<u8>)) -> ckb_testtool::ckb_types::core::TransactionView {
+    let match_bin = Deployed::load(context, "match-type");
+    let bid_bin = Deployed::load(context, "bid-type");
+    let treasury_bin = Deployed::load(context, "treasury-lock");
+    let game_bin = Deployed::load(context, game);
+    let (payer, payer_dep) = always(context, &[0x01]);
 
-    let (proxy_out, proxy_dep) = proxy_pair(&mut context);
+    let (proxy_out, proxy_dep) = proxy_pair(context);
     let fund = context.create_cell(cell(CELL_CAP * 3, payer.clone(), None), Bytes::new());
     let first = input_at(fund, 0);
     let match_id = type_id_of(&first, 0);
     let host = script_hash(&payer);
-    let match_script = match_bin.script(&mut context, &type_args(&match_id, &host));
+    let match_script = match_bin.script(context, &type_args(&match_id, &host));
     let match_type_hash = script_hash(&match_script);
-    let guard = proxy_lock(&mut context, &proxy_out, &match_type_hash);
-    let treasury_script = treasury_bin.script(&mut context, &match_type_hash);
-    let bid_code = code_hash(&bid_bin.script(&mut context, &match_type_hash));
-    let data = match_data(
+    let guard = proxy_lock(context, &proxy_out, &match_type_hash);
+    let treasury_script = treasury_bin.script(context, &match_type_hash);
+    let bid_code = code_hash(&bid_bin.script(context, &match_type_hash));
+    let mut raw = match_data(
         1,
         DEADLINE_MS,
         0,
         &[0u8; 32],
-        &game_hash(),
+        &data_hash(&Loader::default().load_binary(game)),
         &script_hash(&treasury_script),
         &bid_code,
-    );
+    )
+    .to_vec();
+    edit(&mut raw);
 
     let tx = TransactionBuilder::default()
         .input(first)
         .output(cell(CELL_CAP, guard, Some(match_script)))
-        .output_data(data.pack())
+        .output_data(Bytes::from(raw).pack())
         .output(cell(CELL_CAP, treasury_script, None))
         .output_data(Bytes::new().pack())
         .output(cell(CELL_CAP, payer, None))
         .output_data(Bytes::new().pack())
         .cell_dep(payer_dep)
         .cell_dep(proxy_dep)
-        .cell_dep(Deployed::load(&mut context, "crown-run").dep)
+        .cell_dep(game_bin.dep)
         .cell_dep(match_bin.dep)
         .cell_dep(bid_bin.dep)
         .cell_dep(treasury_bin.dep)
         .build();
-    let tx = context.complete_tx(tx);
+    context.complete_tx(tx)
+}
+
+#[test]
+fn create_match_opens_an_empty_pot() {
+    let mut context = Context::default();
+    let tx = open_tx(&mut context, "crown-run", |_| {});
     verify_and_dump_failed_tx(&context, &tx, MAX_CYCLES).expect("create");
 }
 
 #[test]
 fn a_match_with_rules_its_game_did_not_declare_is_rejected() {
     let mut context = Context::default();
-    let match_bin = Deployed::load(&mut context, "match-type");
-    let bid_bin = Deployed::load(&mut context, "bid-type");
-    let treasury_bin = Deployed::load(&mut context, "treasury-lock");
-    let (payer, payer_dep) = always(&mut context, &[0x01]);
-
-    let (proxy_out, proxy_dep) = proxy_pair(&mut context);
-    let fund = context.create_cell(cell(CELL_CAP * 3, payer.clone(), None), Bytes::new());
-    let first = input_at(fund, 0);
-    let match_id = type_id_of(&first, 0);
-    let host = script_hash(&payer);
-    let match_script = match_bin.script(&mut context, &type_args(&match_id, &host));
-    let match_type_hash = script_hash(&match_script);
-    let guard = proxy_lock(&mut context, &proxy_out, &match_type_hash);
-    let treasury_script = treasury_bin.script(&mut context, &match_type_hash);
-    let bid_code = code_hash(&bid_bin.script(&mut context, &match_type_hash));
-    let data = match_data(
-        1,
-        DEADLINE_MS,
-        0,
-        &[0u8; 32],
-        &game_hash(),
-        &script_hash(&treasury_script),
-        &bid_code,
-    );
-
-    let mut raw = data.to_vec();
-    put_u32(&mut raw, OFF_GAME_RULES + 1, 60 * 60 * 1000);
-    let data = Bytes::from(raw);
-
-    let tx = TransactionBuilder::default()
-        .input(first)
-        .output(cell(CELL_CAP, guard, Some(match_script)))
-        .output_data(data.pack())
-        .output(cell(CELL_CAP, treasury_script, None))
-        .output_data(Bytes::new().pack())
-        .output(cell(CELL_CAP, payer, None))
-        .output_data(Bytes::new().pack())
-        .cell_dep(payer_dep)
-        .cell_dep(proxy_dep)
-        .cell_dep(Deployed::load(&mut context, "crown-run").dep)
-        .cell_dep(match_bin.dep)
-        .cell_dep(bid_bin.dep)
-        .cell_dep(treasury_bin.dep)
-        .build();
-    let tx = context.complete_tx(tx);
+    let tx = open_tx(&mut context, "crown-run", |raw| put_u32(raw, OFF_GAME_RULES + 1, 60 * 60 * 1000));
     rejects_with(&context, &tx, -13);
 }
 
@@ -476,6 +452,8 @@ struct Live {
     lock_dep: CellDep,
     deps: Vec<CellDep>,
     game: [u8; 32],
+    /// The game's lap count, which every match and entry cell carries.
+    laps: u8,
     bid_code: [u8; 32],
 }
 
@@ -484,10 +462,15 @@ fn live(context: &mut Context) -> Live {
 }
 
 fn live_as(context: &mut Context, host_arg: u8) -> Live {
+    live_with(context, host_arg, "crown-run", LAPS as u8)
+}
+
+/// A live match for `game`, whose rules play `laps` laps.
+fn live_with(context: &mut Context, host_arg: u8, game: &str, laps: u8) -> Live {
     let match_bin = Deployed::load(context, "match-type");
     let bid_bin = Deployed::load(context, "bid-type");
     let treasury_bin = Deployed::load(context, "treasury-lock");
-    let game_bin = Deployed::load(context, "crown-run");
+    let game_bin = Deployed::load(context, game);
     let (proxy_out, proxy_dep) = proxy_pair(context);
     let out_point = context.deploy_cell(ALWAYS_SUCCESS.clone());
     let lock_dep = CellDep::new_builder().out_point(out_point.clone()).build();
@@ -507,7 +490,8 @@ fn live_as(context: &mut Context, host_arg: u8) -> Live {
     let treasury_script = treasury_bin.script(context, &match_type_hash);
     let bid_script = bid_bin.script(context, &bid_args(&match_type_hash, &script_hash(&king_lock)));
     Live {
-        game: game_hash(),
+        game: data_hash(&Loader::default().load_binary(game)),
+        laps,
         bid_code: code_hash(&bid_script),
         match_id,
         match_script,
@@ -628,7 +612,8 @@ fn steal_claiming(
         ),
         recorded,
     );
-    let data = with_certified(data, &standing.certified.0, standing.certified.1);
+    let data = with_laps(with_certified(data, &standing.certified.0, standing.certified.1), live.laps);
+    let next = with_laps(next, live.laps);
     let land_by = standing.record_land_by.unwrap_or(standing.sealed_at + LAP_WINDOW_MS);
     let next = with_certified(with_land_by(next, land_by), &certified.0, certified.1);
     let guard_lock = guard(context, live);
@@ -921,8 +906,9 @@ fn unlanded_bid(context: &mut Context, live: &Live, owner: &Script) -> OutPoint 
 fn sealed_bid(context: &mut Context, live: &Live, owner: &Script, laps: u8, chain: &[u8; 32], sealed_at: u64) -> OutPoint {
     let type_script = bid_script_for(context, live, owner);
     let lock = bid_lock(context, live, &type_script);
-    let data = bid_data_full(owner, DEADLINE_MS + REFUND_GRACE_MS, laps, ENTRY_MS, chain, &SOME_KEY);
-    let out_point = context.create_cell(cell(CELL_CAP, lock, Some(type_script)), data);
+    let mut data = bid_data_full(owner, DEADLINE_MS + REFUND_GRACE_MS, laps, ENTRY_MS, chain, &SOME_KEY).to_vec();
+    data[OFF_BID_RUN_LAPS] = live.laps;
+    let out_point = context.create_cell(cell(CELL_CAP, lock, Some(type_script)), Bytes::from(data));
     land(context, &out_point, sealed_at);
     out_point
 }
@@ -2526,4 +2512,63 @@ fn a_seal_that_changes_the_lap_window_is_rejected() {
     outputs[0] = Bytes::from(next).pack();
     let tx = tx.as_advanced_builder().set_outputs_data(outputs).build();
     rejects_with(&context, &tx, -16);
+}
+
+// Crown Depths: a second crown game on the same money scripts. Nothing in them names a game.
+
+const DEPTHS_FLOORS: usize = crowns_depths_core::FLOORS;
+
+/// A good player's four floors on `owner`'s maps, and the score.
+fn depths_run_for(match_id: &[u8; 32], owner: &Script) -> (Vec<u8>, u64) {
+    let blocks = lap_blocks(DEPTHS_FLOORS);
+    let seeds: Vec<u64> = blocks.iter().map(|block| seed_of(match_id, &script_hash(owner), block)).collect();
+    let (floors, run) = super::depths::play_depths(&seeds, super::depths::PERSON);
+    (lap_payload(&blocks[..floors.len()], &floors), run.outcome().score)
+}
+
+#[test]
+fn a_crown_depths_match_opens() {
+    let mut context = Context::default();
+    let tx = open_tx(&mut context, "depths", |raw| raw[OFF_GAME_RULES] = DEPTHS_FLOORS as u8);
+    verify_and_dump_failed_tx(&context, &tx, MAX_CYCLES).expect("create");
+}
+
+#[test]
+fn a_crown_depths_match_with_crown_runs_lap_count_is_rejected() {
+    let mut context = Context::default();
+    let tx = open_tx(&mut context, "depths", |_| {});
+    rejects_with(&context, &tx, -13);
+}
+
+#[test]
+fn a_crown_depths_steal_takes_the_crown() {
+    let mut context = Context::default();
+    let live = live_with(&mut context, 0x11, "depths", DEPTHS_FLOORS as u8);
+    let (tape, score) = depths_run_for(&live.match_id, &live.king_lock);
+    assert!(score > 0);
+    let king = live.king_lock.clone();
+    let tx = steal_with(&mut context, &live, &OPENING, &king, &tape, score);
+    let cycles = verify_and_dump_failed_tx(&context, &tx, MAX_CYCLES).expect("depths steal");
+    println!("Crown Depths steal, {score} points, game spawned and replayed: {cycles} cycles");
+}
+
+#[test]
+fn a_crown_depths_steal_recording_more_than_it_scored_is_rejected() {
+    let mut context = Context::default();
+    let live = live_with(&mut context, 0x11, "depths", DEPTHS_FLOORS as u8);
+    let (tape, score) = depths_run_for(&live.match_id, &live.king_lock);
+    let king = live.king_lock.clone();
+    let tx = steal_with(&mut context, &live, &OPENING, &king, &tape, score + 1);
+    rejects_with(&context, &tx, -12);
+}
+
+#[test]
+fn a_crown_depths_run_copied_from_another_player_does_not_steal() {
+    let mut context = Context::default();
+    let live = live_with(&mut context, 0x11, "depths", DEPTHS_FLOORS as u8);
+    let (_, score) = depths_run_for(&live.match_id, &live.king_lock);
+    let (copied, _) = depths_run_for(&live.match_id, &live.other_lock);
+    let king = live.king_lock.clone();
+    let tx = steal_with(&mut context, &live, &OPENING, &king, &copied, score);
+    assert!(context.verify_tx(&tx, MAX_CYCLES).is_err());
 }

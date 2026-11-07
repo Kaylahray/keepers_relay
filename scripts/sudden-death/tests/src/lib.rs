@@ -20,6 +20,8 @@ mod artillery;
 mod duel;
 #[cfg(test)]
 mod crown_run;
+#[cfg(test)]
+mod depths;
 
 pub struct Loader(PathBuf);
 

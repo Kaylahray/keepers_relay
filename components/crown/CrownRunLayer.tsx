@@ -11,7 +11,7 @@ import { hexToBytes } from '@/lib/sudden-death/codec';
 import type { DrivenLapRecord, SealedLapRecord } from '@/lib/crown/my-laps';
 import { CROWN_RUN, picksDue, picksOf, runState, SAFE, unusedPicks, type LockedLap } from '@/lib/game/crown-run';
 
-type Props = {
+export type CrownLayerProps = {
   driving: boolean;
   /** The locked laps, each on its own road. */
   laps: LockedLap[];
@@ -69,7 +69,7 @@ export function CrownRunLayer({
   onTake,
   onLockAndTake,
   onLeave,
-}: Props) {
+}: CrownLayerProps) {
   const tapes = useMemo(() => sealed.map((lap) => hexToBytes(lap.tape)), [sealed]);
   const { owned, road } = useMemo(() => runState(tapes), [tapes]);
   const score = driven?.score ?? sealed.at(-1)?.score ?? 0;

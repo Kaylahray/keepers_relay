@@ -1,6 +1,11 @@
 import { ccc } from '@ckb-ccc/core';
-import { suddenDeathGame, suddenDeathMatchType } from '@/lib/registry/config';
-import type { CrownRun, LockedLap } from '@/lib/game/crown-run';
+import { suddenDeathMatchType } from '@/lib/registry/config';
+import type { LockedLap } from '@/lib/game/crown-run';
+import { gameOfHash } from '@/lib/crown/games';
+import type { GameId } from '@/lib/crown/rooms';
+
+/** A game's rules as verify needs them: a whole run in, a score out, or null for an illegal run. */
+type Replayer = { replay(laps: LockedLap[]): number | null };
 import {
   decodeMatchCell,
   hexToBytes,
@@ -151,7 +156,12 @@ async function entryRunOf(client: ccc.Client, tx: ccc.Transaction, bidCode: Uint
 }
 
 /** Walk a match back to the transaction that opened it. */
-export async function replayMatch(client: ccc.Client, startTxHash: string, current: CrownRun): Promise<MatchReplay> {
+export async function replayMatch(
+  client: ccc.Client,
+  startTxHash: string,
+  current: Replayer,
+  others: Partial<Record<GameId, Replayer>> = {},
+): Promise<MatchReplay> {
   if (suddenDeathMatchType.codeHash.length <= 2) {
     throw new VerifyError('This build has no Sudden Death match script configured.');
   }
@@ -237,7 +247,8 @@ export async function replayMatch(client: ccc.Client, startTxHash: string, curre
 
   const opened = decodeMatchCell(hexToBytes(open.tx.outputsData[open.index]!));
   const gameHex = bytesToHex(opened.game);
-  const game = gameHex.toLowerCase() === suddenDeathGame.codeHash.toLowerCase() ? current : undefined;
+  const gameId = gameOfHash(gameHex);
+  const game = gameId === 'crown-run' ? current : gameId ? others[gameId] : undefined;
   const gameKnown = game != null;
 
   const steals: StealCheck[] = [];

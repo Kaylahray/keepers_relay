@@ -9,3 +9,4 @@ serde_json = "1.0"
 blake2b-ref = "0.3.1"
 crowns-crown-run-core = { path = "../contracts/crown-run-core" }
 crowns-artillery-core = { path = "../contracts/artillery-core" }
+crowns-depths-core = { path = "../contracts/depths-core" }

@@ -32,11 +32,16 @@ name = "artillery"
 enable_type_id = false
 location = { file = "/mnt/c/Users/chiom/Desktop/spore/keepers_relay/keepers_relay/scripts/sudden-death/build/release/artillery" }
 
-# Crown Run, the only crown game.
+# The crown games, each a code cell match-type finds by data hash.
 [[cells]]
 name = "crown-run"
 enable_type_id = false
 location = { file = "/mnt/c/Users/chiom/Desktop/spore/keepers_relay/keepers_relay/scripts/sudden-death/build/release/crown-run" }
+
+[[cells]]
+name = "depths"
+enable_type_id = false
+location = { file = "/mnt/c/Users/chiom/Desktop/spore/keepers_relay/keepers_relay/scripts/sudden-death/build/release/depths" }
 
 # Owner of the deployed cells: the same ckb-cli account as v2 and v4.
 # ckt1qzda0cr08m85hc8jlnfp3zer7xulejywt49kt2rr0vthywaa50xwsqvu2rela8ce3j70u76uq3js967a3n07wlgf65e4e

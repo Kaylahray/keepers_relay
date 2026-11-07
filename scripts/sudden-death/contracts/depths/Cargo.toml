@@ -1,0 +1,14 @@
+[package]
+name = "crowns-depths"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+description = "Crowns game script: scores a Crown Depths run for match-type (game ABI v2)"
+
+[dependencies]
+ckb-std = { workspace = true }
+crowns-depths-core = { path = "../depths-core" }
+
+[[bin]]
+name = "depths"
+path = "src/main.rs"

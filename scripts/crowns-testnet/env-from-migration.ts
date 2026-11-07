@@ -50,6 +50,15 @@ lines.push(
   `NEXT_PUBLIC_SD_PROXY_TX_HASH=${PROXY}`,
   'NEXT_PUBLIC_SD_PROXY_INDEX=0x0',
 );
+// Crown Depths, the second crown game, by data hash like Crown Run.
+if (recipes.some((recipe) => recipe.name === 'depths')) {
+  const depths = cell('depths');
+  lines.push(
+    `NEXT_PUBLIC_SD_DEPTHS_CODE_HASH=${depths.data_hash}`,
+    `NEXT_PUBLIC_SD_DEPTHS_TX_HASH=${depths.tx_hash}`,
+    `NEXT_PUBLIC_SD_DEPTHS_INDEX=0x${depths.index.toString(16)}`,
+  );
+}
 // Duels arrived in v5: the escrow script by type id, the artillery game by data hash.
 if (recipes.some((recipe) => recipe.name === 'duel-type')) {
   const duel = cell('duel-type');

@@ -8,6 +8,7 @@ import { normalizeAddress } from '@/lib/server/auth';
 import { chainUsernameOfLockHash, chainUsernames } from '@/lib/server/username-registry';
 import { roomFromStored, roomToStored, type CrownRoom } from '@/lib/crown/rooms';
 import { suddenDeathMatchType } from '@/lib/registry/config';
+import { gameOfHash } from '@/lib/crown/games';
 import { bytesToHex, decodeMatchCell, hexToBytes } from '@/lib/sudden-death/codec';
 import type { CrownSeat } from '@/lib/crown/seats';
 
@@ -265,6 +266,8 @@ async function refreshFromChain(room: CrownRoom): Promise<{ room: CrownRoom; see
       seen: 'match',
       room: {
         ...room,
+        // The game is whatever script the match cell names, not what the request said.
+        game: gameOfHash(bytesToHex(decoded.game)) ?? room.game,
         // Byte 1 is the script status: 0 live, 1 dead. A fresh match is 0.
         status: raw[1] === 0 ? 'live' : 'settled',
         round: decoded.round,

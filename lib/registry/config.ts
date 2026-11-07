@@ -129,6 +129,22 @@ export const suddenDeathGame: ScriptConfig = {
   depType: "code",
 };
 
+/** Crown Depths, the second crown game. Optional: crowns can't pick it until it is deployed. */
+export const suddenDeathDepths: ScriptConfig = {
+  codeHash: pick(process.env.NEXT_PUBLIC_SD_DEPTHS_CODE_HASH),
+  hashType: "data2",
+  args: "0x",
+  outPoint: {
+    txHash: pick(process.env.NEXT_PUBLIC_SD_DEPTHS_TX_HASH),
+    index: pick(process.env.NEXT_PUBLIC_SD_DEPTHS_INDEX, "0x0"),
+  },
+  depType: "code",
+};
+
+export function depthsConfigured(): boolean {
+  return suddenDeathDepths.codeHash.length > 2 && suddenDeathDepths.outPoint.txHash.length > 2;
+}
+
 /** The duel script: two stakes in escrow, an artillery duel, judged by replay. */
 export const duelType: ScriptConfig = {
   codeHash: pick(process.env.NEXT_PUBLIC_SD_DUEL_CODE_HASH),

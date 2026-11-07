@@ -12,6 +12,8 @@ members = [
   "contracts/crown-run",
   "contracts/artillery",
   "contracts/duel-type",
+  "contracts/depths-core",
+  "contracts/depths",
   "tests",
 ]
 

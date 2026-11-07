@@ -17,6 +17,10 @@ import { VerifiedSeal } from '@/components/crown/VerifiedSeal';
 import { CrownLobby } from '@/components/crown/CrownLobby';
 import { useCrown } from '@/components/crown/useCrown';
 import { CrownRunLayer } from '@/components/crown/CrownRunLayer';
+import { DepthsLayer } from '@/components/crown/DepthsLayer';
+import { UpgradeStrip } from '@/components/game/RunScreens';
+import { RelicStrip } from '@/components/game/DepthsScreens';
+import { crownGame } from '@/lib/crown/games';
 import { usePrizeStanding } from '@/components/crown/usePrizeStanding';
 import type { DrivenLap } from '@/components/game/CrownRunDrive';
 import { arenaCoverForSeed } from '@/lib/poster';
@@ -24,9 +28,9 @@ import { InviteButton } from '@/components/InviteButton';
 import { HowToPlayIntro } from '@/components/explain/HowToPlayIntro';
 import { LapPanel } from '@/components/crown/LapPanel';
 import { ccc } from '@ckb-ccc/connector-react';
-import { bytesToHex, hexToBytes, LAPS, runSeed } from '@/lib/sudden-death/codec';
+import { bytesToHex, hexToBytes, runSeed } from '@/lib/sudden-death/codec';
 import { keepOldRunKey, loadLapRun, saveLapRun, type DrivenLapRecord } from '@/lib/crown/my-laps';
-import { CROWN_RUN, picksDue, runState, withPicks, type LockedLap, unusedPicks } from '@/lib/game/crown-run';
+import { withPicks, type LockedLap } from '@/lib/game/crown-run';
 import {
   bidRefundAt,
   closeCrown,
@@ -137,6 +141,9 @@ function chainMessage(error: unknown, fallback: string): string {
 export function CrownPlayView({ id }: { id: string }) {
   const router = useRouter();
   const { room, seats, ready, unreachable } = useCrown(id);
+  const kit = crownGame(room?.game ?? 'crown-run');
+  // Each game plays its laps on its own full screen; the chain flow around them is the same.
+  const RunLayerFor = room?.game === 'depths' ? DepthsLayer : CrownRunLayer;
   // A connected wallet with no username is sent to /join and comes back here after claiming one.
   const named = useRequireUsername();
   const [kingPicture] = useChainPictures([room?.kingHash]);
@@ -332,7 +339,7 @@ export function CrownPlayView({ id }: { id: string }) {
   const driven = lapRun?.driven ?? null;
   // A run ends with its last lap, a crash, or the crown.
   const lateLap = Boolean(nextLap?.late);
-  const runOver = sealedLaps.length >= LAPS || Boolean(sealedLaps.at(-1)?.crashed) || Boolean(driven?.crashed) || Boolean(lapRun?.finished) || lateLap;
+  const runOver = sealedLaps.length >= kit.rules.laps || Boolean(sealedLaps.at(-1)?.crashed) || Boolean(driven?.crashed) || Boolean(lapRun?.finished) || lateLap;
   // The chain and this browser agree on how many laps are locked.
   const inSync = !nextLap || nextLap.sealed === sealedLaps.length;
   const lockedLaps = useMemo<LockedLap[]>(
@@ -483,16 +490,16 @@ export function CrownPlayView({ id }: { id: string }) {
   // Stop offering steals once the clock hits zero, even before the chain enforces it.
   const timeUp = live && room.deadlineAt != null && !clock.counting;
   const roadLeft = nextLap ? nextLap.windowEndsMs - now : null;
-  const roadOpen = roadLeft != null && roadLeft > CROWN_RUN.LOCK_MARGIN_MS;
-  const windowLeft = roadLeft != null ? Math.max(0, roadLeft - CROWN_RUN.LOCK_MARGIN_MS) : null;
+  const roadOpen = roadLeft != null && roadLeft > kit.timing.LOCK_MARGIN_MS;
+  const windowLeft = roadLeft != null ? Math.max(0, roadLeft - kit.timing.LOCK_MARGIN_MS) : null;
   // Too little time left to drive this lap, and nothing driven to lock: only a new entry can help.
-  const outOfRoad = windowLeft != null && windowLeft < CROWN_RUN.LAP_NEEDS_MS && !driven;
+  const outOfRoad = windowLeft != null && windowLeft < kit.timing.LAP_NEEDS_MS && !driven;
   const canTake = live && !entryWindow && !timeUp && beats && !iHold && isConnected && onChain && matchReady && inSync && roadOpen && !busy;
   const currentLap = sealedLaps.length + 1;
-  const { owned } = runState(lockedLaps.map((lap) => lap.bytes));
+  const owned = kit.owned(lockedLaps.map((lap) => lap.bytes));
   const crownName = iHold ? 'You' : room.king;
-  const shortClock = live && !entryWindow && clock.counting && clockLeft < CROWN_RUN.RUN_NEEDS_MS;
-  const entriesClosed = live && !entryWindow && clockLeft < CROWN_RUN.ENTRY_NEEDS_MS;
+  const shortClock = live && !entryWindow && clock.counting && clockLeft < kit.timing.RUN_NEEDS_MS;
+  const entriesClosed = live && !entryWindow && clockLeft < kit.timing.ENTRY_NEEDS_MS;
   // An entry in progress shows its steps on the pay button itself.
   const paying = busy != null && /entry|key cell/i.test(busy);
   const showPay =
@@ -546,7 +553,7 @@ export function CrownPlayView({ id }: { id: string }) {
   function onDriven(lap: DrivenLap) {
     if (!room || !address || !lapRun) return;
     const record: DrivenLapRecord = { lap: sealedLaps.length, moves: bytesToHex(lap.moves), score: lap.score, coins: lap.coins, crashed: lap.crashed };
-    const noPicks = !lap.crashed && picksDue(record.lap) === 0;
+    const noPicks = !lap.crashed && kit.picksDue(record.lap) === 0;
     if (noPicks) record.picks = { upgrade: null, road: null };
     saveLapRun(room.id, address, { ...lapRun, driven: record, finished: lap.crashed && lap.score <= room.kingScore });
     setRunVersion((version) => version + 1);
@@ -566,7 +573,7 @@ export function CrownPlayView({ id }: { id: string }) {
   async function lockDriven(record: DrivenLapRecord) {
     if (!room || !address || !nextLap || !lapRun) return;
     setChainError(null);
-    setBusy(`Locking lap ${record.lap + 1}…`);
+    setBusy(`Locking ${kit.lap} ${record.lap + 1}…`);
     try {
       const bytes = withPicks(hexToBytes(record.moves), record.picks?.upgrade ?? null, record.picks?.road ?? null);
       const point = await sealLap(getCkbClient(), nextLap.point, lapRun.session as `0x${string}`, bytes, setBusy);
@@ -581,7 +588,7 @@ export function CrownPlayView({ id }: { id: string }) {
       setRunVersion((version) => version + 1);
     } catch (error) {
       setTakeAfterLock(false);
-      setChainError(chainMessage(error, 'The lap could not be locked.'));
+      setChainError(chainMessage(error, `The ${kit.lap} could not be locked.`));
     } finally {
       setBusy(null);
     }
@@ -618,7 +625,7 @@ export function CrownPlayView({ id }: { id: string }) {
       if (nextLap) current = { ...current, bidOutPoint: nextLap.point };
       else if (!current.bidOutPoint && entryBid) current = { ...current, bidOutPoint: entryBid };
       if (!current.bidOutPoint || sealedLaps.length === 0) {
-        setChainError('Pay to enter and lock at least one lap first.');
+        setChainError(`Pay to enter and lock at least one ${kit.lap} first.`);
         return;
       }
       setBusy('Sending your run…');
@@ -649,7 +656,7 @@ export function CrownPlayView({ id }: { id: string }) {
         if (!(error instanceof EntryGoneError)) throw error;
         // The entry this phone remembered was used by an earlier steal (or never landed).
         forgetEntry();
-        throw new Error('That entry was already used. Pay a new entry for a new road.');
+        throw new Error('That entry was already used. Pay a new entry for a new run.');
       }
       const named = { ...result.room, king: name };
       if (address) forgetBid(room.id, address);
@@ -785,7 +792,7 @@ export function CrownPlayView({ id }: { id: string }) {
 
   return (
     <ArenaStage backHref="/play" backLabel="Crowns">
-      {room.status !== 'settled' ? <HowToPlayIntro /> : null}
+      {room.status !== 'settled' ? <HowToPlayIntro game={room.game} /> : null}
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-3">
@@ -936,7 +943,7 @@ export function CrownPlayView({ id }: { id: string }) {
                 {entryWindow ? (
                   <>
                     <p className="font-mono text-[11px] uppercase tracking-wider text-lime">{entryBid ? 'You’re in' : 'Starting soon'}</p>
-                    <p className="mt-2 font-poster text-xl font-black uppercase">{entryBid ? 'Drive 5 laps' : 'Get ready'}</p>
+                    <p className="mt-2 font-poster text-xl font-black uppercase">{entryBid ? `${kit.play} ${kit.rules.laps} ${kit.lap}s` : 'Get ready'}</p>
                     <p className="mt-1 max-w-xl text-sm text-mute">
                       The round starts for everyone together. You can pay your entry when it starts.
                     </p>
@@ -958,21 +965,23 @@ export function CrownPlayView({ id }: { id: string }) {
                 ) : lapMode ? (
                   <LapPanel
                     laps={sealedLaps.map((lap) => ({ score: lap.score, crashed: lap.crashed }))}
+                    total={kit.rules.laps}
+                    lapWord={kit.lap}
                     crashScore={driven?.crashed ? driven.score : null}
-                    owned={owned}
+                    strip={room.game === 'depths' ? <RelicStrip owned={owned} /> : <UpgradeStrip owned={owned} />}
                     toBeat={room.kingScore}
-                    unused={unusedPicks(sealedLaps.map((lap) => hexToBytes(lap.tape)))}
+                    unused={kit.unusedPicks(sealedLaps.map((lap) => hexToBytes(lap.tape)))}
                     runOver={runOver}
                     late={lateLap}
                     otherDevice={!lapRun}
                     onOpen={lapRun && !timeUp && (!runOver || beats || (driven?.crashed && driven.score > room.kingScore)) ? () => setInRun(true) : null}
-                    openLabel={driven || runOver ? 'Continue your run' : `Drive lap ${currentLap} of ${LAPS}`}
+                    openLabel={driven || runOver ? 'Continue your run' : `${kit.play} ${kit.lap} ${currentLap} of ${kit.rules.laps}`}
                   />
                 ) : (
                   <>
-                    <p className="font-mono text-[11px] uppercase tracking-wider text-lime">Crown Run</p>
+                    <p className="font-mono text-[11px] uppercase tracking-wider text-lime">{GAMES[room.game].title}</p>
                     <p className="mt-2 text-sm text-mute">
-                      {room.kingScore ? `Beat ${room.kingScore} to take the crown.` : 'Nobody holds it yet. Lock in one lap and you can take it.'} Each lap is 30 seconds and you get one try at it.
+                      {room.kingScore ? `Beat ${room.kingScore} to take the crown.` : `Nobody holds it yet. Lock in one ${kit.lap} and you can take it.`} {room.game === 'depths' ? 'Each floor gets one torch, 60 seconds, and one try.' : 'Each lap is 30 seconds and you get one try at it.'}
                     </p>
                   </>
                 )}
@@ -994,9 +1003,9 @@ export function CrownPlayView({ id }: { id: string }) {
                 {beats && !inRun && !entryWindow && !timeUp && !iHold && isConnected && !(roadLeft != null && !roadOpen) ? (
                   <div className="mt-4">
                     <ArenaCta onClick={() => void takeCrown()} disabled={!canTake}>
-                      {busy ?? (!nextLap || !inSync ? `Take it with ${runScore} once your lap lands…` : `Take the crown with ${runScore}`)}
+                      {busy ?? (!nextLap || !inSync ? `Take it with ${runScore} once your ${kit.lap} lands…` : `Take the crown with ${runScore}`)}
                     </ArenaCta>
-                    {!runOver ? <p className="mt-2 text-xs text-mute">Taking the crown ends your run with the laps locked so far.</p> : null}
+                    {!runOver ? <p className="mt-2 text-xs text-mute">Taking the crown ends your run with the {kit.lap}s locked so far.</p> : null}
                   </div>
                 ) : null}
                 {/* A lap's time starts when the entry lands, so entries open when the round starts, not before. */}
@@ -1004,13 +1013,13 @@ export function CrownPlayView({ id }: { id: string }) {
                   <div className="mt-4">
                     {entriesClosed ? (
                       <p className="rounded-lg bg-gold/10 px-3 py-2 text-xs font-semibold text-gold">
-                        {`New entries are closed. Only ${clockText} left, which is too short for an entry to land and a lap to lock.`}
+                        {`New entries are closed. Only ${clockText} left, which is too short for an entry to land and a ${kit.lap} to lock.`}
                       </p>
                     ) : (
                       <>
                       {shortClock ? (
                         <p className="mb-3 rounded-lg bg-gold/10 px-3 py-2 text-xs font-semibold text-gold">
-                          {`Only ${clockText} left on the clock, and a full run takes about 6 minutes. It may end before you finish. You can take the crown with the laps you've locked.`}
+                          {`Only ${clockText} left on the clock, and a full run takes about ${Math.round(kit.timing.RUN_NEEDS_MS / 60_000)} minutes. It may end before you finish. You can take the crown with the ${kit.lap}s you've locked.`}
                         </p>
                       ) : null}
                       <ArenaCta
@@ -1043,12 +1052,12 @@ export function CrownPlayView({ id }: { id: string }) {
                     )}
                   </div>
                 ) : null}
-                <Button href="/practice" variant="ghost" size="sm" className="mt-4">
+                <Button href={room.game === 'depths' ? '/practice?game=depths' : '/practice'} variant="ghost" size="sm" className="mt-4">
                   Practice for free
                 </Button>
               </div>
               {inRun && lapRun && !iHold ? (
-                <CrownRunLayer
+                <RunLayerFor
                   driving={driving}
                   laps={lockedLaps}
                   seed={nextSeed}

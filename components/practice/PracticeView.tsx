@@ -8,6 +8,7 @@ import { RunPicks } from '@/components/game/RunPicks';
 import { NextLap, RunLayer, RunSummary, type LapLine } from '@/components/game/RunScreens';
 import { Button } from '@/components/ui/Button';
 import { PageTitle } from '@/components/ui/kit';
+import { PracticeSwitch } from '@/components/practice/PracticeSwitch';
 import { DANGER, SAFE, UPGRADES, loadCrownRun, picksDue, withPicks, type LockedLap } from '@/lib/game/crown-run';
 
 type Stage = 'intro' | 'drive' | 'pick' | 'next' | 'summary';
@@ -80,6 +81,7 @@ export function PracticeView() {
     return (
       <ArenaStage backHref="/games" backLabel="Play">
         <div className="mx-auto max-w-xl">
+          <PracticeSwitch game="crown-run" />
           <PageTitle eyebrow="Free" title="Practice Crown Run" intro="The real game on a random road. Nothing here is saved and nothing costs anything." />
           <ol className="mt-6 space-y-3 text-sm text-mute">
             <li><span className="font-semibold text-white">Drive.</span> Five laps of 30 seconds. Change lanes, dodge the blocks and grab the coins. A crash ends the run, and your points stay.</li>

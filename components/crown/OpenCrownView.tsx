@@ -13,7 +13,10 @@ import { useWallet } from '@/hooks/useWallet';
 import { useUsername } from '@/hooks/useUsername';
 import { useRequireUsername } from '@/hooks/useRequireUsername';
 import { publishCrown } from '@/lib/crown/remote';
-import { DEFAULT_DURATION_MS, FLOOR_CROWN, GAMES, saveCrown, sealCrown, type CrownRoom, type CrownSetup, type GameId } from '@/lib/crown/rooms';
+import { DEFAULT_DURATION_MS, FLOOR_CROWN, GAMES, saveCrown, sealCrown, type CrownRoom, type CrownSetup } from '@/lib/crown/rooms';
+import { playableGames } from '@/lib/crown/games';
+import { StairsArt } from '@/components/game/DepthsScreens';
+import { DEEP } from '@/lib/game/depths';
 import { registryConfigured } from '@/lib/registry/config';
 
 const STEPS = ['Game', 'Entry fee', 'Clock', 'Title'] as const;
@@ -161,10 +164,16 @@ export function OpenCrownView() {
               <fieldset>
                 <legend className="font-poster text-lg font-bold uppercase">Pick the game</legend>
                 <div role="radiogroup" className="mt-4 grid gap-3 sm:grid-cols-2">
-                  {(Object.keys(GAMES) as GameId[]).map((game) => (
+                  {playableGames().map((game) => (
                     <ChoiceChip key={game} selected={setup.game === game} tone="lime" onClick={() => setSetup((current) => ({ ...current, game }))} className="overflow-hidden p-0">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={ART.crownRun} alt="" className="aspect-video w-full object-cover" />
+                      {game === 'depths' ? (
+                        <span className="block aspect-video w-full bg-[#1b0d10]">
+                          <StairsArt stairs={DEEP} />
+                        </span>
+                      ) : (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={ART.crownRun} alt="" className="aspect-video w-full object-cover" />
+                      )}
                       <div className="p-4">
                         <p className="font-poster text-sm font-bold uppercase">{GAMES[game].title}</p>
                         <p className="mt-1 text-sm text-mute">{GAMES[game].blurb}</p>

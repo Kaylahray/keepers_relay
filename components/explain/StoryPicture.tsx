@@ -1,8 +1,9 @@
 import { LaneArt } from '@/components/game/LaneArt';
+import { StairsArt } from '@/components/game/DepthsScreens';
 
 /** Four small drawings that each carry one idea of the game, used on the home page, the first-visit intro and How it works. */
 
-export type StoryKind = 'race' | 'grab' | 'win' | 'fair' | 'stake' | 'fight' | 'collect';
+export type StoryKind = 'race' | 'dungeon' | 'grab' | 'win' | 'fair' | 'stake' | 'fight' | 'collect';
 
 const LIME = '#99ee2d';
 const PINK = '#ff56f6';
@@ -153,6 +154,7 @@ function Collect() {
 export function StoryPicture({ kind, className = '' }: { kind: StoryKind; className?: string }) {
   const picture = {
     race: <Race />,
+    dungeon: <StairsArt stairs={0} />,
     grab: <Grab />,
     win: <Win />,
     fair: <Fair />,
@@ -177,3 +179,9 @@ export const STORY = [
   { kind: 'win' as const, title: 'Hold it at zero', body: 'Whoever holds the crown when the clock hits zero wins the whole prize.' },
   { kind: 'fair' as const, title: 'Nobody can cheat the score', body: 'The CKB chain replays your moves itself, so the score is the same for everyone.' },
 ];
+
+/** The same story for a Crown Depths crown: only the first card changes. */
+export const DEPTHS_STORY = [
+  { kind: 'dungeon' as const, title: 'Pay in and explore', body: 'Pay the entry and explore four dungeon floors on your phone. After each floor, pick an item and your next stairs.' },
+  ...STORY.slice(1),
+] as const;

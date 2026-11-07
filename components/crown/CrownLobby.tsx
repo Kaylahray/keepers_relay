@@ -12,7 +12,7 @@ import { useWallet } from '@/hooks/useWallet';
 import { useAuth } from '@/context/auth-provider';
 import { joinCrownRemote } from '@/lib/crown/remote';
 import type { CrownSeat } from '@/lib/crown/seats';
-import { ckbWhole, crownShareUrl, type CrownRoom } from '@/lib/crown/rooms';
+import { GAMES, ckbWhole, crownShareUrl, type CrownRoom } from '@/lib/crown/rooms';
 import { useNow } from '@/components/crown/BleedingClock';
 import { sameAddress } from '@/lib/crown/standing';
 
@@ -59,7 +59,7 @@ export function CrownLobby({
     <div className="relative z-10">
       <div className="flex flex-wrap items-center gap-3">
         <StatusChip tone="lobby">Lobby</StatusChip>
-        <span className="font-mono text-[11px] text-mute">Crown Run · {seats.length} seated</span>
+        <span className="font-mono text-[11px] text-mute">{GAMES[room.game].title} · {seats.length} seated</span>
       </div>
       <h1 className="mt-3 font-poster text-3xl font-black uppercase md:text-5xl">{room.title}</h1>
       <p className="mt-2 max-w-xl text-mute">Share the link. Players connect and take a seat, then the host starts the game.</p>

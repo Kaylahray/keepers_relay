@@ -27,7 +27,7 @@ export function UpgradeBadges({ owned, shieldReady, streak }: { owned: number; s
 }
 
 /** A choice shown as a picture with its name and what it does. */
-function PictureCard({
+export function PictureCard({
   on,
   tone,
   name,

@@ -660,6 +660,18 @@ name = "crowns-crown-run-core"
 version = "0.1.0"
 
 [[package]]
+name = "crowns-depths"
+version = "0.1.0"
+dependencies = [
+ "ckb-std",
+ "crowns-depths-core",
+]
+
+[[package]]
+name = "crowns-depths-core"
+version = "0.1.0"
+
+[[package]]
 name = "crowns-duel-type"
 version = "0.1.0"
 dependencies = [
@@ -1815,6 +1827,7 @@ dependencies = [
  "ckb-testtool",
  "crowns-artillery-core",
  "crowns-crown-run-core",
+ "crowns-depths-core",
  "serde_json",
 ]
 

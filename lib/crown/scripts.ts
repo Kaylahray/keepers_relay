@@ -3,6 +3,8 @@ import {
   assertSuddenDeathConfigured,
   suddenDeathBidType,
   suddenDeathGame,
+  suddenDeathDepths,
+  depthsConfigured,
   suddenDeathMatchType,
   suddenDeathProxyLock,
   suddenDeathTreasuryLock,
@@ -24,6 +26,7 @@ export function getSuddenDeathCellDeps(): ccc.CellDep[] {
     toCellDep(suddenDeathTreasuryLock),
     toCellDep(suddenDeathProxyLock),
     toCellDep(suddenDeathGame),
+    ...(depthsConfigured() ? [toCellDep(suddenDeathDepths)] : []),
   ];
 }
 

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { CarFront, Timer } from 'lucide-react';
+import { CarFront, Castle, Timer } from 'lucide-react';
 import { leftMs, useNow } from '@/components/crown/BleedingClock';
 import { Avatar } from '@/components/duel/Avatar';
 import { useChainPictures } from '@/components/duel/useChainPictures';
@@ -34,7 +34,7 @@ export function CrownCard({ room }: { room: CrownRoom; index?: number }) {
       <div className="flex items-center justify-between">
         {live ? <StatusChip tone="live">Live</StatusChip> : closed ? <StatusChip tone="closed">Closed</StatusChip> : <StatusChip tone="lobby">Lobby</StatusChip>}
         <span className="inline-flex items-center gap-1.5 font-mono text-[11px] text-mute">
-          <CarFront className="h-3.5 w-3.5" aria-hidden="true" /> {GAMES[room.game].title}
+          {room.game === 'depths' ? <Castle className="h-3.5 w-3.5" aria-hidden="true" /> : <CarFront className="h-3.5 w-3.5" aria-hidden="true" />} {GAMES[room.game].title}
         </span>
       </div>
       <h3 className="mt-4 font-poster text-lg font-bold uppercase leading-tight">

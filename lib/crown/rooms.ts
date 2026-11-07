@@ -1,17 +1,22 @@
-import { GAME_RULES, shrunkDeadline } from '@/lib/sudden-death/codec';
+import { shrunkDeadline } from '@/lib/sudden-death/codec';
+import { crownGame } from '@/lib/crown/games';
 
 const KEY = 'keepers-crowns';
 
-/** Host-stamped length when a crown does not set one. Steals cut 10, 5, 5, 2.5… minutes, so 30 bites. */
+/** Host-stamped length when a crown does not set one. Each steal cuts 5 minutes, but never to under 10 minutes after the stealer's last lap. */
 export const DEFAULT_DURATION_MS = 30 * 60 * 1000;
 
 /** Games a crown can be played with. Each is a game script the match cell names by data hash. */
-export type GameId = 'crown-run';
+export type GameId = 'crown-run' | 'depths';
 
 export const GAMES: Record<GameId, { title: string; blurb: string }> = {
   'crown-run': {
     title: 'Crown Run',
     blurb: 'Five 30-second laps. Dodge the blocks, grab the coins, then pick your upgrades and your next road.',
+  },
+  depths: {
+    title: 'Crown Depths',
+    blurb: 'Four dungeon floors, one torch each. Fight, loot and find the stairs, then pick a relic and safe or deep stairs.',
   },
 };
 
@@ -86,7 +91,7 @@ export function roomFromStored(room: StoredRoom): CrownRoom {
     feeShannons: BigInt(room.feeShannons),
     potShannons: BigInt(room.potShannons),
     durationMs: room.durationMs || DEFAULT_DURATION_MS,
-    game: 'crown-run',
+    game: room.game in GAMES ? room.game : 'crown-run',
     status: room.status,
     round: room.round ?? 0,
     king: room.king ?? null,
@@ -261,7 +266,7 @@ export function applySteal(room: CrownRoom, score: number, king: string, note: s
   const fee = ckbWhole(room.feeShannons);
   const now = Date.now();
   const before = room.deadlineAt ?? now;
-  const deadlineAt = shrunkDeadline(before, now, GAME_RULES.minLeftMs);
+  const deadlineAt = shrunkDeadline(before, now, crownGame(room.game).rules.minLeftMs);
   const cut = before - deadlineAt;
   return {
     ...room,

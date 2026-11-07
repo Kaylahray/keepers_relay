@@ -10,8 +10,10 @@ import { DuelVerify } from '@/components/duel/DuelVerify';
 import { RunPlayback } from '@/components/game/RunPlayback';
 import { duelIdOf, replayDuel, type DuelReplay } from '@/lib/duel/verify';
 import { getCkbClient } from '@/lib/ckb/client';
-import { ckbWhole } from '@/lib/crown/rooms';
+import { ckbWhole, GAMES } from '@/lib/crown/rooms';
 import { loadCrownRun } from '@/lib/game/crown-run';
+import { loadDepths } from '@/lib/game/depths';
+import { gameOfHash } from '@/lib/crown/games';
 import { chainNames } from '@/lib/registry/chain-names';
 import { replayMatch, VerifyError, type MatchReplay, type StealCheck } from '@/lib/sudden-death/verify';
 
@@ -137,7 +139,7 @@ export function VerifyView({ initialTx }: { initialTx?: string }) {
         setDuel(await replayDuel(getCkbClient(), target));
         return;
       }
-      const result = await replayMatch(getCkbClient(), target, game);
+      const result = await replayMatch(getCkbClient(), target, game, { depths: await loadDepths() });
       setReplay(result);
       const kings = [...result.steals.map((steal) => steal.kingAfter), ...(result.winner ? [result.winner] : [])];
       void chainNames(getCkbClient(), kings)
@@ -284,7 +286,7 @@ export function VerifyView({ initialTx }: { initialTx?: string }) {
               <dt className="uppercase tracking-wider text-mute">Game script (data hash, fixed at open)</dt>
               <dd className="break-all text-white/70">
                 {replay.game}
-                {replay.gameKnown ? '' : ' · not a game this page can replay'}
+                {replay.gameKnown ? ` · ${GAMES[gameOfHash(replay.game) ?? 'crown-run'].title}` : ' · not a game this page can replay'}
               </dd>
             </div>
           </dl>

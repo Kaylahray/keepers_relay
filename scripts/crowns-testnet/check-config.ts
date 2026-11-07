@@ -33,6 +33,7 @@ async function main() {
     ['treasury-lock', config.suddenDeathTreasuryLock],
     ['proxy-lock', config.suddenDeathProxyLock],
     ['crown-run', config.suddenDeathGame],
+    ...(config.depthsConfigured() ? ([['depths', config.suddenDeathDepths]] as const) : []),
   ] as const;
   const deps = getSuddenDeathCellDeps();
   for (const [index, [name, script]] of named.entries()) {

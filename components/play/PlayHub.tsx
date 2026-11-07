@@ -9,13 +9,16 @@ import { getCkbClient } from '@/lib/ckb/client';
 import { fetchCrownList } from '@/lib/crown/remote';
 import { listDuels } from '@/lib/duel/chain';
 import { STATUS_OPEN } from '@/lib/duel/codec';
-import { duelsConfigured } from '@/lib/registry/config';
+import { depthsConfigured, duelsConfigured } from '@/lib/registry/config';
+import { StairsArt } from '@/components/game/DepthsScreens';
+import { DEEP } from '@/lib/game/depths';
 
 type GameTile = { name: string; mode: string; body: string; img: string; href: string; tone: 'lime' | 'pink'; cta: string };
 
 const GAMES: GameTile[] = [
   { name: 'Crown Run', mode: 'Crowns', body: 'Five laps. Pick your upgrades and your road. Risk it for the bigger score.', img: ART.crownRun, href: '/play', tone: 'lime', cta: 'Find a crown' },
-  { name: 'Practice', mode: 'Free', body: 'Crown Run on a random road, for free.', img: ART.crownRun, href: '/practice', tone: 'lime', cta: 'Practice' },
+  { name: 'Crown Depths', mode: 'Crowns', body: 'Four dungeon floors. Fight, grab the gold and find the stairs before your torch runs out.', img: '', href: depthsConfigured() ? '/play' : '/practice?game=depths', tone: 'lime', cta: depthsConfigured() ? 'Find a crown' : 'Try it free' },
+  { name: 'Practice', mode: 'Free', body: 'Play Crown Run or Crown Depths for free, to learn them.', img: ART.crownRun, href: '/practice', tone: 'lime', cta: 'Practice' },
   { name: 'Artillery', mode: 'Duels', body: 'Take turns firing over the tower. Read the wind.', img: ART.artillery, href: '/duels/new', tone: 'pink', cta: 'Challenge' },
 ];
 
@@ -51,8 +54,14 @@ export function PlayHub() {
       <ul className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
         {GAMES.map((g) => (
           <li key={g.name} className="flex flex-col overflow-hidden rounded-2xl bg-ink-2">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={g.img} alt="" className="aspect-video w-full object-cover" />
+            {g.img ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={g.img} alt="" className="aspect-video w-full object-cover" />
+            ) : (
+              <span className="block aspect-video w-full bg-[#1b0d10]">
+                <StairsArt stairs={DEEP} />
+              </span>
+            )}
             <div className="flex flex-1 flex-col p-5">
               <p className={`font-mono text-[10px] font-bold uppercase tracking-wider ${g.tone === 'lime' ? 'text-lime' : 'text-pink'}`}>{g.mode}</p>
               <h3 className="mt-1 font-poster text-lg font-bold uppercase">{g.name}</h3>
