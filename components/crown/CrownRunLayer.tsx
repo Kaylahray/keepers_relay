@@ -156,10 +156,16 @@ export function CrownRunLayer({
           </>
         ) : (
           <div className="mt-3 rounded-2xl bg-ink-2">
-            <ChainLoader compact title={busy ?? `Locking lap ${driven.lap + 1}…`} />
+            <ChainLoader
+              compact
+              title={busy ?? `Locking lap ${driven.lap + 1}…`}
+              note={driven.lap + 1 < CROWN_RUN.LAPS ? `Lap ${driven.lap + 2} starts when it lands.` : undefined}
+            />
           </div>
         )}
-        {windowNote}
+        {/* The old lap's countdown only matters here if the lock has to be sent again. */}
+        {error ? windowNote : null}
+        {leave}
       </div>
     );
   } else if (runOver || late) {

@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
-import { Crown, LoaderCircle, ShieldCheck, Timer } from 'lucide-react';
+import { Crown, LoaderCircle, Timer } from 'lucide-react';
 import { ArenaCta } from '@/components/arena/ArenaPrimitives';
 import { ChainLoader } from '@/components/arena/ChainLoader';
 import { Avatar } from '@/components/duel/Avatar';
@@ -34,6 +34,7 @@ import { withPicks, type LockedLap } from '@/lib/game/crown-run';
 import {
   bidRefundAt,
   closeCrown,
+  entryGone,
   entryLap,
   expireBid,
   countEntries,
@@ -311,7 +312,14 @@ export function CrownPlayView({ id }: { id: string }) {
     const look = async () => {
       const next = await entryLap(getCkbClient(), matchIdForRoad, myLockHash, entryBid).catch(() => null);
       if (stop) return;
-      if (next) setLapFound({ entry: entryKey, next });
+      if (next) {
+        setLapFound({ entry: entryKey, next });
+        return;
+      }
+      // A used entry would otherwise be waited on forever and hide the pay button.
+      const gone = await entryGone(getCkbClient(), entryBid).catch(() => false);
+      if (stop) return;
+      if (gone) forgetEntry();
       else timer = window.setTimeout(() => void look(), 2_000);
     };
     void look();
@@ -478,9 +486,6 @@ export function CrownPlayView({ id }: { id: string }) {
   const medianAt = median?.at ?? null;
   // Confirmed by the last read: the chain will accept a close now.
   const sinceReady = medianAt != null && room.deadlineAt != null && medianAt >= room.deadlineAt;
-  // Between reads the median keeps moving at about wall-clock speed, so the wait counts down every second.
-  const sinceWait =
-    median != null && room.deadlineAt != null ? Math.max(0, room.deadlineAt - (median.at + (now - median.readAt))) : null;
   const shownError = !matchReady && chainError && /not on chain yet|still confirming/i.test(chainError) ? null : chainError;
   const onChain = chain && Boolean(room.matchId);
   // On chain the run is played in laps on an entry; the score is the run's score after its last locked lap.
@@ -772,21 +777,14 @@ export function CrownPlayView({ id }: { id: string }) {
     );
   }
 
+  // Shown only once the chain will accept the close.
   const closeButton =
-    chain && room.matchId && live && !confirmingOpen && !entryWindow ? (
+    chain && room.matchId && live && !confirmingOpen && !entryWindow && !clock.counting && (sinceReady || medianAt == null) ? (
       <div className="clip-panel mt-4 bg-gold/10 p-6">
-        <Button variant="gold" size="lg" onClick={() => void closeMatch()} disabled={Boolean(busy) || clock.counting || (medianAt != null && !sinceReady)}>
+        <Button variant="gold" size="lg" onClick={() => void closeMatch()} disabled={Boolean(busy)}>
           {busy === 'Closing…' ? busy : 'End the game and pay the winner'}
         </Button>
-        <p className="mt-3 text-sm text-mute">
-          {clock.counting
-            ? 'You can end it once the clock runs out.'
-            : sinceReady || medianAt == null
-              ? 'The prize goes to the last player who grabbed the crown in time.'
-              : sinceWait != null && sinceWait > 0
-                ? `Opens in about ${formatWait(sinceWait)}.`
-                : 'Opening now…'}
-        </p>
+        <p className="mt-3 text-sm text-mute">The prize goes to the last player who grabbed the crown in time.</p>
       </div>
     ) : null;
 
@@ -804,18 +802,6 @@ export function CrownPlayView({ id }: { id: string }) {
             <span className="font-mono text-[11px] text-mute">{GAMES[room.game].title}</span>
           </div>
           <h1 className="mt-3 truncate font-poster text-3xl font-black uppercase md:text-5xl">{room.title}</h1>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {iHost && live ? (
-            <Button href={`/host/${room.id}`} variant="outline" size="sm">
-              <Crown className="h-4 w-4" aria-hidden="true" /> Your game
-            </Button>
-          ) : null}
-          {room.matchOutPoint ? (
-            <Button href={`/verify/${room.matchOutPoint.txHash}`} variant="outline" size="sm">
-              <ShieldCheck className="h-4 w-4" aria-hidden="true" /> Check it
-            </Button>
-          ) : null}
         </div>
       </div>
       <section className="mt-8 grid items-start gap-6 lg:grid-cols-[1.4fr_1fr]">

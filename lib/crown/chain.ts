@@ -283,6 +283,14 @@ export async function entryLap(
   };
 }
 
+/** True once an entry landed and was then spent: by a steal, a close or a refund. It will not come back. */
+export async function entryGone(client: ccc.Client, entry: OutPointRef): Promise<boolean> {
+  const status = (await client.getTransaction(entry.txHash).catch(() => null))?.status;
+  if (status === 'rejected') return true;
+  if (status !== 'committed') return false;
+  return (await readLiveCell(client, entry)) == null;
+}
+
 /** Locks a finished lap, and its picks, into the player's entry. */
 export async function sealLap(
   client: ccc.Client,

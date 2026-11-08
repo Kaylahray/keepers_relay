@@ -118,10 +118,16 @@ export function DepthsLayer({
           </>
         ) : (
           <div className="mt-3 rounded-2xl bg-ink-2">
-            <ChainLoader compact title={busy ?? `Locking floor ${driven.lap + 1}…`} />
+            <ChainLoader
+              compact
+              title={busy ?? `Locking floor ${driven.lap + 1}…`}
+              note={driven.lap + 1 < DEPTHS.FLOORS ? `Floor ${driven.lap + 2}'s map comes from the block it lands in.` : undefined}
+            />
           </div>
         )}
-        {windowNote}
+        {/* The old floor's countdown only matters here if the lock has to be sent again. */}
+        {error ? windowNote : null}
+        {leave}
       </div>
     );
   } else if (runOver || late) {

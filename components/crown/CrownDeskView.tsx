@@ -120,13 +120,13 @@ export function CrownDeskView({ id }: { id: string }) {
             ) : null}
           </section>
 
-          {chain && room.matchId && room.status === 'live' ? (
+          {chain && room.matchId && room.status === 'live' && !counting ? (
             <section className="clip-panel bg-gold/10 p-6">
-              <Button variant="gold" size="lg" onClick={() => void close()} disabled={Boolean(busy) || counting}>
+              <Button variant="gold" size="lg" onClick={() => void close()} disabled={Boolean(busy)}>
                 {busy === 'Closing…' ? busy : 'End the game and pay the winner'}
               </Button>
               <p className="mt-3 max-w-xl text-sm text-mute">
-                {counting ? 'You can end it once the clock runs out.' : 'The prize goes to the last player who grabbed the crown in time.'}
+                The prize goes to the last player who grabbed the crown in time.
               </p>
             </section>
           ) : iHost && room.status !== 'live' ? (
