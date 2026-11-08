@@ -42,12 +42,16 @@ export function CrownsLobby() {
       const remote = await fetchCrownList().catch(() => null);
       if (stop) return;
       setListFailed(remote == null);
+      // Without the shared list, keep what is on screen. This browser's own copies can be crowns that no longer exist.
+      if (remote == null) {
+        setRooms((current) => current ?? []);
+        return;
+      }
       // The shared list decides which crowns exist.
-      const byId = new Map((remote ?? []).map((room) => [room.id, room]));
+      const byId = new Map(remote.map((room) => [room.id, room]));
       for (const room of local) {
         const shared = byId.get(room.id);
         if (shared) byId.set(room.id, { ...room, status: shared.status, potShannons: shared.potShannons, king: shared.king });
-        else if (remote == null) byId.set(room.id, room);
       }
       setRooms([...byId.values()]);
       setListedAt(Date.now());
