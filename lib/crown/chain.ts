@@ -475,7 +475,7 @@ export async function openMatch(signer: Signer, room: CrownRoom): Promise<CrownR
         good: true,
       },
       ...room.feed,
-    ].slice(0, 8),
+    ],
   };
 }
 
@@ -543,7 +543,7 @@ export async function lockBid(
         good: true,
       },
       ...room.feed,
-    ].slice(0, 8),
+    ],
   };
 }
 

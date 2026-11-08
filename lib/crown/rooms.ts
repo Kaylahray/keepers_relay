@@ -246,7 +246,7 @@ export function kickoff(
     openedAt: now,
     deadlineAt,
     stealPendingAt: null,
-    feed: note ? [{ id: `${now}`, text: note, good: true }, ...room.feed].slice(0, 8) : room.feed,
+    feed: note ? [{ id: `${now}`, text: note, good: true }, ...room.feed] : room.feed,
   };
 }
 
@@ -257,7 +257,7 @@ export function settleCrown(room: CrownRoom, reason: string): CrownRoom {
     ...room,
     status: 'settled',
     deadlineAt: room.deadlineAt ?? now,
-    feed: [{ id: `${now}`, text: reason, good: Boolean(room.king) }, ...room.feed].slice(0, 8),
+    feed: [{ id: `${now}`, text: reason, good: Boolean(room.king) }, ...room.feed],
   };
 }
 
@@ -284,6 +284,6 @@ export function applySteal(room: CrownRoom, score: number, king: string, note: s
         good: true,
       },
       ...room.feed,
-    ].slice(0, 8),
+    ],
   };
 }

@@ -1131,8 +1131,8 @@ export function CrownPlayView({ id }: { id: string }) {
               Activity
             </h2>
             {room.feed.length ? (
-              <ol className="mt-4 space-y-2">
-                {room.feed.slice(0, 8).map((item, index) => (
+              <ol className="mt-4 thin-scrollbar max-h-96 space-y-2 overflow-y-auto overscroll-contain pr-1">
+                {room.feed.map((item, index) => (
                   <li key={`${item.id}-${index}`} className={`flex items-center gap-3 rounded-xl p-2.5 ${index === 0 && item.good ? 'bg-gold/10' : ''}`}>
                     <Crown className={`h-4 w-4 shrink-0 ${item.good ? 'fill-gold text-gold' : 'text-mute'}`} aria-hidden="true" />
                     <p className={`flex-1 text-sm ${item.good ? 'text-white' : 'text-mute'}`}>{item.text}</p>

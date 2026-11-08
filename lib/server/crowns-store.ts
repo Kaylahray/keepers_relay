@@ -9,6 +9,7 @@ import { chainUsernameOfLockHash, chainUsernames } from '@/lib/server/username-r
 import { roomFromStored, roomToStored, type CrownRoom } from '@/lib/crown/rooms';
 import { suddenDeathMatchType } from '@/lib/registry/config';
 import { gameOfHash } from '@/lib/crown/games';
+import { chainActivity } from '@/lib/server/crown-activity';
 import { bytesToHex, decodeMatchCell, hexToBytes } from '@/lib/sudden-death/codec';
 import type { CrownSeat } from '@/lib/crown/seats';
 
@@ -393,8 +394,18 @@ async function announce(before: CrownRoom, after: CrownRoom, seats: CrownSeat[])
         good: true,
       },
       ...named.feed,
-    ].slice(0, 8),
+    ],
   };
+}
+
+// The page doesn't wait longer than this for the chain. A slower read finishes anyway and is ready for the next poll.
+const ACTIVITY_WAIT_MS = 3_000;
+
+/** Once a crown is on chain, its activity is read from its transactions, not from the lines saved here. */
+async function withChainActivity(room: CrownRoom, seats: CrownSeat[]): Promise<CrownRoom> {
+  const late = new Promise<null>((resolve) => setTimeout(() => resolve(null), ACTIVITY_WAIT_MS));
+  const feed = await Promise.race([chainActivity(room, seats).catch(() => null), late]);
+  return feed && feed.length ? { ...room, feed } : room;
 }
 
 export async function readPublicCrown(id: string): Promise<{ room: CrownRoom; seats: CrownSeat[] } | null> {
@@ -406,10 +417,10 @@ export async function readPublicCrown(id: string): Promise<{ room: CrownRoom; se
   if (refreshed.seen === 'match' && !sameLiveState(current, refreshed.room)) {
     const named = await announce(current, refreshed.room, existing.seats);
     await writeVault({ ...existing, room: roomToStored(named) });
-    return { room: publicRoom(await nameFeed(named)), seats: await nameSeats(existing.seats) };
+    return { room: publicRoom(await withChainActivity(await nameFeed(named), existing.seats)), seats: await nameSeats(existing.seats) };
   }
   return {
-    room: publicRoom(await nameFeed(await nameKing(refreshed.room, existing.seats))),
+    room: publicRoom(await withChainActivity(await nameFeed(await nameKing(refreshed.room, existing.seats)), existing.seats)),
     seats: await nameSeats(existing.seats),
   };
 }
@@ -506,7 +517,7 @@ export async function syncCrown(incoming: CrownRoom, sessionAddress: string): Pr
       feed: [
         { id: `${Date.now()}-open`, text: 'Game opened on chain. Entries open and the clock starts when the countdown ends.', good: true },
         ...next.feed,
-      ].slice(0, 8),
+      ],
     };
   }
   if (next.matchId) next = await announce(current, next, existing.seats);
@@ -538,7 +549,7 @@ export async function joinCrown(
       // A first entry is news for the lobby; a seal only moves the same entry along.
       if (!found.bidOutPoint) {
         const room = roomFromStored(existing.room);
-        room.feed = [{ id: `${now}-entry`, text: `${found.displayName} paid an entry.`, good: true }, ...room.feed].slice(0, 8);
+        room.feed = [{ id: `${now}-entry`, text: `${found.displayName} paid an entry.`, good: true }, ...room.feed];
         existing.room = roomToStored(room);
       }
       found.bidOutPoint = seat.bidOutPoint;
@@ -557,7 +568,7 @@ export async function joinCrown(
     room.feed = [
       { id: `${now}`, text: seat.bidOutPoint ? `${name} paid an entry.` : `${name} joined the lobby.`, good: true },
       ...room.feed,
-    ].slice(0, 8);
+    ];
     existing.room = roomToStored(room);
   }
   await writeVault({ ...existing, seats });

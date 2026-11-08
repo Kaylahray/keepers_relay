@@ -125,6 +125,11 @@ function PlayerRow({ rank, player, wins, draws, won, online }: { rank: number; p
             {name !== handle ? `${name} · ` : ''}
             <span className="font-mono">{short}</span>
           </span>
+          {/* Phones have no room for the stat columns, so the stats sit under the name. */}
+          <span className="mt-1 block truncate text-xs text-mute sm:hidden">
+            <span className="font-semibold tabular-nums text-white">{wins ?? '…'}</span> {wins === 1 ? 'win' : 'wins'} ·{' '}
+            <span className="font-semibold tabular-nums text-gold">{won == null ? '…' : won.toLocaleString('en-US')}</span> CKB won
+          </span>
         </span>
       </Link>
       <div className="hidden w-20 text-right sm:block">
