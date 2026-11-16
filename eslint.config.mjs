@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Personal one-off tools, kept out of git.
+    "scripts/local/**",
   ]),
 ]);
 

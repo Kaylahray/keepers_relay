@@ -1,0 +1,16 @@
+[package]
+name = "crowns-live-match"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+description = "Crowns live match: 2 to 5 players race at once, the game it names judges, the winner takes every entry"
+
+[dependencies]
+ckb-std = { workspace = true }
+sudden-death-common = { path = "../common" }
+# Recovers each player's session key from the signature on their moves.
+k256 = { version = "0.13", default-features = false, features = ["ecdsa"] }
+
+[[bin]]
+name = "live-match"
+path = "src/main.rs"

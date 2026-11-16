@@ -71,29 +71,6 @@ export const ckbJsVm: ScriptConfig = {
   depType: asDepType(process.env.NEXT_PUBLIC_CKB_JS_VM_DEP_TYPE),
 };
 
-/** Sudden Death match type. Empty until the Pudge deploy fills these env vars. */
-export const suddenDeathMatchType: ScriptConfig = {
-  codeHash: pick(process.env.NEXT_PUBLIC_SD_MATCH_CODE_HASH),
-  hashType: asHashType(process.env.NEXT_PUBLIC_SD_MATCH_HASH_TYPE),
-  args: pick(process.env.NEXT_PUBLIC_SD_MATCH_ARGS, "0x"),
-  outPoint: {
-    txHash: pick(process.env.NEXT_PUBLIC_SD_MATCH_TX_HASH),
-    index: pick(process.env.NEXT_PUBLIC_SD_MATCH_INDEX, "0x0"),
-  },
-  depType: asDepType(process.env.NEXT_PUBLIC_SD_MATCH_DEP_TYPE),
-};
-
-export const suddenDeathBidType: ScriptConfig = {
-  codeHash: pick(process.env.NEXT_PUBLIC_SD_BID_CODE_HASH),
-  hashType: asHashType(process.env.NEXT_PUBLIC_SD_BID_HASH_TYPE),
-  args: pick(process.env.NEXT_PUBLIC_SD_BID_ARGS, "0x"),
-  outPoint: {
-    txHash: pick(process.env.NEXT_PUBLIC_SD_BID_TX_HASH),
-    index: pick(process.env.NEXT_PUBLIC_SD_BID_INDEX, "0x0"),
-  },
-  depType: asDepType(process.env.NEXT_PUBLIC_SD_BID_DEP_TYPE),
-};
-
 /** Input Type Proxy Lock. data1 code hash of our deployed copy of the public binary. */
 export const suddenDeathProxyLock: ScriptConfig = {
   codeHash: "0x5123908965c711b0ffd8aec642f1ede329649bda1ebdca6bd24124d3796f768a",
@@ -106,78 +83,38 @@ export const suddenDeathProxyLock: ScriptConfig = {
   depType: "code",
 };
 
-export const suddenDeathTreasuryLock: ScriptConfig = {
-  codeHash: pick(process.env.NEXT_PUBLIC_SD_TREASURY_CODE_HASH),
-  hashType: asHashType(process.env.NEXT_PUBLIC_SD_TREASURY_HASH_TYPE),
-  args: pick(process.env.NEXT_PUBLIC_SD_TREASURY_ARGS, "0x"),
+/** The match script: holds a race's entries and pays whoever the game it names says won. */
+export const liveMatch: ScriptConfig = {
+  codeHash: pick(process.env.NEXT_PUBLIC_SD_LIVE_CODE_HASH),
+  hashType: asHashType(process.env.NEXT_PUBLIC_SD_LIVE_HASH_TYPE),
+  args: pick(process.env.NEXT_PUBLIC_SD_LIVE_ARGS, "0x"),
   outPoint: {
-    txHash: pick(process.env.NEXT_PUBLIC_SD_TREASURY_TX_HASH),
-    index: pick(process.env.NEXT_PUBLIC_SD_TREASURY_INDEX, "0x0"),
+    txHash: pick(process.env.NEXT_PUBLIC_SD_LIVE_TX_HASH),
+    index: pick(process.env.NEXT_PUBLIC_SD_LIVE_INDEX, "0x0"),
   },
-  depType: asDepType(process.env.NEXT_PUBLIC_SD_TREASURY_DEP_TYPE),
+  depType: asDepType(process.env.NEXT_PUBLIC_SD_LIVE_DEP_TYPE),
 };
 
-/** The game script match-type spawns to score a run. */
-export const suddenDeathGame: ScriptConfig = {
-  codeHash: pick(process.env.NEXT_PUBLIC_SD_GAME_CODE_HASH),
+/** Crown Rally, the live race game live-match spawns to judge a race. A code cell found by its data hash. */
+export const rallyGame: ScriptConfig = {
+  codeHash: pick(process.env.NEXT_PUBLIC_SD_RALLY_CODE_HASH),
   hashType: "data2",
   args: "0x",
   outPoint: {
-    txHash: pick(process.env.NEXT_PUBLIC_SD_GAME_TX_HASH),
-    index: pick(process.env.NEXT_PUBLIC_SD_GAME_INDEX, "0x0"),
+    txHash: pick(process.env.NEXT_PUBLIC_SD_RALLY_TX_HASH),
+    index: pick(process.env.NEXT_PUBLIC_SD_RALLY_INDEX, "0x0"),
   },
   depType: "code",
 };
 
-/** Crown Depths, the second crown game. Optional: crowns can't pick it until it is deployed. */
-export const suddenDeathDepths: ScriptConfig = {
-  codeHash: pick(process.env.NEXT_PUBLIC_SD_DEPTHS_CODE_HASH),
-  hashType: "data2",
-  args: "0x",
-  outPoint: {
-    txHash: pick(process.env.NEXT_PUBLIC_SD_DEPTHS_TX_HASH),
-    index: pick(process.env.NEXT_PUBLIC_SD_DEPTHS_INDEX, "0x0"),
-  },
-  depType: "code",
+/** The relay that passes rally moves between phones: where it listens, and the lock it signs finishes with. */
+export const rallyRelay = {
+  url: pick(process.env.NEXT_PUBLIC_RALLY_RELAY_URL).replace(/\/+$/, ""),
+  lockHash: pick(process.env.NEXT_PUBLIC_RALLY_RELAY_LOCK_HASH),
 };
 
-export function depthsConfigured(): boolean {
-  return suddenDeathDepths.codeHash.length > 2 && suddenDeathDepths.outPoint.txHash.length > 2;
-}
-
-/** The duel script: two stakes in escrow, an artillery duel, judged by replay. */
-export const duelType: ScriptConfig = {
-  codeHash: pick(process.env.NEXT_PUBLIC_SD_DUEL_CODE_HASH),
-  hashType: asHashType(process.env.NEXT_PUBLIC_SD_DUEL_HASH_TYPE),
-  args: pick(process.env.NEXT_PUBLIC_SD_DUEL_ARGS, "0x"),
-  outPoint: {
-    txHash: pick(process.env.NEXT_PUBLIC_SD_DUEL_TX_HASH),
-    index: pick(process.env.NEXT_PUBLIC_SD_DUEL_INDEX, "0x0"),
-  },
-  depType: asDepType(process.env.NEXT_PUBLIC_SD_DUEL_DEP_TYPE),
-};
-
-/** The artillery game script duel-type spawns to judge a duel. A code cell found by its data hash. */
-export const artilleryGame: ScriptConfig = {
-  codeHash: pick(process.env.NEXT_PUBLIC_SD_ARTILLERY_CODE_HASH),
-  hashType: "data2",
-  args: "0x",
-  outPoint: {
-    txHash: pick(process.env.NEXT_PUBLIC_SD_ARTILLERY_TX_HASH),
-    index: pick(process.env.NEXT_PUBLIC_SD_ARTILLERY_INDEX, "0x0"),
-  },
-  depType: "code",
-};
-
-export function duelsConfigured(): boolean {
-  return (
-    duelType.codeHash.length > 2 &&
-    duelType.outPoint.txHash.length > 2 &&
-    artilleryGame.codeHash.length > 2 &&
-    artilleryGame.outPoint.txHash.length > 2 &&
-    suddenDeathGame.outPoint.txHash.length > 2 &&
-    suddenDeathProxyLock.outPoint.txHash.length > 2
-  );
+export function rallyConfigured(): boolean {
+  return liveMatch.codeHash.length > 2 && liveMatch.outPoint.txHash.length > 2 && suddenDeathProxyLock.outPoint.txHash.length > 2 && rallyGame.codeHash.length > 2 && rallyGame.outPoint.txHash.length > 2 && rallyRelay.url.length > 0 && rallyRelay.lockHash.length > 2;
 }
 
 export function registryConfigured(): boolean {
@@ -200,29 +137,8 @@ export function assertRegistryConfigured(): void {
   );
 }
 
-export function suddenDeathConfigured(): boolean {
-  return (
-    suddenDeathMatchType.codeHash.length > 2 &&
-    suddenDeathMatchType.outPoint.txHash.length > 2 &&
-    suddenDeathBidType.codeHash.length > 2 &&
-    suddenDeathBidType.outPoint.txHash.length > 2 &&
-    suddenDeathTreasuryLock.codeHash.length > 2 &&
-    suddenDeathTreasuryLock.outPoint.txHash.length > 2 &&
-    suddenDeathProxyLock.outPoint.txHash.length > 2 &&
-    suddenDeathGame.codeHash.length > 2 &&
-    suddenDeathGame.outPoint.txHash.length > 2
-  );
-}
-
-export function assertSuddenDeathConfigured(): void {
-  if (suddenDeathConfigured()) return;
-  throw new Error(
-    "Missing Sudden Death env — set NEXT_PUBLIC_SD_MATCH_*, NEXT_PUBLIC_SD_BID_*, NEXT_PUBLIC_SD_TREASURY_* and NEXT_PUBLIC_SD_GAME_* after the v2 deploy.",
-  );
-}
-
 // CKB tx fee estimation (shannons per kB) — passed to `completeFeeBy`.
-/** Shannons per KB. High enough to beat a crowded pool, since lap windows and turns are short: about 0.001 CKB per KB. */
+/** Shannons per KB. High enough to beat a crowded pool, so a stake lands before the lobby fills: about 0.001 CKB per KB. */
 export const REGISTRY_FEE_RATE = BigInt(100_000);
 
 export const USERNAME_RULES = {

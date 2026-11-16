@@ -11,17 +11,7 @@ use std::fs;
 use std::path::PathBuf;
 
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
-mod replay;
-#[cfg(test)]
-mod artillery;
-#[cfg(test)]
-mod duel;
-#[cfg(test)]
-mod crown_run;
-#[cfg(test)]
-mod depths;
+mod live_match;
 
 pub struct Loader(PathBuf);
 

@@ -8,3 +8,5 @@ description = "Sudden Death match layouts, decay, and Merkle steal proofs"
 [dependencies]
 ckb-std = { workspace = true }
 blake2b-ref = { workspace = true }
+ckb-script-ipc-common = { workspace = true }
+crowns-game-api = { path = "../game-api" }

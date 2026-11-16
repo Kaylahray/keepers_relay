@@ -1,5 +1,5 @@
 import type { BuilderProfile } from '@/types/builder';
-import type { PlayerStats } from '@/lib/server/crown-history';
+import type { RallyStats } from '@/lib/rally/stats';
 import { post, request } from './client';
 
 export function listBuilders(): Promise<BuilderProfile[]> {
@@ -42,11 +42,11 @@ export function clearAvatarIfSpore(address: string, sporeId: string) {
   });
 }
 
-export function getPlayerStats(address: string): Promise<PlayerStats> {
-  return request<PlayerStats>(`/api/builders/${encodeURIComponent(address)}/stats`);
-}
-
 /** Clears the released username from the profile (after the on-chain release). */
 export function releaseBuilderName(address: string) {
   return post<BuilderProfile | null>(`/api/builders/${encodeURIComponent(address)}/release`, {});
+}
+
+export function getRallyStats(): Promise<RallyStats> {
+  return request<RallyStats>('/api/rally/stats');
 }

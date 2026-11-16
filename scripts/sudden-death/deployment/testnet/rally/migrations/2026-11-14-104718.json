@@ -1,0 +1,21 @@
+{
+  "cell_recipes": [
+    {
+      "name": "live-match",
+      "tx_hash": "0x18f6c1061646de3946f63863cfb6298898aa3e0ac393709282a86c118d84fd71",
+      "index": 0,
+      "occupied_capacity": 13165400000000,
+      "data_hash": "0x3e756515a5be461468e24c4c864ce62847d371be168ff9257aa455dbf7c411f7",
+      "type_id": "0xcf2c00c07441a48baeb76284e8edb8d10c6e016865c3eb6b1f87ad3b57a146b7"
+    },
+    {
+      "name": "rally",
+      "tx_hash": "0x128379208c0dd08a462053ba5dba83d675f3a555ee0722a37f34c28315182e04",
+      "index": 0,
+      "occupied_capacity": 5282900000000,
+      "data_hash": "0x0800778ca55ebcafbb5a648e00f0bad73fa5d107a22f9dfcfef53f0822576e1b",
+      "type_id": null
+    }
+  ],
+  "dep_group_recipes": []
+}

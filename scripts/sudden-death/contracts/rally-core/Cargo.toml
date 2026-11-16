@@ -1,0 +1,8 @@
+[package]
+name = "crowns-rally-core"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+description = "Crown Rally: deterministic race rules shared by the browser (wasm), the relay and CKB-VM (riscv)"
+
+[dependencies]

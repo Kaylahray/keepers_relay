@@ -1,20 +1,21 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useQueries, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Search } from 'lucide-react';
-import { ChainLoader } from '@/components/arena/ChainLoader';
-import { Avatar } from '@/components/duel/Avatar';
+import { CkbAmount, ONLINE_MS, PlayerFace, ShardCount } from '@/components/crowns/Board';
+import { EASE } from '@/components/crowns/motion';
 import { Button } from '@/components/ui/Button';
-import { EmptyState, Tabs } from '@/components/ui/kit';
-import { loadAvatarSpore } from '@/hooks/usePublicProfile';
-import { getPlayerStats, listBuilders } from '@/lib/api/keeperApi';
+import { ckbWhole, NO_TALLY, useLockHashes, useRallyStats } from '@/hooks/useRallyStats';
+import { listBuilders } from '@/lib/api/keeperApi';
+import type { PlayerTally } from '@/lib/rally/stats';
 import type { BuilderProfile } from '@/types/builder';
 
-type Sort = 'wins' | 'won';
-/** Seen this recently counts as online. */
-const ONLINE_MS = 5 * 60_000;
+function Label({ children, className = '' }: { children: string; className?: string }) {
+  return <p className={`font-display text-sm font-extrabold uppercase tracking-wider text-fog ${className}`}>{children}</p>;
+}
 
 export default function PlayersPage() {
   const players = useQuery({
@@ -22,127 +23,134 @@ export default function PlayersPage() {
     queryFn: listBuilders,
   });
   const roster = useMemo(() => (players.data ?? []).filter((player) => player.username), [players.data]);
-  // Each player's wins and winnings, the same numbers their profile shows.
-  const stats = useQueries({
-    queries: roster.map((player) => ({
-      queryKey: ['player-stats', player.address.toLowerCase()],
-      queryFn: () => getPlayerStats(player.address),
-      staleTime: 30_000,
-    })),
-  });
+  const stats = useRallyStats();
+  const lockHashes = useLockHashes(roster.map((player) => player.address));
+  const tallyOf = (address: string): PlayerTally => {
+    const hash = lockHashes.data?.[address.toLowerCase()];
+    return (hash && stats.data?.players[hash]) || NO_TALLY;
+  };
   const [q, setQ] = useState('');
-  const [sort, setSort] = useState<Sort>('wins');
   // Read once per load; a row's dot does not need to tick.
   const [loadedAt] = useState(() => Date.now());
+  const isOnline = (player: BuilderProfile) => loadedAt - Date.parse(player.lastSeenAt) < ONLINE_MS;
 
-  const rows = roster.map((player, i) => {
-    const s = stats[i]?.data;
-    return { player, wins: s?.wins ?? null, draws: s?.draws ?? 0, won: s ? Number(BigInt(s.wonShannons) / 100_000_000n) : null };
-  });
   const s = q.trim().toLowerCase().replace(/^@/, '');
-  const list = rows
-    .filter(({ player }) => !s || player.username.toLowerCase().includes(s) || (player.displayName ?? '').toLowerCase().includes(s))
-    .sort((a, b) => (sort === 'wins' ? (b.wins ?? -1) - (a.wins ?? -1) : (b.won ?? -1) - (a.won ?? -1)) || b.player.lastSeenAt.localeCompare(a.player.lastSeenAt));
+  const list = roster
+    .filter((player) => !s || player.username.toLowerCase().includes(s) || (player.displayName ?? '').toLowerCase().includes(s))
+    .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt));
+  const onNow = roster.filter(isOnline).length;
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-4 pt-6 md:px-8 md:pt-12">
-      <h1 className="font-poster text-3xl font-black uppercase md:text-5xl">Players</h1>
-      <p className="mt-2 text-mute">Find someone to challenge. Check the picture and address: some names look alike.</p>
+    <div className="mx-auto w-full max-w-[1100px] px-5 pb-16 pt-8 sm:px-8 sm:pt-12">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <motion.h1
+          initial={{ opacity: 0, x: -32 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.3, ease: EASE }}
+          className="font-display text-[64px] font-black uppercase leading-[0.85] sm:text-[96px]"
+        >
+          Players
+        </motion.h1>
+        {roster.length > 0 ? (
+          <span className="flex items-center gap-2 pb-2 text-fog">
+            <span className={`h-2 w-2 rounded-full ${onNow ? 'bg-lime' : 'bg-fog'}`} /> {onNow} on now
+          </span>
+        ) : null}
+      </div>
+      <p className="mt-3 text-fog">Find someone to race. Check the picture and address: some names look alike.</p>
 
-      <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-        <div className="relative flex-1">
-          <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-mute" aria-hidden="true" />
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search by @name"
-            aria-label="Search players"
-            className="h-12 w-full rounded-xl bg-ink-2 pl-12 pr-4 text-white placeholder:text-white/35 focus:outline-none focus:ring-2 focus:ring-white/40"
-          />
-        </div>
-        <Tabs
-          label="Sort players"
-          value={sort}
-          onChange={setSort}
-          options={[
-            { id: 'wins', label: 'Most wins' },
-            { id: 'won', label: 'Most CKB won' },
-          ]}
+      <label className="mt-8 flex h-16 items-center gap-3 rounded-2xl border-2 border-line bg-ink-2 px-5 transition-colors duration-150 focus-within:border-lime">
+        <Search className="h-6 w-6 text-fog" aria-hidden="true" />
+        <span className="sr-only">Search players</span>
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search @name"
+          className="h-full min-w-0 flex-1 bg-transparent font-display text-2xl font-extrabold outline-none placeholder:text-fog/60"
         />
+      </label>
+
+      <div className="mt-8 hidden grid-cols-[1fr_8rem_5rem_5rem_6rem] gap-4 border-b border-line px-2 pb-3 md:grid">
+        <Label>Player</Label>
+        <Label className="text-right">CKB won</Label>
+        <Label className="text-right">Wins</Label>
+        <Label className="text-right">Races</Label>
+        <Label className="text-right">Shards</Label>
       </div>
 
-      <div className="mt-6">
-        {players.isLoading ? (
-          <ChainLoader compact title="Loading players…" />
-        ) : players.isError ? (
-          <p className="rounded-xl bg-danger/10 p-4 text-sm text-danger">Could not load the players. Refresh to try again.</p>
-        ) : list.length === 0 ? (
-          <EmptyState
-            title={q ? 'No one by that name' : 'No players yet'}
-            body={q ? `Nobody matches “${q}”. Check the spelling, or send an open challenge anyone can take.` : 'Claim a username and you’ll be the first one here.'}
-            action={
-              <Button href="/duels/new" variant="pink">
-                Open challenge
-              </Button>
-            }
-          />
-        ) : (
-          <ul className="space-y-2">
-            {list.map((row, i) => (
-              <PlayerRow key={row.player.address} rank={i + 1} player={row.player} wins={row.wins} draws={row.draws} won={row.won} online={loadedAt - Date.parse(row.player.lastSeenAt) < ONLINE_MS} />
+      {players.isLoading ? (
+        <div className="mt-6 space-y-3">
+          {[0, 1, 2, 3, 4].map((i) => (
+            <div key={i} className="h-[72px] animate-pulse rounded-2xl bg-ink-3" />
+          ))}
+        </div>
+      ) : players.isError ? (
+        <p className="mt-6 rounded-2xl bg-danger/10 p-4 text-danger">Players could not load. Refresh to try again.</p>
+      ) : (
+        <ul className="mt-4 divide-y divide-line md:mt-0">
+          <AnimatePresence initial={false}>
+            {list.map((player, i) => (
+              <motion.li
+                key={player.address}
+                layout
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2, ease: EASE, delay: Math.min(i, 6) * 0.04 }}
+              >
+                <PlayerRow player={player} tally={tallyOf(player.address)} online={isOnline(player)} />
+              </motion.li>
             ))}
-          </ul>
-        )}
-      </div>
+          </AnimatePresence>
+          {list.length === 0 ? (
+            <li className="py-16 text-center">
+              <p className="font-display text-3xl font-black uppercase">{q ? `No one called @${s}` : 'No players yet'}</p>
+              <p className="mt-2 text-fog">{q ? 'Check the spelling, or the name is still free.' : 'Claim a @name and you’ll be the first one here.'}</p>
+              <Button href="/rally" className="mt-6">
+                Host a race
+              </Button>
+            </li>
+          ) : null}
+        </ul>
+      )}
     </div>
   );
 }
 
-function PlayerRow({ rank, player, wins, draws, won, online }: { rank: number; player: BuilderProfile; wins: number | null; draws: number; won: number | null; online: boolean }) {
-  const avatar = useQuery({
-    queryKey: ['avatar-spore', player.avatarSporeId],
-    enabled: Boolean(player.avatarSporeId),
-    queryFn: () => loadAvatarSpore(player.avatarSporeId!),
-  });
+function PlayerRow({ player, tally, online }: { player: BuilderProfile; tally: PlayerTally; online: boolean }) {
   const handle = player.username;
-  const name = player.displayName || handle;
   const short = `${player.address.slice(0, 7)}…${player.address.slice(-4)}`;
 
   return (
-    <li className="flex items-center gap-3 rounded-2xl bg-ink-2 p-3 transition-colors duration-150 hover:bg-ink-3 md:gap-5 md:px-5">
-      <span className="hidden w-6 text-center font-mono text-sm text-mute md:block">{rank}</span>
-      <Link href={`/profile/${encodeURIComponent(player.address)}`} className="flex min-w-0 flex-1 items-center gap-3 rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
+    <Link
+      href={`/profile/${encodeURIComponent(player.address)}`}
+      className="grid w-full grid-cols-[auto_1fr_auto] items-center gap-x-4 gap-y-1 rounded-2xl px-2 py-4 transition-colors duration-150 hover:bg-ink-2 md:grid-cols-[1fr_8rem_5rem_5rem_6rem]"
+    >
+      <span className="row-span-2 flex min-w-0 items-center gap-4 md:row-span-1">
         <span className="relative shrink-0">
-          <Avatar name={`@${handle}`} tone="#ff56f6" size={56} src={avatar.data?.imageUrl ?? null} />
-          {online ? <span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-ink-2 bg-lime" aria-label="Online" /> : null}
+          <PlayerFace player={player} fallback={handle} size={52} />
+          {online ? <span className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-ink bg-lime" aria-label="Online" /> : null}
         </span>
-        <span className="min-w-0">
-          <span className="flex items-center gap-2">
-            <span className="truncate font-semibold">@{handle}</span>
-            {draws > 0 ? <span className="shrink-0 rounded-md bg-ink-3 px-1.5 py-0.5 font-mono text-[10px] uppercase text-mute">{draws === 1 ? '1 draw' : `${draws} draws`}</span> : null}
-          </span>
-          <span className="block truncate text-xs text-mute">
-            {name !== handle ? `${name} · ` : ''}
-            <span className="font-mono">{short}</span>
-          </span>
-          {/* Phones have no room for the stat columns, so the stats sit under the name. */}
-          <span className="mt-1 block truncate text-xs text-mute sm:hidden">
-            <span className="font-semibold tabular-nums text-white">{wins ?? '…'}</span> {wins === 1 ? 'win' : 'wins'} ·{' '}
-            <span className="font-semibold tabular-nums text-gold">{won == null ? '…' : won.toLocaleString('en-US')}</span> CKB won
-          </span>
+        <span className="hidden min-w-0 md:block">
+          <span className="block truncate font-display text-2xl font-black leading-none">@{handle}</span>
+          <span className="font-mono text-sm text-fog">{short}</span>
         </span>
-      </Link>
-      <div className="hidden w-20 text-right sm:block">
-        <p className="font-poster text-base font-bold tabular-nums">{wins ?? '…'}</p>
-        <p className="text-[11px] text-mute">wins</p>
-      </div>
-      <div className="hidden w-28 text-right sm:block">
-        <p className="font-poster text-base font-bold tabular-nums text-gold">{won == null ? '…' : won.toLocaleString('en-US')}</p>
-        <p className="text-[11px] text-mute">CKB won</p>
-      </div>
-      <Button href={`/duels/new?vs=${encodeURIComponent(player.address)}`} variant="pink" size="sm">
-        Challenge
-      </Button>
-    </li>
+      </span>
+      {/* Phone: the name and short stats under it. */}
+      <span className="min-w-0 md:hidden">
+        <span className="block truncate font-display text-2xl font-black leading-none">@{handle}</span>
+        <span className="mt-1 block truncate text-sm text-fog">
+          {tally.wins} {tally.wins === 1 ? 'win' : 'wins'} · {tally.played} {tally.played === 1 ? 'race' : 'races'} · <ShardCount value={tally.shards} />
+        </span>
+      </span>
+      <span className="row-span-2 text-right font-display text-xl font-black text-gold md:row-span-1">
+        <CkbAmount value={ckbWhole(tally.won)} />
+      </span>
+      <span className="hidden text-right font-display text-xl font-black md:block">{tally.wins}</span>
+      <span className="hidden text-right font-display text-xl font-black text-chalk/80 md:block">{tally.played}</span>
+      <span className="hidden items-center justify-end font-display text-xl font-black text-pink md:flex">
+        <ShardCount value={tally.shards} />
+      </span>
+    </Link>
   );
 }

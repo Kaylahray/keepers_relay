@@ -43,7 +43,7 @@ yarn-error.log*
 # cargo build cache
 /scripts/sudden-death/target/
 /scripts/sudden-death/crown-run-wasm/target/
-/scripts/sudden-death/crown-run-wasm/target/
+/scripts/sudden-death/rally-wasm/target/
 /scripts/sudden-death/tests/failed_txs/
 
 # vercel
@@ -59,3 +59,6 @@ next-env.d.ts
 
 # personal one-off tools (database cleanup, quick chain checks), never pushed
 /scripts/local/
+
+# editor and Claude local settings
+/.claude/

@@ -1,28 +1,31 @@
 @import "tailwindcss";
 
 :root {
-  --font-body: "Inter", system-ui, sans-serif;
+  --font-body: "Barlow", system-ui, sans-serif;
   --font-dm-mono: "JetBrains Mono", ui-monospace, monospace;
   --font-instrument-serif: "Instrument Serif", Georgia, serif;
-  --font-display: "Unbounded", system-ui, sans-serif;
+  --font-display: "Big Shoulders Display", "Arial Narrow", sans-serif;
 
-  --arena: #111111;
-  --arena-elevated: #191919;
+  --arena: #07080a;
+  --arena-elevated: #0f1114;
   --arena-glass: rgba(255, 255, 255, 0.08);
   --lime: #99ee2d;
   --lime-pale: #f5ffe6;
 }
 
-/* The arcade palette: ink surfaces, a colour per mode, gold for prizes, blue for the chain. */
+/* Crowns: near-black ink, chalk text, lime for go, pink for items and shards, gold for prizes. */
 @theme {
-  --color-ink: #111111;
-  --color-ink-2: #191919;
-  --color-ink-3: #232323;
-  --color-ink-4: #2d2d2d;
-  --color-line: #333333;
-  --color-mute: #a6a6a6;
+  --color-ink: #07080a;
+  --color-ink-2: #0f1114;
+  --color-ink-3: #1a1d22;
+  --color-ink-4: #23272e;
+  --color-line: #262a31;
+  --color-fog: #9aa1ab;
+  --color-mute: #9aa1ab;
+  --color-chalk: #f2f4f0;
   --color-lime: #99ee2d;
-  --color-lime-deep: #5c9c14;
+  --color-lime-deep: #6fb21c;
+  --color-lime-dim: #6fb21c;
   --color-pink: #ff56f6;
   --color-pink-deep: #b02aa9;
   --color-gold: #e1bf47;
@@ -34,7 +37,7 @@
   --color-danger-deep: #a32a2a;
   --color-fire: #ff8a1f;
   --color-fire-deep: #b85a06;
-  --font-display: "Unbounded", system-ui, sans-serif;
+  --font-display: "Big Shoulders Display", "Arial Narrow", sans-serif;
   --ease-snap: cubic-bezier(0.23, 1, 0.32, 1);
 }
 
@@ -50,8 +53,8 @@ body {
 
 body {
   margin: 0;
-  background: #111111;
-  color: #ffffff;
+  background: #07080a;
+  color: #f2f4f0;
   font-family: var(--font-body), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
@@ -64,11 +67,12 @@ body {
   font-family: var(--font-dm-mono), ui-monospace, monospace;
 }
 
-/* Headings: the wide arcade display face. */
+/* Headings: the tall condensed display face, heavy and in capitals. */
 .font-poster {
   font-family: var(--font-display), system-ui, sans-serif;
-  font-weight: 800;
-  letter-spacing: -0.01em;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
 }
 
 /* Clipped corners for panels, like an arcade cabinet's cards. */
@@ -288,7 +292,7 @@ button:disabled {
 
 ::selection {
   background: var(--lime);
-  color: #111;
+  color: #07080a;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -308,19 +312,29 @@ button:disabled {
   100% { transform: rotate(0deg); }
 }
 
-/* ChainLoader: blocks light up in turn, like blocks landing on the chain */
-@keyframes chain-loader-block {
-  0%, 100% { background: #4a1f48; transform: scale(1); }
-  50% { background: #ff56f6; transform: scale(1.12); }
+/* ChainLoader: blocks drop onto a stack, hold, fade, and drop again; the picture behind breathes. */
+@keyframes chain-drop {
+  0% { transform: translateY(-260px); opacity: 0; }
+  10% { transform: translateY(0); opacity: 1; }
+  85% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(0); opacity: 0; }
 }
-@keyframes chain-loader-link {
-  0%, 100% { background: rgba(255, 86, 246, 0.25); }
-  50% { background: rgba(255, 86, 246, 0.8); }
+.chain-drop { animation: chain-drop 3s cubic-bezier(0.23, 1, 0.32, 1) infinite both; }
+@keyframes chain-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
 }
-.chain-loader-block { background: #4a1f48; animation: chain-loader-block 1.2s ease-in-out infinite; }
-.chain-loader-link { animation: chain-loader-link 1.2s ease-in-out infinite; }
+.chain-breathe { animation: chain-breathe 4s ease-in-out infinite; }
+/* A race number that changes (place, shards, the countdown) pops in. */
+@keyframes hud-pop {
+  from { transform: scale(1.25); opacity: 0.4; }
+  to { transform: scale(1); opacity: 1; }
+}
+.hud-pop { animation: hud-pop 0.2s cubic-bezier(0.23, 1, 0.32, 1) both; }
 @media (prefers-reduced-motion: reduce) {
-  .chain-loader-block, .chain-loader-link { animation-duration: 4s; }
+  .chain-drop { animation: none; opacity: 1; }
+  .chain-breathe { animation: none; }
+  .hud-pop { animation: none; }
 }
 
 /* The 2D battlefield's effects: a blast that bursts and fades, smoke, a jolted tank, a shaking field. */

@@ -1,19 +1,13 @@
 [workspace]
-exclude = ["crown-run-wasm"]
+exclude = ["rally-wasm"]
 resolver = "2"
 
 members = [
   "contracts/common",
-  "contracts/match-type",
-  "contracts/bid-type",
-  "contracts/treasury-lock",
-  "contracts/crown-run-core",
-  "contracts/artillery-core",
-  "contracts/crown-run",
-  "contracts/artillery",
-  "contracts/duel-type",
-  "contracts/depths-core",
-  "contracts/depths",
+  "contracts/game-api",
+  "contracts/rally-core",
+  "contracts/rally",
+  "contracts/live-match",
   "tests",
 ]
 
@@ -25,6 +19,10 @@ version = "0.1.0"
 [workspace.dependencies]
 ckb-std = { version = "=1.1.0", default-features = false, features = ["allocator", "ckb-types", "type-id", "dummy-atomic"] }
 blake2b-ref = { version = "0.3.1", default-features = false }
+# The game call: live-match is the client, the game it names is the server.
+ckb-script-ipc = "=1.1.0"
+ckb-script-ipc-common = "=1.1.0"
+serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
 
 [profile.release]
 overflow-checks = true
@@ -33,3 +31,14 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = "symbols"
+
+# The signed-moves check recovers a key inside the finish: built for speed it costs about 7M cycles
+# instead of 13M. Everything else, the rally game included, stays built for size.
+[profile.release.package.k256]
+opt-level = 3
+[profile.release.package.elliptic-curve]
+opt-level = 3
+[profile.release.package.crypto-bigint]
+opt-level = 3
+[profile.release.package.ecdsa]
+opt-level = 3

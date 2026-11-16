@@ -4,7 +4,7 @@ import type { ButtonHTMLAttributes, ReactNode } from 'react';
 export type ButtonVariant = 'lime' | 'pink' | 'gold' | 'chain' | 'fire' | 'danger' | 'ghost' | 'outline';
 export type ButtonSize = 'sm' | 'md' | 'lg' | 'xl';
 
-/** Flat arcade keys in the mode's colour. */
+/** Round pills in the mode's colour. */
 const VARIANTS: Record<ButtonVariant, string> = {
   lime: 'bg-lime text-ink hover:bg-[#a9f54a]',
   pink: 'bg-pink text-ink hover:bg-[#ff74f8]',
@@ -12,42 +12,26 @@ const VARIANTS: Record<ButtonVariant, string> = {
   chain: 'bg-chain text-white hover:bg-[#5479ff]',
   fire: 'bg-fire text-ink hover:bg-[#ff9a3d]',
   danger: 'bg-danger text-ink hover:bg-[#ff7373]',
-  ghost: 'bg-ink-3 text-white hover:bg-ink-4',
-  outline: 'bg-white/[0.06] text-white hover:bg-white/[0.12]',
+  ghost: 'border-2 border-chalk/30 bg-black/30 text-chalk backdrop-blur hover:border-chalk',
+  outline: 'border-2 border-line bg-ink-2 text-chalk hover:border-chalk/40',
 };
 
-/** A soft glow in the key's colour, as the design has. */
-const GLOW: Partial<Record<ButtonVariant, string>> = {
-  lime: 'drop-shadow(0 0 12px rgba(153, 238, 45, 0.45))',
-  pink: 'drop-shadow(0 0 12px rgba(255, 86, 246, 0.45))',
-  gold: 'drop-shadow(0 0 12px rgba(225, 191, 71, 0.4))',
-  fire: 'drop-shadow(0 0 12px rgba(255, 138, 31, 0.45))',
-  danger: 'drop-shadow(0 0 10px rgba(255, 90, 90, 0.4))',
-  chain: 'drop-shadow(0 0 10px rgba(64, 106, 255, 0.4))',
-};
-
-/** Our pointed right edge, deeper on bigger keys. */
-const SIZES: Record<ButtonSize, { box: string; tip: number }> = {
-  sm: { box: 'min-h-9 py-1.5 pl-3.5 pr-6 text-[10px]', tip: 10 },
-  md: { box: 'min-h-11 py-2 pl-5 pr-8 text-[11px]', tip: 13 },
-  lg: { box: 'min-h-14 py-2.5 pl-6 pr-10 text-xs', tip: 16 },
-  xl: { box: 'min-h-16 py-3 pl-8 pr-12 text-sm', tip: 18 },
+const SIZES: Record<ButtonSize, string> = {
+  sm: 'min-h-9 px-4 text-base',
+  md: 'min-h-11 px-5 text-lg',
+  lg: 'min-h-14 px-7 text-xl',
+  xl: 'min-h-16 px-9 text-2xl',
 };
 
 const BASE =
-  'inline-flex items-center justify-center gap-2 font-poster font-bold uppercase leading-tight tracking-wide text-center text-balance select-none ' +
-  'transition-[transform,background-color,filter] duration-150 ease-snap active:translate-y-[2px] ' +
+  'inline-flex items-center justify-center gap-2 rounded-full font-display font-black uppercase leading-none tracking-wide text-center text-balance select-none ' +
+  'transition-[transform,background-color,filter] duration-150 ease-snap active:scale-[0.97] ' +
   'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white ' +
   'disabled:pointer-events-none disabled:opacity-40 aria-disabled:pointer-events-none aria-disabled:opacity-40';
 
-/** The key's classes, for a link or button that cannot use `Button` (no glow). */
+/** The pill's classes, for a link or button that cannot use `Button`. */
 export function buttonClass(variant: ButtonVariant = 'lime', size: ButtonSize = 'md', block = false, className = ''): string {
-  return `${BASE} ${VARIANTS[variant]} ${SIZES[size].box} ${block ? 'w-full' : ''} ${className}`;
-}
-
-export function tipStyle(size: ButtonSize = 'md') {
-  const tip = SIZES[size].tip;
-  return { clipPath: `polygon(0 0, calc(100% - ${tip}px) 0, 100% 50%, calc(100% - ${tip}px) 100%, 0 100%)` };
+  return `${BASE} ${VARIANTS[variant]} ${SIZES[size]} ${block ? 'w-full' : ''} ${className}`;
 }
 
 type Props = {
@@ -64,25 +48,23 @@ type Props = {
 
 export function Button({ variant = 'lime', size = 'md', href, block, className = '', children, external, type = 'button', style, ...rest }: Props) {
   const cls = buttonClass(variant, size, true);
-  const shape = { ...tipStyle(size), ...style };
-  const glow = rest.disabled ? undefined : GLOW[variant];
   const key = href ? (
     external ? (
-      <a href={href} target="_blank" rel="noreferrer" className={cls} style={shape}>
+      <a href={href} target="_blank" rel="noreferrer" className={cls} style={style}>
         {children}
       </a>
     ) : (
-      <Link href={href} className={cls} style={shape} aria-disabled={rest.disabled || undefined}>
+      <Link href={href} className={cls} style={style} aria-disabled={rest.disabled || undefined}>
         {children}
       </Link>
     )
   ) : (
-    <button type={type} className={cls} style={shape} {...rest}>
+    <button type={type} className={cls} style={style} {...rest}>
       {children}
     </button>
   );
   return (
-    <span className={`${block ? 'flex w-full' : 'inline-flex max-w-full'} ${className}`} style={glow ? { filter: glow } : undefined}>
+    <span className={`${block ? 'flex w-full' : 'inline-flex max-w-full'} ${className}`}>
       {key}
     </span>
   );

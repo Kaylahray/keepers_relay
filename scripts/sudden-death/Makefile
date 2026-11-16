@@ -22,7 +22,7 @@ export MODE
 export CLANG
 export BUILD_DIR
 
-CONTRACTS := match-type bid-type treasury-lock crown-run artillery duel-type depths
+CONTRACTS := rally live-match
 
 default: build
 

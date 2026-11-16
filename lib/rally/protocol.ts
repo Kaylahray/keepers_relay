@@ -1,0 +1,89 @@
+/**
+ * What phones and the rally relay say to each other. Phones post to the relay (join, input, moves)
+ * and listen on one event stream per match, which anyone may open to watch.
+ *
+ * The lobby is on chain: the host's match cell and a seat cell per player. It opens for
+ * `LOBBY_MS` from the match landing; each seat that lands cuts the wait. A full lobby starts at
+ * once. When the wait runs out the race starts with whoever has a seat, if that is two or more.
+ *
+ * The relay keeps the race clock. A phone asks for its input to start on a tick a little ahead of
+ * now; the relay takes it on that tick, or on the next tick it has not played yet if the input came
+ * late. Every tick the relay has played is final: phones and the chain replay the same events.
+ *
+ * Each phone signs its own car's moves as the relay passes them back, once it has checked they are
+ * only what it pressed, and posts the signature. When the race ends the relay sends the finish
+ * alone: nobody has to be online for it, and the chain pays only a winner whose moves are signed.
+ */
+
+/** What a phone signs with its session key to join: proves it holds the key of a car in the match. */
+export function joinMessage(matchId: string, nonce: number): string {
+  return `crowns-rally:${matchId.toLowerCase()}:${nonce}`;
+}
+
+export type JoinRequest = {
+  matchId: string;
+  /** Milliseconds since 1970; the relay refuses a join signed more than five minutes away from its clock. */
+  nonce: number;
+  signature: { signature: string; identity: string; signType: string };
+};
+
+export type JoinReply = { token: string };
+
+export type InputRequest = { matchId: string; token: string; tick: number; bits: number };
+
+/** This phone's signature over its car's first `count` events, as the relay passed them back. */
+export type MovesRequest = { matchId: string; token: string; count: number; signature: string };
+
+/** Asks the relay to close a lobby nobody joined, so the host's entry goes home now. */
+export type CloseRequest = { matchId: string };
+
+/** `settling`: the race is over and the relay is sending the finish. */
+export type RallyPhase = 'lobby' | 'countdown' | 'racing' | 'settling' | 'done' | 'failed';
+
+/** `car, tick, bits`: from that tick on, the car holds those inputs. Replaces the car's last event if the tick is the same. */
+export type WireEvent = [number, number, number];
+
+export type RelayMessage =
+  | {
+      type: 'state';
+      phase: RallyPhase;
+      /** When the lobby closes, on the relay's clock (ms since 1970). */
+      lobbyEndsAt: number | null;
+      /** When tick 0 starts. */
+      startAt: number | null;
+      /** The relay's clock when it sent this, so phones can line their clocks up with it. */
+      now: number;
+      map: number;
+      /** Each car's session key lock hash, host first. Empty until the countdown. */
+      cars: string[];
+      /** The key lock hashes of the phones connected now. */
+      joined: string[];
+      note?: string;
+      txHash?: string;
+    }
+  /** Every tick below `t` is final. `ev` holds the events new since the last message. */
+  | { type: 'tick'; t: number; ev: WireEvent[] };
+
+/** How far ahead of the relay's last played tick a phone may schedule an input. */
+export const MAX_AHEAD_TICKS = 40;
+/** How far ahead phones schedule inputs, so most land on the tick they asked for. */
+export const INPUT_DELAY_TICKS = 3;
+/** Between the lobby closing and tick 0. */
+export const COUNTDOWN_MS = 5_000;
+/** The longest a lobby stays open, from the match landing. */
+export const LOBBY_MS = 2 * 60_000;
+/** How much each seat that lands cuts the lobby's wait. */
+export const JOIN_CUT_MS = 30_000;
+/** The lobby stays open at least this long after the last seat lands, so its driver can get in. */
+export const LAST_CALL_MS = 20_000;
+
+/**
+ * When a lobby closes: the match's landing, less the wait each seat cuts, but never before the last
+ * driver has had time to connect. A full lobby closes as soon as that time is up (or at once, once
+ * every driver is connected: the relay sees that).
+ */
+export function lobbyEndsAt(matchLandedMs: number, seatLandedMs: number[], seats: number): number {
+  const lastCall = seatLandedMs.length > 0 ? Math.max(...seatLandedMs) + LAST_CALL_MS : 0;
+  if (seatLandedMs.length >= seats - 1) return lastCall;
+  return Math.max(matchLandedMs + LOBBY_MS - JOIN_CUT_MS * seatLandedMs.length, lastCall);
+}

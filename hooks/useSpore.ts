@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { plainChainError } from '@/lib/ckb/errors';
 import { useSigner, ccc } from '@ckb-ccc/connector-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { requestWalletRefresh } from '@/lib/wallet-refresh';
@@ -122,11 +123,8 @@ export function useSpore() {
       setMintedImageUrl(avatarUrl);
       return sporeId;
     } catch (err) {
-      console.error(err);
-      setStatus({
-        type: 'error',
-        message: err instanceof Error ? err.message : 'Failed to mint Spore.',
-      });
+      console.warn(err);
+      setStatus({ type: 'error', message: plainChainError(err, 'The picture could not be minted. Try again.') });
       return null;
     } finally {
       setIsMinting(false);
@@ -155,11 +153,8 @@ export function useSpore() {
       await queryClient.invalidateQueries({ queryKey: sporeKeys.minted });
       requestWalletRefresh();
     } catch (err) {
-      console.error(err);
-      setStatus({
-        type: 'error',
-        message: err instanceof Error ? err.message : 'Failed to delete Spore.',
-      });
+      console.warn(err);
+      setStatus({ type: 'error', message: plainChainError(err, 'The picture could not be burned. Try again.') });
     } finally {
       setDeletingSporeId(null);
     }

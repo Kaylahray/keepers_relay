@@ -3,9 +3,8 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { AtSign, Crown, Gamepad2, Home, LogOut, Swords, Users, WalletMinimal } from 'lucide-react';
-import { Avatar } from '@/components/duel/Avatar';
-import { LogoMark } from '@/components/ui/LogoMark';
+import { AtSign, Crown, Flag, Gauge, LogOut, User, Users, WalletMinimal } from 'lucide-react';
+import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/context/auth-provider';
 import { useMyBuilder } from '@/hooks/useBuilder';
@@ -15,37 +14,55 @@ import { useWallet } from '@/hooks/useWallet';
 import { useKeyCellSweep } from '@/hooks/useKeyCellSweep';
 
 const NAV = [
-  { href: '/', label: 'Home' },
-  { href: '/games', label: 'Play' },
-  { href: '/play', label: 'Crowns', tone: 'lime' },
-  { href: '/duels', label: 'Duels', tone: 'pink' },
-  { href: '/create', label: 'Host' },
+  { href: '/rally', label: 'Race' },
+  { href: '/rally/practice', label: 'Practice' },
   { href: '/players', label: 'Players' },
-  { href: '/profile', label: 'Profile' },
+  { href: '/leaderboard', label: 'Leaderboard' },
 ] as const;
 
 const TABS = [
-  { href: '/', label: 'Home', icon: Home, active: 'text-white' },
-  { href: '/games', label: 'Play', icon: Gamepad2, active: 'text-white' },
-  { href: '/play', label: 'Crowns', icon: Crown, active: 'text-lime' },
-  { href: '/duels', label: 'Duels', icon: Swords, active: 'text-pink' },
-  { href: '/players', label: 'Players', icon: Users, active: 'text-white' },
+  { href: '/rally', label: 'Race', icon: Flag },
+  { href: '/rally/practice', label: 'Practice', icon: Gauge },
+  { href: '/players', label: 'Players', icon: Users },
+  { href: '/profile', label: 'Profile', icon: User },
 ] as const;
 
 const FOOTER = [
-  { href: '/how-it-works', label: 'How it works' },
-  { href: '/verify', label: 'Check a game' },
-  { href: '/players', label: 'Players' },
-  { href: '/create', label: 'Host a crown' },
+  {
+    title: 'Play',
+    links: [
+      { href: '/rally', label: 'Race now' },
+      { href: '/rally/practice', label: 'Practice' },
+      { href: '/leaderboard', label: 'Leaderboard' },
+    ],
+  },
+  {
+    title: 'Players',
+    links: [
+      { href: '/players', label: 'Find a player' },
+      { href: '/profile', label: 'Your profile' },
+      { href: '/profile/edit', label: 'Edit profile' },
+    ],
+  },
+  {
+    title: 'Learn',
+    links: [
+      { href: '/#how', label: 'How it works' },
+      { href: '/#items', label: 'Items' },
+      { href: '/#fair-play', label: 'Why it’s fair' },
+    ],
+  },
 ];
 
 /** Pages that are a game screen or a big screen: no tab bar or footer over them. */
 function isBare(pathname: string): boolean {
-  return pathname.startsWith('/watch/');
+  return pathname === '/rally/practice';
 }
 
 function isActive(pathname: string, href: string): boolean {
   if (href === '/') return pathname === '/';
+  // Practice has its own tab, so it does not light up Race.
+  if (href === '/rally') return pathname === '/rally' || (pathname.startsWith('/rally/') && pathname !== '/rally/practice');
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
@@ -58,13 +75,13 @@ function formatWalletCkb(balance: string): string {
 export function Logo({ size = 'md' }: { size?: 'md' | 'lg' }) {
   return (
     <Link href="/" aria-label="Crowns home" className="inline-flex shrink-0 items-center gap-2 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
-      <LogoMark size={size === 'lg' ? 44 : 34} />
-      <span className={`font-poster font-black uppercase tracking-wide ${size === 'lg' ? 'text-2xl' : 'text-base max-[420px]:hidden'}`}>Crowns</span>
+      <Crown className={`${size === 'lg' ? 'h-7 w-7' : 'h-6 w-6'} text-lime`} strokeWidth={2.5} aria-hidden="true" />
+      <span className={`font-display font-black uppercase tracking-wide ${size === 'lg' ? 'text-4xl' : 'text-2xl'}`}>Crowns</span>
     </Link>
   );
 }
 
-/** The signed-in player's face: their Spore picture, or the face drawn from their name. */
+/** The signed-in player's face: their Spore picture, or a ready-made face. */
 function MyFace({ name }: { name: string }) {
   const mine = useMyBuilder();
   const sporeId = mine.data?.builder?.avatarSporeId ?? null;
@@ -75,7 +92,7 @@ function MyFace({ name }: { name: string }) {
     staleTime: 60_000,
   });
   const src = mine.isPending ? undefined : !sporeId ? null : picture.isPending ? undefined : (picture.data?.imageUrl ?? null);
-  return <Avatar name={name} tone="#99ee2d" size={40} src={src} />;
+  return <Avatar name={name} tone="#99ee2d" size={32} src={src} />;
 }
 
 export function SiteHeader() {
@@ -87,22 +104,23 @@ export function SiteHeader() {
   const handle = username?.username ?? null;
   const signedIn = isConnected && checked && authenticated && sessionAddress === walletAddress.trim().toLowerCase();
   if (isBare(pathname)) return null;
+  // The front page's hero runs under the bar; every other page has a solid bar.
+  const overlay = pathname === '/';
 
   return (
-    <header className="sticky top-0 z-40 border-b border-white/5 bg-ink/90 backdrop-blur">
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 md:px-8">
+    <header className={`${overlay ? 'absolute' : 'sticky border-b border-line bg-ink/85 backdrop-blur-md'} inset-x-0 top-0 z-40`}>
+      <div className="mx-auto flex h-16 max-w-[1440px] items-center justify-between gap-3 px-4 sm:h-20 sm:px-8">
         <Logo />
-        <nav aria-label="Main" className="hidden items-center gap-1 lg:flex">
+        <nav aria-label="Main" className="hidden items-center gap-1 md:flex">
           {NAV.map((n) => {
             const active = isActive(pathname, n.href);
-            const tone = 'tone' in n ? n.tone : null;
             return (
               <Link
                 key={n.href}
                 href={n.href}
                 aria-current={active ? 'page' : undefined}
-                className={`rounded-lg px-3 py-2 text-sm font-semibold transition-colors duration-150 ${
-                  active ? (tone === 'lime' ? 'bg-lime/10 text-lime' : tone === 'pink' ? 'bg-pink/10 text-pink' : 'bg-white/10 text-white') : 'text-mute hover:text-white'
+                className={`whitespace-nowrap rounded-full px-4 py-2 font-display text-lg font-bold uppercase tracking-wide transition-colors duration-150 ${
+                  active ? 'bg-chalk/10 text-lime' : 'text-chalk/70 hover:text-chalk'
                 }`}
               >
                 {n.label}
@@ -115,27 +133,27 @@ export function SiteHeader() {
             <>
               {!handle && pathname !== '/join' ? (
                 <Button href={`/join?next=${encodeURIComponent(pathname)}`} variant="pink" size="sm">
-                  <AtSign className="h-3.5 w-3.5" aria-hidden="true" /> Claim name
+                  <AtSign className="h-4 w-4" aria-hidden="true" /> Claim name
                 </Button>
               ) : null}
               <Link
                 href="/profile"
                 title={formattedAddress || 'Your wallet'}
-                className="flex h-10 items-center gap-1.5 rounded-xl bg-ink-3 px-2.5 sm:gap-2 sm:px-3"
-                aria-label={`Wallet balance ${formatWalletCkb(balance)} CKB`}
+                aria-label={`Your profile. Wallet balance ${formatWalletCkb(balance)} CKB`}
+                className="flex items-center gap-2.5 rounded-full border border-line bg-ink-2/80 py-1 pl-1 pr-4 transition-colors duration-150 hover:border-chalk/30"
               >
-                <WalletMinimal className="h-4 w-4 text-gold" aria-hidden="true" />
-                <span className="font-poster text-sm font-bold tabular-nums text-gold">{formatWalletCkb(balance)}</span>
-                <span className="hidden font-mono text-[10px] font-bold text-gold/80 sm:inline">CKB</span>
-              </Link>
-              <Link href="/profile" aria-label="Your profile" className="rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
                 <MyFace name={handle ?? walletAddress} />
+                <span className="hidden font-display text-lg font-extrabold lg:inline">{handle ? `@${handle}` : 'You'}</span>
+                <span className="flex items-center gap-1 font-display text-lg font-black tabular-nums text-gold">
+                  <WalletMinimal className="h-4 w-4" aria-hidden="true" />
+                  {formatWalletCkb(balance)}
+                </span>
               </Link>
               <button
                 type="button"
                 onClick={() => void signOut().finally(() => disconnect())}
                 aria-label="Disconnect"
-                className="grid h-10 w-10 place-items-center rounded-xl text-mute hover:bg-white/10 hover:text-white"
+                className="grid h-10 w-10 place-items-center rounded-full text-fog hover:bg-chalk/10 hover:text-chalk"
               >
                 <LogOut className="h-4 w-4" />
               </button>
@@ -143,7 +161,7 @@ export function SiteHeader() {
           ) : (
             <Button disabled={authBusy} onClick={() => void ensureAuth().catch(() => undefined)}>
               <WalletMinimal className="h-4 w-4" aria-hidden="true" />
-              {authBusy ? (isConnected ? 'Signing in…' : 'Connecting…') : isConnected ? 'Sign in' : 'Connect'}
+              {authBusy ? (isConnected ? 'Signing in…' : 'Connecting…') : isConnected ? 'Sign in' : 'Connect wallet'}
             </Button>
           )}
         </div>
@@ -157,8 +175,8 @@ export function BottomTabs() {
   const pathname = usePathname();
   if (isBare(pathname)) return null;
   return (
-    <nav aria-label="Sections" className="fixed inset-x-0 bottom-0 z-40 border-t border-white/5 bg-ink/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
-      <ul className="mx-auto grid max-w-lg grid-cols-5">
+    <nav aria-label="Sections" className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-ink/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden">
+      <ul className="mx-auto grid max-w-lg grid-cols-4">
         {TABS.map((t) => {
           const active = isActive(pathname, t.href);
           return (
@@ -166,10 +184,10 @@ export function BottomTabs() {
               <Link
                 href={t.href}
                 aria-current={active ? 'page' : undefined}
-                className={`flex h-16 flex-col items-center justify-center gap-1 text-[10px] font-semibold transition-colors duration-150 ${active ? t.active : 'text-mute'}`}
+                className={`flex h-16 flex-col items-center justify-center gap-1 transition-colors duration-150 ${active ? 'text-lime' : 'text-fog'}`}
               >
-                <t.icon className={`h-6 w-6 ${active && t.href === '/play' ? 'fill-lime/20' : ''}`} aria-hidden="true" />
-                {t.label}
+                <t.icon className="h-5 w-5" strokeWidth={active ? 2.75 : 2} aria-hidden="true" />
+                <span className="font-display text-sm font-extrabold uppercase tracking-wide">{t.label}</span>
               </Link>
             </li>
           );
@@ -183,21 +201,38 @@ export function SiteFooter() {
   const pathname = usePathname();
   if (isBare(pathname)) return null;
   return (
-    <footer className="relative mt-20 border-t border-white/5 bg-ink/80 pb-20 lg:pb-0">
-      <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-10 md:flex-row md:items-center md:justify-between md:px-8">
+    <footer className="relative border-t border-line bg-ink pb-16 md:pb-0">
+      <div className="mx-auto grid max-w-[1440px] gap-12 px-5 py-14 sm:px-8 sm:py-20 lg:grid-cols-[1.4fr_2fr]">
         <div>
-          <Logo />
-          <p className="mt-3 max-w-sm text-sm text-mute">Every stake sits in a smart contract on CKB. Crowns never holds your money.</p>
+          <Logo size="lg" />
+          <p className="mt-4 max-w-xs text-fog">A live car race on Nervos CKB. The chain pays the winner.</p>
+          <p className="mt-6 inline-flex items-center gap-2 text-sm text-chalk/80">
+            <span className="h-1.5 w-1.5 rounded-full bg-gold" />
+            Live on testnet
+          </p>
         </div>
-        <ul className="flex flex-wrap gap-x-6 gap-y-3">
-          {FOOTER.map((l) => (
-            <li key={l.href}>
-              <Link href={l.href} className="text-sm font-semibold text-mute transition-colors duration-150 hover:text-white">
-                {l.label}
-              </Link>
-            </li>
+        <div className="grid grid-cols-2 gap-8 sm:grid-cols-3">
+          {FOOTER.map((column) => (
+            <div key={column.title}>
+              <p className="font-display text-lg font-extrabold uppercase tracking-wide">{column.title}</p>
+              <ul className="mt-4 space-y-3">
+                {column.links.map((link) => (
+                  <li key={link.href}>
+                    <Link href={link.href} className="text-fog transition-colors duration-150 hover:text-lime">
+                      {link.label}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
           ))}
-        </ul>
+        </div>
+      </div>
+      <div className="border-t border-line">
+        <div className="mx-auto flex max-w-[1440px] flex-col gap-2 px-5 py-6 text-sm text-fog sm:flex-row sm:justify-between sm:px-8">
+          <span>Crowns</span>
+          <span>Built on Nervos CKB · Trophies are Spore NFTs</span>
+        </div>
       </div>
     </footer>
   );

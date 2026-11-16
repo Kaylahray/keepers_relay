@@ -12,7 +12,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: 'Crowns',
   description:
-    'One deadline, one pot, one king. Beat the score, and the chain replays your run, crowns you, grows the pot and cuts the clock.',
+    'Live car races on CKB. 2 to 5 players race on the same track, and the chain replays every race and pays the winner.',
 };
 
 export default function RootLayout({
@@ -28,14 +28,11 @@ export default function RootLayout({
         {/* Root layout: these fonts load on every page, which is what this rule wants from _document. */}
         {/* eslint-disable-next-line @next/next/no-page-custom-font */}
         <link
-          href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800;900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&family=Instrument+Serif:ital@0;1&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800;900&family=Barlow:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap"
           rel="stylesheet"
         />
       </head>
-      <body className="min-h-full bg-ink text-white">
-        {/* Our backdrop behind every page: dark shards, faded so the content stays readable. */}
-        <div aria-hidden className="pointer-events-none fixed inset-0 z-0 bg-[url('/uismod/hero-bg.png')] bg-cover bg-center opacity-45" />
-        <div aria-hidden className="pointer-events-none fixed inset-0 z-0 bg-gradient-to-b from-ink/10 via-ink/40 to-ink/70" />
+      <body className="min-h-full bg-ink text-chalk">
         <Providers>
           <SiteHeader />
           <main className="relative min-h-[calc(100vh-4rem)]">{children}</main>

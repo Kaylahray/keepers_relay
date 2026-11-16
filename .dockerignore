@@ -1,0 +1,12 @@
+# Keeps secrets and build output out of the relay image.
+.env*
+.vercel
+.git
+.next
+.data
+.claude
+node_modules
+scripts
+docs
+*.md
+tsconfig.tsbuildinfo

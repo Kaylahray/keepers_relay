@@ -83,7 +83,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     };
   }, [refreshWallet]);
 
-  // Money also arrives from transactions other people send (a steal's change, a pot paid at the close), which no event in this tab announces.
+  // Money also arrives from transactions other people send (a race's payout, a key cell sent home), which no event in this tab announces.
   useEffect(() => {
     if (typeof window === 'undefined' || !signer) return;
     const tick = window.setInterval(() => {

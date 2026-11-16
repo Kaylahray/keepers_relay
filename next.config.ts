@@ -1,6 +1,10 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
+  // The stats route replays each race with the rally rules, read from this file at run time.
+  outputFileTracingIncludes: {
+    '/api/rally/stats': ['./public/games/rally.wasm'],
+  },
   images: {
     remotePatterns: [
       {

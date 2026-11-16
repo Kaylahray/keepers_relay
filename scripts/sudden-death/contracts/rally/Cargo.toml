@@ -1,0 +1,16 @@
+[package]
+name = "crowns-rally"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+description = "Crowns game script: judges a Crown Rally race for live-match, served over ckb-script-ipc"
+
+[dependencies]
+ckb-std = { workspace = true }
+crowns-rally-core = { path = "../rally-core" }
+crowns-game-api = { path = "../game-api" }
+ckb-script-ipc-common = { workspace = true }
+
+[[bin]]
+name = "rally"
+path = "src/main.rs"

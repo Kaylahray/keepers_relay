@@ -20,14 +20,14 @@ export function ProfileShareLink({ username }: { username: string }) {
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-xl bg-ink-2 p-3">
-      <span className="font-mono text-[10px] uppercase tracking-wider text-mute">Share</span>
-      <code className="min-w-0 flex-1 truncate font-mono text-xs text-white">{fullUrl}</code>
+    <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-line bg-ink-2 p-3">
+      <span className="font-mono text-[10px] uppercase tracking-wider text-fog">Share</span>
+      <code className="min-w-0 flex-1 truncate font-mono text-xs text-chalk">{fullUrl}</code>
       <button
         type="button"
         onClick={() => void copy()}
         aria-label="Copy profile link"
-        className="grid h-9 w-9 place-items-center rounded-lg bg-ink-3 hover:bg-ink-4"
+        className="grid h-9 w-9 place-items-center rounded-lg bg-ink-3 hover:bg-line"
       >
         {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
       </button>
@@ -36,7 +36,7 @@ export function ProfileShareLink({ username }: { username: string }) {
         target="_blank"
         rel="noopener noreferrer"
         aria-label="Open profile"
-        className="grid h-9 w-9 place-items-center rounded-lg bg-ink-3 hover:bg-ink-4"
+        className="grid h-9 w-9 place-items-center rounded-lg bg-ink-3 hover:bg-line"
       >
         <ExternalLink className="h-3.5 w-3.5" />
       </a>

@@ -9,11 +9,11 @@ use ckb_std::ckb_types::core::ScriptHashType;
 use ckb_std::ckb_types::packed::Script;
 use ckb_std::ckb_types::prelude::Entity;
 use ckb_std::high_level::{
-    encode_hex, load_cell_capacity, load_cell_data, load_cell_lock, load_cell_lock_hash, load_cell_type,
-    load_cell_type_hash, load_header, load_input_out_point, load_script, load_script_hash, load_witness_args,
-    spawn_cell, QueryIter,
+    load_cell_capacity, load_cell_data, load_cell_lock, load_cell_lock_hash, load_cell_type, load_cell_type_hash,
+    load_header, load_input_out_point, load_script, load_script_hash, load_witness_args, QueryIter,
 };
-use ckb_std::syscalls::{pipe, read, wait};
+use ckb_script_ipc_common::spawn::spawn_cell_server;
+use crowns_game_api::LiveGameClient;
 
 pub const ERR_LEN: i8 = -1;
 pub const ERR_MODE: i8 = -2;
@@ -415,41 +415,17 @@ pub fn sealed_run(run: &[u8], laps: u8, chain: &[u8; 32], match_id: &[u8; 32], o
     Ok(game)
 }
 
-/// Game ABI v2. The game script is spawned from a cell dep found by its data hash, with one
-/// argument, the hex of `lap count u8` then per lap `seed u64 LE ‖ tape length u16 LE ‖ tape`, and
-/// one inherited fd. It writes the score as u64 LE to that fd and exits 0, or exits non-zero for
-/// an illegal run. Any game that keeps this contract can be refereed by the same match script.
-pub fn score_run(game: &[u8; 32], arg: &[u8]) -> Result<u64, i8> {
-    let mut score = [0u8; 8];
-    spawn_game(game, arg, &mut score)?;
-    Ok(u64::from_le_bytes(score))
-}
-
-/// Asks a game script for its rules: spawned with an empty argument, it writes `GAME_RULES_LEN` bytes.
-pub fn game_rules(game: &[u8; 32]) -> Result<[u8; GAME_RULES_LEN], i8> {
-    let mut raw = [0u8; GAME_RULES_LEN];
-    spawn_game(game, &[], &mut raw)?;
-    GameRules::parse(&raw)?;
-    Ok(raw)
-}
-
-/// Spawns a game script found by its data hash with one hex argument and one inherited fd, and
-/// reads exactly `out.len()` bytes of answer. A game that exits non-zero has judged the input illegal.
-pub fn spawn_game(game: &[u8; 32], arg: &[u8], out: &mut [u8]) -> Result<(), i8> {
-    let hex = encode_hex(arg);
-    let (reader, writer) = pipe().map_err(|_| ERR_GAME)?;
-    let pid = spawn_cell(game, ScriptHashType::Data2, &[hex.as_c_str()], &[writer]).map_err(|_| ERR_GAME)?;
-    let mut got = 0;
-    while got < out.len() {
-        let n = read(reader, &mut out[got..]).map_err(|_| ERR_RUN)?;
-        if n == 0 {
-            return Err(ERR_RUN);
-        }
-        got += n;
-    }
-    if wait(pid).map_err(|_| ERR_GAME)? != 0 {
+/// Asks the game a match names to judge its race, over ckb-script-ipc: the game is spawned from
+/// the cell dep with that data hash as a `LiveGame` server and called once. `out` gets one byte per
+/// car. A game that refuses the record answers with an error; one that isn't a `LiveGame` server
+/// breaks the call, and the transaction fails either way.
+pub fn judge_race(game: &[u8; 32], record: &[u8], out: &mut [u8]) -> Result<(), i8> {
+    let (reader, writer) = spawn_cell_server(game, ScriptHashType::Data2, &[]).map_err(|_| ERR_GAME)?;
+    let results = LiveGameClient::new(reader, writer).judge(record.to_vec()).map_err(|_| ERR_RUN)?;
+    if results.len() != out.len() {
         return Err(ERR_RUN);
     }
+    out.copy_from_slice(&results);
     Ok(())
 }
 

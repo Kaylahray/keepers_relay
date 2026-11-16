@@ -2,18 +2,52 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, Check, Fingerprint, X } from 'lucide-react';
-import { Avatar } from '@/components/duel/Avatar';
+import { AnimatePresence, motion } from 'framer-motion';
+import { AlertTriangle, Check, Fingerprint, Loader2, X } from 'lucide-react';
+import { EASE } from '@/components/crowns/motion';
+import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
-import { Stepper } from '@/components/ui/kit';
 import { useAuth } from '@/context/auth-provider';
 import { useMyBuilder, useUpsertBuilder, useUsernameCheck } from '@/hooks/useBuilder';
 import { useUsername } from '@/hooks/useUsername';
 import { useWallet } from '@/hooks/useWallet';
-import { ART } from '@/lib/art';
+import { IMG } from '@/lib/crowns/art';
 import { normalizeUsername } from '@/lib/rewards/milestones';
 import { registryConfigured } from '@/lib/registry/config';
 import { estimateUsernameCapacityCkb } from '@/lib/registry/capacity';
+
+type Status = 'empty' | 'short' | 'checking' | 'available' | 'taken';
+
+function Label({ children }: { children: string }) {
+  return <p className="font-display text-sm font-extrabold uppercase tracking-wider text-fog">{children}</p>;
+}
+
+function StatusIcon({ status }: { status: Status }) {
+  return (
+    <AnimatePresence mode="wait" initial={false}>
+      <motion.span
+        key={status}
+        initial={{ opacity: 0, scale: 0.8 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.8 }}
+        transition={{ duration: 0.15, ease: EASE }}
+        className="grid h-10 w-10 shrink-0 place-items-center"
+      >
+        {status === 'available' ? (
+          <span className="grid h-10 w-10 place-items-center rounded-full bg-lime text-ink">
+            <Check className="h-6 w-6" strokeWidth={3.5} aria-hidden="true" />
+          </span>
+        ) : status === 'taken' ? (
+          <span className="grid h-10 w-10 place-items-center rounded-full bg-pink text-ink">
+            <X className="h-6 w-6" strokeWidth={3.5} aria-hidden="true" />
+          </span>
+        ) : status === 'checking' ? (
+          <Loader2 className="h-7 w-7 animate-spin text-fog" aria-hidden="true" />
+        ) : null}
+      </motion.span>
+    </AnimatePresence>
+  );
+}
 
 /** Joining in three steps: connect (JoinID, no password), claim @handle in one on-chain action, then a picture. */
 export function JoinHandleForm({ nextHref = '/' }: { nextHref?: string }) {
@@ -34,6 +68,7 @@ export function JoinHandleForm({ nextHref = '/' }: { nextHref?: string }) {
   const capacityHint = normalized.length >= 3 ? `~${estimateUsernameCapacityCkb(normalized).toFixed(2)} CKB` : null;
   const usernameOk = check.data?.available === true;
   const step = !isConnected ? 0 : claimed ? 2 : 1;
+  const status: Status = !username ? 'empty' : username.length < 3 ? 'short' : !check.data ? 'checking' : check.data.available ? 'available' : 'taken';
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -61,94 +96,156 @@ export function JoinHandleForm({ nextHref = '/' }: { nextHref?: string }) {
     }
   }
 
-  return (
-    <div className="mx-auto w-full max-w-lg">
-      <Stepper steps={['Connect', 'Username', 'Picture']} current={step} tone="lime" />
+  const kicker = step === 0 ? 'Join Crowns' : step === 1 ? 'Wallet connected' : 'You’re in';
+  const title =
+    step === 0 ? (
+      <>
+        Get on
+        <br />
+        the grid.
+      </>
+    ) : step === 1 ? (
+      <>
+        Pick your
+        <br />
+        race name.
+      </>
+    ) : (
+      <>@{claimed}</>
+    );
 
-      {!isReady ? (
-        <p className="mt-8 text-center text-mute">Checking wallet…</p>
-      ) : step === 0 ? (
-        <div className="mt-8 text-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={ART.hero} alt="Crowns players facing off" className="clip-panel aspect-[16/10] w-full object-cover" />
-          <h1 className="mt-8 font-poster text-3xl font-black uppercase">Join Crowns</h1>
-          <p className="mx-auto mt-3 max-w-sm text-mute">No password or seed phrase needed: JoyID uses your phone&apos;s fingerprint or face to sign you in.</p>
-          <Button variant="pink" size="xl" block className="mt-8" disabled={authBusy} onClick={() => void ensureAuth().catch(() => undefined)}>
-            <Fingerprint className="h-5 w-5" aria-hidden="true" /> {authBusy ? 'Opening your wallet…' : 'Connect with JoyID'}
-          </Button>
-        </div>
-      ) : step === 1 ? (
-        <form onSubmit={(e) => void submit(e)} className="mt-8">
-          <h1 className="font-poster text-2xl font-black uppercase">Claim your username</h1>
-          <p className="mt-2 text-mute">This is how other players find and challenge you.</p>
-          <p className="mt-1 font-mono text-[11px] text-mute">{formattedAddress || address}</p>
-          <label htmlFor="handle" className="sr-only">
-            Username
-          </label>
-          <div className="relative mt-6">
-            <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-xl font-semibold text-mute">@</span>
-            <input
-              id="handle"
-              value={username}
-              autoFocus
-              autoComplete="off"
-              maxLength={32}
-              onChange={(event) => setUsername(event.target.value.toLowerCase().replace(/\s/g, ''))}
-              placeholder="your_handle"
-              aria-describedby="handle-status"
-              disabled={busy}
-              className="h-16 w-full rounded-xl bg-ink-2 pl-10 pr-12 text-xl font-semibold text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-lime"
-            />
-            <span className="absolute right-4 top-1/2 -translate-y-1/2">
-              {username.length >= 3 && check.data ? (
-                check.data.available ? <Check className="h-6 w-6 text-lime" aria-hidden="true" /> : <X className="h-6 w-6 text-danger" aria-hidden="true" />
-              ) : null}
-            </span>
-          </div>
-          <p id="handle-status" className="mt-2 min-h-5 text-sm" aria-live="polite">
-            {username.length > 0 && username.length < 3 ? <span className="text-mute">At least 3 letters</span> : null}
-            {username.length >= 3 && !check.data ? <span className="text-mute">Checking…</span> : null}
-            {username.length >= 3 && check.data ? (
-              check.data.available ? (
-                <span className="text-lime">
-                  @{check.data.username} is yours to take{capacityHint ? ` · locks ${capacityHint}, returned if you ever give it up` : ''}
-                </span>
-              ) : (
-                <span className="text-danger">{check.data.reason}</span>
-              )
-            ) : null}
-          </p>
-          {error ? (
-            <p role="alert" className="mt-3 flex items-start gap-2 rounded-xl bg-danger/10 p-3 text-sm text-danger">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-              {error}
-            </p>
-          ) : null}
-          <Button type="submit" size="lg" block className="mt-8" disabled={busy || !usernameOk}>
-            {busy ? 'Waiting for your wallet…' : `Claim @${normalized || 'handle'}`}
-          </Button>
-          <p className="mt-3 text-center text-xs text-mute">One signature. Your picture and bio are optional, later, from your profile.</p>
-        </form>
-      ) : (
-        <div className="mt-8">
-          <div className="flex items-center gap-4">
-            <Avatar name={`@${claimed}`} tone="#99ee2d" size={80} src={null} />
-            <div>
-              <p className="font-mono text-[11px] uppercase tracking-wider text-lime">You&apos;re in</p>
-              <h1 className="font-poster text-2xl font-black uppercase">@{claimed}</h1>
-              <p className="mt-1 text-sm text-mute">This drawn face is yours. Mint your own picture any time from your profile.</p>
+  return (
+    <div className="relative isolate">
+      <div className="absolute inset-x-0 top-0 -z-10 h-[360px] overflow-hidden sm:h-[460px] lg:inset-y-0 lg:left-auto lg:right-0 lg:h-auto lg:w-[52%]">
+        <motion.img
+          src={IMG.garage}
+          alt=""
+          initial={{ scale: 1.08, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ duration: 0.3, ease: EASE }}
+          className="h-full w-full object-cover object-[55%_center]"
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-ink via-ink/40 to-transparent lg:bg-gradient-to-r lg:from-ink lg:via-ink/30" />
+      </div>
+
+      <div className="mx-auto grid max-w-[1440px] px-5 pb-16 pt-[220px] sm:px-8 sm:pt-[300px] lg:min-h-[760px] lg:grid-cols-[minmax(0,620px)_1fr] lg:items-center lg:pt-16">
+        <div className="min-w-0">
+          <motion.p
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25, ease: EASE }}
+            className="font-display text-xl font-extrabold uppercase text-lime"
+          >
+            {kicker}
+          </motion.p>
+          <motion.h1
+            initial={{ opacity: 0, x: -32 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.3, ease: EASE, delay: 0.04 }}
+            className={`mt-2 break-words font-display font-black leading-[0.85] ${step === 2 ? 'text-[56px] sm:text-[80px]' : 'text-[60px] uppercase sm:text-[88px]'}`}
+          >
+            {title}
+          </motion.h1>
+
+          {!isReady ? (
+            <p className="mt-10 text-fog">Checking wallet…</p>
+          ) : step === 0 ? (
+            <div className="mt-8">
+              <p className="max-w-md text-lg text-chalk/85">No password or seed phrase. JoyID uses your phone&apos;s fingerprint or face to sign you in.</p>
+              <Button size="xl" className="mt-8 w-full sm:w-auto" disabled={authBusy} onClick={() => void ensureAuth().catch(() => undefined)}>
+                <Fingerprint className="h-6 w-6" aria-hidden="true" /> {authBusy ? 'Opening your wallet…' : 'Connect with JoyID'}
+              </Button>
             </div>
-          </div>
-          <div className="mt-8 grid gap-3 sm:grid-cols-2">
-            <Button size="xl" block onClick={() => router.push(nextHref)}>
-              Start playing
-            </Button>
-            <Button variant="ghost" size="xl" block href="/profile/edit">
-              Pick a picture
-            </Button>
-          </div>
+          ) : step === 1 ? (
+            <form onSubmit={(e) => void submit(e)}>
+              <p className="mt-3 font-mono text-sm text-fog">{formattedAddress || address}</p>
+              <div className="mt-8">
+                <label htmlFor="handle" className="sr-only">
+                  Race name
+                </label>
+                <div
+                  className={`flex items-center gap-1 rounded-3xl border-2 bg-ink-2/90 px-5 backdrop-blur transition-colors duration-150 sm:px-6 ${
+                    status === 'available' ? 'border-lime' : status === 'taken' ? 'border-pink' : 'border-line focus-within:border-chalk/50'
+                  }`}
+                >
+                  <span className="font-display text-5xl font-black text-fog sm:text-6xl">@</span>
+                  <input
+                    id="handle"
+                    value={username}
+                    autoFocus
+                    autoComplete="off"
+                    spellCheck={false}
+                    maxLength={32}
+                    onChange={(event) => setUsername(event.target.value.toLowerCase().replace(/\s/g, ''))}
+                    placeholder="yourname"
+                    aria-describedby="handle-status"
+                    disabled={busy}
+                    className="h-20 min-w-0 flex-1 bg-transparent font-display text-5xl font-black text-chalk outline-none placeholder:text-ink-3 sm:h-24 sm:text-6xl"
+                  />
+                  <StatusIcon status={status} />
+                </div>
+                <p
+                  id="handle-status"
+                  aria-live="polite"
+                  className={`mt-3 min-h-6 font-semibold ${status === 'available' ? 'text-lime' : status === 'taken' ? 'text-pink' : 'text-fog'}`}
+                >
+                  {status === 'empty'
+                    ? 'At least 3 letters, numbers or _'
+                    : status === 'short'
+                      ? 'At least 3 letters'
+                      : status === 'checking'
+                        ? 'Checking…'
+                        : status === 'available'
+                          ? `@${check.data!.username} is yours if you want it.${capacityHint ? ` It locks ${capacityHint}, returned if you ever give it up.` : ''}`
+                          : check.data!.reason}
+                </p>
+              </div>
+
+              <div className="mt-8">
+                <Label>On the leaderboard</Label>
+                <motion.div layout className="mt-3 flex items-center gap-4 rounded-2xl border border-line bg-ink-2/90 px-4 py-3.5 backdrop-blur">
+                  <span className="font-display text-2xl font-black text-fog">#–</span>
+                  <Avatar name={`@${normalized || 'yourname'}`} size={44} src={null} />
+                  <span className="min-w-0 flex-1 truncate font-display text-2xl font-extrabold">@{normalized || 'yourname'}</span>
+                  <span className="font-display text-xl font-black text-fog">0 CKB</span>
+                </motion.div>
+              </div>
+
+              {error ? (
+                <p role="alert" className="mt-6 flex items-start gap-2 rounded-2xl bg-danger/10 p-4 text-danger">
+                  <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
+                  {error}
+                </p>
+              ) : null}
+              <Button type="submit" size="xl" className="mt-10 w-full sm:w-auto" disabled={busy || !usernameOk}>
+                {busy ? (
+                  <>
+                    <Loader2 className="h-6 w-6 animate-spin" aria-hidden="true" /> Approve in your wallet…
+                  </>
+                ) : (
+                  'Claim name'
+                )}
+              </Button>
+              <p className="mt-4 text-sm text-fog">One signature. Add a picture and bio later from your profile. Your name stays.</p>
+            </form>
+          ) : (
+            <div className="mt-8">
+              <div className="flex items-center gap-4">
+                <Avatar name={`@${claimed}`} size={80} src={null} />
+                <p className="max-w-sm text-lg text-chalk/85">This face is yours for now. Mint your own picture any time from your profile.</p>
+              </div>
+              <div className="mt-10 flex flex-col gap-3 sm:flex-row">
+                <Button size="xl" onClick={() => router.push(nextHref)}>
+                  Start racing
+                </Button>
+                <Button variant="ghost" size="xl" href="/profile/edit">
+                  Pick a picture
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

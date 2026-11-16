@@ -1,13 +1,13 @@
 /**
  * After `ckb-cli deploy apply-txs`, prints the NEXT_PUBLIC_SD_* block for .env.local and Vercel from
- * the newest migration in scripts/sudden-death/deployment/testnet/crowns/migrations. Read-only.
+ * the newest migration in scripts/sudden-death/deployment/testnet/rally/migrations. Read-only.
  *
  *   pnpm exec tsx scripts/crowns-testnet/env-from-migration.ts
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const DIR = join(__dirname, '../sudden-death/deployment/testnet/crowns/migrations');
+const DIR = join(__dirname, '../sudden-death/deployment/testnet/rally/migrations');
 const PROXY = '0xa5ef4970ba0a4446b9cd8abb3b650cdfb68bcdf5052966e41384900a8a5ad274';
 
 type Recipe = { name: string; tx_hash: string; index: number; data_hash: string; type_id: string | null };
@@ -29,51 +29,26 @@ const cell = (name: string) => {
   throw new Error(`${newest} has no ${name}`);
 };
 
-const lines = [`# Crowns on Pudge testnet, from ${newest}`, 'NEXT_PUBLIC_CKB_NETWORK=testnet'];
-for (const [key, name] of [['MATCH', 'match-type'], ['BID', 'bid-type'], ['TREASURY', 'treasury-lock']] as const) {
-  const recipe = cell(name);
-  if (!recipe.type_id) throw new Error(`${name} was deployed without a type id`);
-  lines.push(
-    `NEXT_PUBLIC_SD_${key}_CODE_HASH=${recipe.type_id}`,
-    `NEXT_PUBLIC_SD_${key}_HASH_TYPE=type`,
-    `NEXT_PUBLIC_SD_${key}_ARGS=0x`,
-    `NEXT_PUBLIC_SD_${key}_TX_HASH=${recipe.tx_hash}`,
-    `NEXT_PUBLIC_SD_${key}_INDEX=0x${recipe.index.toString(16)}`,
-    `NEXT_PUBLIC_SD_${key}_DEP_TYPE=code`,
-  );
-}
-const game = cell('crown-run');
-lines.push(
-  `NEXT_PUBLIC_SD_GAME_CODE_HASH=${game.data_hash}`,
-  `NEXT_PUBLIC_SD_GAME_TX_HASH=${game.tx_hash}`,
-  `NEXT_PUBLIC_SD_GAME_INDEX=0x${game.index.toString(16)}`,
-  `NEXT_PUBLIC_SD_PROXY_TX_HASH=${PROXY}`,
-  'NEXT_PUBLIC_SD_PROXY_INDEX=0x0',
+const live = cell('live-match');
+if (!live.type_id) throw new Error('live-match was deployed without a type id');
+const rally = cell('rally');
+console.log(
+  [
+    `# Crown Rally on Pudge testnet, from ${newest}`,
+    'NEXT_PUBLIC_CKB_NETWORK=testnet',
+    `NEXT_PUBLIC_SD_LIVE_CODE_HASH=${live.type_id}`,
+    'NEXT_PUBLIC_SD_LIVE_HASH_TYPE=type',
+    'NEXT_PUBLIC_SD_LIVE_ARGS=0x',
+    `NEXT_PUBLIC_SD_LIVE_TX_HASH=${live.tx_hash}`,
+    `NEXT_PUBLIC_SD_LIVE_INDEX=0x${live.index.toString(16)}`,
+    'NEXT_PUBLIC_SD_LIVE_DEP_TYPE=code',
+    `NEXT_PUBLIC_SD_RALLY_CODE_HASH=${rally.data_hash}`,
+    `NEXT_PUBLIC_SD_RALLY_TX_HASH=${rally.tx_hash}`,
+    `NEXT_PUBLIC_SD_RALLY_INDEX=0x${rally.index.toString(16)}`,
+    `NEXT_PUBLIC_SD_PROXY_TX_HASH=${PROXY}`,
+    'NEXT_PUBLIC_SD_PROXY_INDEX=0x0',
+    '# From `pnpm relay --whoami`, and where the relay is hosted:',
+    'NEXT_PUBLIC_RALLY_RELAY_LOCK_HASH=',
+    'NEXT_PUBLIC_RALLY_RELAY_URL=',
+  ].join('\n'),
 );
-// Crown Depths, the second crown game, by data hash like Crown Run.
-if (recipes.some((recipe) => recipe.name === 'depths')) {
-  const depths = cell('depths');
-  lines.push(
-    `NEXT_PUBLIC_SD_DEPTHS_CODE_HASH=${depths.data_hash}`,
-    `NEXT_PUBLIC_SD_DEPTHS_TX_HASH=${depths.tx_hash}`,
-    `NEXT_PUBLIC_SD_DEPTHS_INDEX=0x${depths.index.toString(16)}`,
-  );
-}
-// Duels arrived in v5: the escrow script by type id, the artillery game by data hash.
-if (recipes.some((recipe) => recipe.name === 'duel-type')) {
-  const duel = cell('duel-type');
-  if (!duel.type_id) throw new Error('duel-type was deployed without a type id');
-  const artillery = cell('artillery');
-  lines.push(
-    `NEXT_PUBLIC_SD_DUEL_CODE_HASH=${duel.type_id}`,
-    'NEXT_PUBLIC_SD_DUEL_HASH_TYPE=type',
-    'NEXT_PUBLIC_SD_DUEL_ARGS=0x',
-    `NEXT_PUBLIC_SD_DUEL_TX_HASH=${duel.tx_hash}`,
-    `NEXT_PUBLIC_SD_DUEL_INDEX=0x${duel.index.toString(16)}`,
-    'NEXT_PUBLIC_SD_DUEL_DEP_TYPE=code',
-    `NEXT_PUBLIC_SD_ARTILLERY_CODE_HASH=${artillery.data_hash}`,
-    `NEXT_PUBLIC_SD_ARTILLERY_TX_HASH=${artillery.tx_hash}`,
-    `NEXT_PUBLIC_SD_ARTILLERY_INDEX=0x${artillery.index.toString(16)}`,
-  );
-}
-console.log(lines.join('\n'));

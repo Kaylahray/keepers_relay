@@ -1,0 +1,12 @@
+[package]
+name = "crowns-game-api"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+description = "The call a live match makes to the game it names, over ckb-script-ipc"
+
+[dependencies]
+ckb-std = { workspace = true }
+ckb-script-ipc = { workspace = true }
+ckb-script-ipc-common = { workspace = true }
+serde = { workspace = true }
