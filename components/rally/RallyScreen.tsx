@@ -80,17 +80,33 @@ export function useRallyControls(onChange: (bits: number) => void, enabled: bool
 }
 
 /** The held item, and the pad that fires it. Empty hands show an empty slot. */
-function ItemSlot({ item, pad, big = false }: { item: number; pad: ReturnType<ReturnType<typeof useRallyControls>['pad']>; big?: boolean }) {
+/** Each item in a few words, for the note when one is picked up. */
+const ITEM_SHORT = ['', 'dash into the car ahead', 'drop a slick behind you', 'zap a car close ahead', 'drop a block behind you', 'a burst of speed', 'blocks the next hit', '+40 health', 'faster close behind a car'];
+
+/** Jolt, by its number in `ITEMS`: it only fires with a car close ahead, and stays in hand otherwise. */
+const JOLT = 3;
+/** How far a Jolt reaches, as the rules measure it (110 world units). */
+const JOLT_REACH = 110 * RALLY.SCALE;
+
+/** Whether a Jolt fired now would hit: a car further round the lap, within reach, that can be hit. As the rules' `close_ahead`. */
+function joltHits(cars: RallyFrame['cars'], me: number): boolean {
+  const mine = cars[me]!;
+  return cars.some(
+    (other, j) => j !== me && !other.wrecked && !other.ghost && other.finished == null && other.progress > mine.progress && Math.hypot(other.x - mine.x, other.y - mine.y) <= JOLT_REACH,
+  );
+}
+
+function ItemSlot({ item, pad, big = false, ready = true }: { item: number; pad: ReturnType<ReturnType<typeof useRallyControls>['pad']>; big?: boolean; ready?: boolean }) {
   const info = ITEMS[item];
   const Icon = ITEM_ICONS[item];
   const picture = ITEM_IMG[item];
   return (
     <button
       type="button"
-      aria-label={info ? `Use ${info.name}` : 'No item: drive over a pad'}
+      aria-label={info ? (ready ? `Use ${info.name}` : `${info.name}: no car close ahead to hit`) : 'No item: drive over a pad'}
       {...pad}
       disabled={!info}
-      className={`relative grid place-items-center overflow-hidden bg-black/60 ring-2 backdrop-blur-md transition-transform duration-100 active:scale-[0.92] ${big ? 'h-24 w-24 rounded-3xl' : 'h-[clamp(52px,14vmin,70px)] w-[clamp(52px,14vmin,70px)] rounded-2xl'} ${info ? 'ring-lime' : 'ring-white/20'}`}
+      className={`relative grid place-items-center overflow-hidden bg-black/60 ring-2 backdrop-blur-md transition-transform duration-100 active:scale-[0.92] ${big ? 'h-24 w-24 rounded-3xl' : 'h-[clamp(52px,14vmin,70px)] w-[clamp(52px,14vmin,70px)] rounded-2xl'} ${info ? (ready ? 'ring-lime' : 'ring-white/25 opacity-60') : 'ring-white/20'}`}
     >
       {info ? (
         <span key={item} className="hud-pop flex flex-col items-center">
@@ -102,7 +118,7 @@ function ItemSlot({ item, pad, big = false }: { item: number; pad: ReturnType<Re
               <Icon className="h-8 w-8" aria-hidden="true" />
             </span>
           ) : null}
-          <span className={`-mt-1 font-display font-black uppercase tracking-wide ${big ? 'text-xs' : 'text-[10px] leading-tight'}`}>{info.name}</span>
+          <span className={`-mt-1 font-display font-black uppercase tracking-wide ${big ? 'text-xs' : 'text-[10px] leading-tight'}`}>{ready ? info.name : 'No target'}</span>
         </span>
       ) : (
         <span className="px-1 text-center font-display text-[10px] font-black uppercase leading-tight text-fog">No item</span>
@@ -156,15 +172,15 @@ export function RallyScreen({ frameOf, controls, banner, names, seconds, onLeave
   const stageRef = useRef<HTMLDivElement | null>(null);
   const view3d = useRef<RallyView3D | null>(null);
   const [view, setView] = useState<View>(savedView);
-  const [hud, setHud] = useState<{ lap: number; place: number; boosts: number; finished: boolean; me: number | null; hp: number; wrecked: boolean; kmh: number; item: number; shards: number } | null>(null);
+  const [hud, setHud] = useState<{ lap: number; place: number; boosts: number; finished: boolean; me: number | null; hp: number; wrecked: boolean; kmh: number; item: number; ready: boolean; shards: number } | null>(null);
   const frameRef = useRef(frameOf);
   const namesRef = useRef(names);
   const sound = useRef<RallySound | null>(null);
   const [muted, setMuted] = useState(savedMuted);
   // The map whose world is drawn, or null while it loads: on a slow phone the road takes a while.
   const [readyMap, setReadyMap] = useState<number | null>(null);
-  // The item this car just picked up, shown for a few seconds.
-  const [picked, setPicked] = useState<{ item: number; at: number } | null>(null);
+  // The item this car just picked up, shown for a few seconds; `full` when a pad gave only its shard.
+  const [picked, setPicked] = useState<{ item: number; at: number; full: boolean } | null>(null);
   const viewRef = useRef(view);
   const onReadyRef = useRef(onReady);
 
@@ -221,6 +237,7 @@ export function RallyScreen({ frameOf, controls, banner, names, seconds, onLeave
     let lastHud = '';
     let lastReady: number | null | undefined;
     let held = 0;
+    let shards = 0;
     let shownAt = 0;
     const paint = () => {
       raf = requestAnimationFrame(paint);
@@ -256,11 +273,18 @@ export function RallyScreen({ frameOf, controls, banner, names, seconds, onLeave
       const mine = frame.me != null ? frame.cars[frame.me] : undefined;
       sound.current?.update(mine);
       const item = mine?.item ?? 0;
+      const shardsNow = mine?.shards ?? 0;
       const now = performance.now();
+      // A pad gives its shard always, its item only to empty hands: say which happened.
+      const gotShard = shardsNow > shards;
+      shards = shardsNow;
       if (item !== held) {
         held = item;
         shownAt = item ? now : 0;
-        setPicked(item ? { item, at: now } : null);
+        setPicked(item ? { item, at: now, full: false } : null);
+      } else if (item && gotShard) {
+        shownAt = now;
+        setPicked({ item, at: now, full: true });
       } else if (shownAt && now - shownAt > PICKED_MS) {
         shownAt = 0;
         setPicked(null);
@@ -275,6 +299,7 @@ export function RallyScreen({ frameOf, controls, banner, names, seconds, onLeave
             hp: mine.hp,
             wrecked: mine.wrecked,
             item: mine.item,
+            ready: mine.item !== JOLT || joltHits(frame.cars, frame.me!),
             shards: mine.shards,
             // As the 3D world measures it: a car is about 5.5 m long.
             kmh: Math.round(((mine.speed * RALLY.TICK_HZ) / (4 * RALLY.SCALE)) * 3.6),
@@ -363,19 +388,23 @@ export function RallyScreen({ frameOf, controls, banner, names, seconds, onLeave
         </HudButton>
       </div>
 
-      {/* A new item in hand: what it is, what it does, and how to fire it. */}
+      {/* A new item in hand: one small line under the top bar, so the road stays clear. */}
       {picked && controls && hud && !hud.finished ? (
-        <div className="pointer-events-none absolute inset-x-0 top-[24%] flex justify-center px-4">
-          <div key={picked.at} className="hud-pop flex max-w-sm items-center gap-3 rounded-2xl bg-black/70 px-4 py-3 ring-2 backdrop-blur" style={{ ['--tw-ring-color' as string]: ITEMS[picked.item]?.color }}>
-            <span className="h-4 w-4 shrink-0 rounded-full" style={{ background: ITEMS[picked.item]?.color }} />
-            <div>
-              <p className="font-display text-xl font-black uppercase leading-none">Got {ITEMS[picked.item]?.name}!</p>
-              <p className="mt-1 text-sm text-chalk/80">
-                {ITEMS[picked.item]?.about} <span className="font-bold text-lime md:pointer-fine:hidden">Tap it bottom right to fire.</span>
-                <span className="hidden font-bold text-lime md:pointer-fine:inline">Press E to fire.</span>
-              </p>
-            </div>
-          </div>
+        <div className="pointer-events-none absolute left-3 right-[132px] flex sm:left-5" style={{ top: `calc(env(safe-area-inset-top) + ${tag ? 118 : 88}px)` }}>
+          <p key={picked.at} className="hud-pop flex min-w-0 items-center gap-2 rounded-full bg-black/65 py-1.5 pl-2 pr-3 text-sm backdrop-blur">
+            <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: ITEMS[picked.item]?.color }} />
+            {picked.full ? (
+              <span className="truncate">
+                <span className="font-display font-black uppercase text-pink">+1 shard</span>
+                <span className="text-chalk/75"> · hands full, fire your {ITEMS[picked.item]?.name} first</span>
+              </span>
+            ) : (
+              <span className="truncate">
+                <span className="font-display font-black uppercase">{ITEMS[picked.item]?.name}</span>
+                <span className="text-chalk/75"> · {ITEM_SHORT[picked.item]}</span>
+              </span>
+            )}
+          </p>
         </div>
       ) : null}
 
@@ -401,7 +430,7 @@ export function RallyScreen({ frameOf, controls, banner, names, seconds, onLeave
         <>
           {/* Keyboard: the item slot and the keys. */}
           <div className="absolute bottom-8 left-1/2 hidden -translate-x-1/2 flex-col items-center md:pointer-fine:flex">
-            <ItemSlot item={hud.item} pad={controls.pad(USE)} big />
+            <ItemSlot item={hud.item} ready={hud.ready} pad={controls.pad(USE)} big />
             <p className="mt-3 text-sm font-semibold text-chalk/70 drop-shadow-[0_1px_4px_rgba(0,0,0,0.8)]">
               ← → steer · ↑ boost ({hud.boosts}) · ↓ brake · E use item
             </p>
@@ -426,7 +455,7 @@ export function RallyScreen({ frameOf, controls, banner, names, seconds, onLeave
             </div>
             <div className="flex flex-col items-end gap-2.5">
               <div className="flex items-end gap-2.5">
-                <ItemSlot item={hud.item} pad={controls.pad(USE)} />
+                <ItemSlot item={hud.item} ready={hud.ready} pad={controls.pad(USE)} />
                 <TouchPad label={`Boost, ${hud.boosts} left`} tone="lime" small pad={controls.pad(BOOST)} disabled={hud.boosts === 0}>
                   <Flame className="h-[45%] w-[45%]" aria-hidden="true" />
                   <span className="absolute -right-1 -top-1 grid h-6 w-6 place-items-center rounded-full bg-ink font-display text-xs font-black text-chalk">{hud.boosts}</span>
