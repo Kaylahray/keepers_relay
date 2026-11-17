@@ -2,9 +2,10 @@
  * What phones and the rally relay say to each other. Phones post to the relay (join, input, moves)
  * and listen on one event stream per match, which anyone may open to watch.
  *
- * The lobby is on chain: the host's match cell and a seat cell per player. It opens for
- * `LOBBY_MS` from the match landing, however many join. A full lobby starts at
- * once. When the wait runs out the race starts with whoever has a seat, if that is two or more.
+ * The lobby is on chain: the host's match cell and a seat cell per player. It waits as long as the
+ * host picked from the match landing, less a cut for each player who joins (see `lobbyEndsAt`). A
+ * full lobby starts at once, and the host may start it sooner once every driver is here. When the
+ * wait runs out the race starts with whoever has a seat, if that is two or more.
  *
  * The relay keeps the race clock. A phone asks for its input to start on a tick a little ahead of
  * now; the relay takes it on that tick, or on the next tick it has not played yet if the input came
@@ -37,6 +38,9 @@ export type MovesRequest = { matchId: string; token: string; count: number; sign
 /** Asks the relay to close a lobby nobody joined, so the host's entry goes home now. */
 export type CloseRequest = { matchId: string };
 
+/** The host asks the relay to start now: once someone else has a seat and every driver is here. */
+export type StartRequest = { matchId: string; token: string };
+
 /** `settling`: the race is over and the relay is sending the finish. */
 export type RallyPhase = 'lobby' | 'countdown' | 'racing' | 'settling' | 'done' | 'failed';
 
@@ -58,6 +62,8 @@ export type RelayMessage =
       cars: string[];
       /** The key lock hashes of the phones connected now. */
       joined: string[];
+      /** In the lobby: two or more cars and every driver here, so the host may start now. */
+      startable: boolean;
       note?: string;
       txHash?: string;
     }
@@ -70,18 +76,39 @@ export const MAX_AHEAD_TICKS = 40;
 export const INPUT_DELAY_TICKS = 3;
 /** Between the lobby closing and tick 0. */
 export const COUNTDOWN_MS = 5_000;
-/** The longest a lobby stays open, from the match landing. */
+/** The wait of a match opened before hosts picked one. */
 export const LOBBY_MS = 2 * 60_000;
+/** The waits a host may pick, in minutes. The chain allows 1 to 60. */
+export const WAIT_CHOICES = [5, 10, 15, 30, 60] as const;
+/** Each player who joins takes this share off the time left... */
+export const JOIN_CUT = 0.2;
+/** ...but never brings it below this. */
+export const CUT_FLOOR_MS = 2 * 60_000;
+/** Nobody may join in the last minute, so a seat never lands after its lobby has closed. */
+export const DOORS_MS = 60_000;
 /** The lobby stays open at least this long after the last seat lands, so its driver can get in. */
 export const LAST_CALL_MS = 20_000;
 
 /**
- * When a lobby closes: `LOBBY_MS` after the match landed, but never before the last
+ * When a lobby closes. It starts as the host's wait from the match landing; each seat, as it lands,
+ * takes `JOIN_CUT` of the time then left, never below `CUT_FLOOR_MS`. It never closes before the last
  * driver has had time to connect. A full lobby closes as soon as that time is up (or at once, once
- * every driver is connected: the relay sees that).
+ * every driver is connected: the relay sees that). `waitMs` is 0 for a match from before hosts picked
+ * one, which waits `LOBBY_MS` with no cuts.
  */
-export function lobbyEndsAt(matchLandedMs: number, seatLandedMs: number[], seats: number): number {
+export function lobbyEndsAt(matchLandedMs: number, seatLandedMs: number[], seats: number, waitMs: number): number {
   const lastCall = seatLandedMs.length > 0 ? Math.max(...seatLandedMs) + LAST_CALL_MS : 0;
   if (seatLandedMs.length >= seats - 1) return lastCall;
-  return Math.max(matchLandedMs + LOBBY_MS, lastCall);
+  if (waitMs <= 0) return Math.max(matchLandedMs + LOBBY_MS, lastCall);
+  let ends = matchLandedMs + waitMs;
+  for (const landed of [...seatLandedMs].sort((a, b) => a - b)) {
+    const left = ends - landed;
+    if (left > CUT_FLOOR_MS) ends = landed + Math.max(CUT_FLOOR_MS, Math.round(left * (1 - JOIN_CUT)));
+  }
+  return Math.max(ends, lastCall);
+}
+
+/** Whether a lobby closing at `endsAt` still lets players in. */
+export function doorsOpen(endsAt: number, nowMs: number): boolean {
+  return nowMs < endsAt - DOORS_MS;
 }

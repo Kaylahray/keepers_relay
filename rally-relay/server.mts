@@ -29,6 +29,7 @@ import {
   type MovesRequest,
   type RallyPhase,
   type RelayMessage,
+  type StartRequest,
   type WireEvent,
 } from '@/lib/rally/protocol';
 import { rallyGame } from '@/lib/registry/config';
@@ -194,7 +195,21 @@ function lobbyOf(snapshot: MatchSnapshot): number {
     Number(snapshot.landed!.landedMs),
     racingSeats(snapshot).map((seat) => Number(seat.landed!.landedMs)),
     snapshot.match.seats,
+    snapshot.match.wait * 1000,
   );
+}
+
+/** In the lobby, with two or more cars and every driver here: the host may start now. */
+function startable(race: Race): boolean {
+  const players = playersOf(race.snapshot);
+  return race.phase === 'lobby' && players.length >= 2 && players.every((player) => race.joined.has(player.key.toLowerCase()));
+}
+
+/** Starts the countdown, unless the match is on a game this relay can no longer pay out on. */
+function begin(race: Race, now: number) {
+  // The match script can only call the game it was deployed with: a race on a replaced game could never pay out.
+  if (race.snapshot.match.game.toLowerCase() !== rallyGame.codeHash.toLowerCase()) fail(race, new Error('This match was opened on an older version of the game, so it can’t be raced. Every entry can go home 10 minutes after the lobby’s wait.'));
+  else startCountdown(race, now);
 }
 
 function send(response: http.ServerResponse, message: RelayMessage) {
@@ -211,6 +226,7 @@ function stateOf(race: Race): RelayMessage {
     map: race.snapshot.match.map,
     cars: race.cars.map((car) => car.key.toLowerCase()),
     joined: [...race.joined],
+    startable: startable(race),
     note: race.note,
     txHash: race.txHash,
   };
@@ -381,9 +397,7 @@ function tickRace(race: Race, now: number) {
     const allHere = players.every((player) => race.joined.has(player.key.toLowerCase()));
     if ((full && allHere) || now >= (race.lobbyEndsAt ?? 0)) {
       if (players.length < 2) void closeLobby(race);
-      // The match script can only call the game it was deployed with: a race on a replaced game could never pay out.
-      else if (race.snapshot.match.game.toLowerCase() !== rallyGame.codeHash.toLowerCase()) fail(race, new Error('This match was opened on an older version of the game, so it can’t be raced. Every entry can go home 10 minutes after it landed.'));
-      else startCountdown(race, now);
+      else begin(race, now);
     }
     return;
   }
@@ -502,6 +516,19 @@ async function close(body: CloseRequest) {
   return { txHash: race.txHash ?? null };
 }
 
+/** The host starts the race before the clock runs out, once someone else has a seat and every driver is here. */
+async function start(body: StartRequest) {
+  const race = await openRace(body.matchId);
+  if (keyOf(race, body.token) !== race.snapshot.match.hostKey.toLowerCase()) throw new Error('Only the host can start the race.');
+  if (race.phase !== 'lobby') throw new Error('This race has already started.');
+  // A seat may have landed since the last read: it races too.
+  await pollLobby(race);
+  if ((race.phase as RallyPhase) !== 'lobby') return { ok: true };
+  if (!startable(race)) throw new Error('Wait until someone else has a seat and every driver is here.');
+  begin(race, Date.now());
+  return { ok: true };
+}
+
 const server = http.createServer(async (request, response) => {
   response.setHeader('Access-Control-Allow-Origin', '*');
   response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -536,6 +563,8 @@ const server = http.createServer(async (request, response) => {
       reply(response, 200, await moves(await readJson<MovesRequest>(request)));
     } else if (request.method === 'POST' && url.pathname === '/close') {
       reply(response, 200, await close(await readJson<CloseRequest>(request)));
+    } else if (request.method === 'POST' && url.pathname === '/start') {
+      reply(response, 200, await start(await readJson<StartRequest>(request)));
     } else {
       reply(response, 404, { error: 'Not here.' });
     }

@@ -127,8 +127,13 @@ type Props = {
   leaveLabel?: string;
   /** A small label under the clock, like "Practice". */
   tag?: ReactNode;
+  /** Told the map whose world is drawn, once it is, and null while one is loading. */
+  onReady?: (map: number | null) => void;
   children?: ReactNode;
 };
+
+/** How long the "Got an item" note stays up. */
+const PICKED_MS = 3_500;
 
 type View = '3d' | 'map';
 const VIEW_KEY = 'crowns.rally.view';
@@ -142,7 +147,7 @@ function savedView(): View {
 }
 
 /** The race on the full screen: the road in 3D or from above, a top bar (lap, place, health, time) and the pads. */
-export function RallyScreen({ frameOf, controls, banner, names, seconds, onLeave, leaveLabel = 'Leave', tag, children }: Props) {
+export function RallyScreen({ frameOf, controls, banner, names, seconds, onLeave, leaveLabel = 'Leave', tag, onReady, children }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const view3d = useRef<RallyView3D | null>(null);
@@ -152,6 +157,12 @@ export function RallyScreen({ frameOf, controls, banner, names, seconds, onLeave
   const namesRef = useRef(names);
   const sound = useRef<RallySound | null>(null);
   const [muted, setMuted] = useState(savedMuted);
+  // The map whose world is drawn, or null while it loads: on a slow phone the road takes a while.
+  const [readyMap, setReadyMap] = useState<number | null>(null);
+  // The item this car just picked up, shown for a few seconds.
+  const [picked, setPicked] = useState<{ item: number; at: number } | null>(null);
+  const viewRef = useRef(view);
+  const onReadyRef = useRef(onReady);
 
   // Sound starts on the first tap or key (the browser's rule) and stops when the race screen closes.
   useEffect(() => {
@@ -171,7 +182,9 @@ export function RallyScreen({ frameOf, controls, banner, names, seconds, onLeave
   useEffect(() => {
     frameRef.current = frameOf;
     namesRef.current = names;
-  }, [frameOf, names]);
+    viewRef.current = view;
+    onReadyRef.current = onReady;
+  }, [frameOf, names, view, onReady]);
 
   const pickView = (next: View) => {
     setView(next);
@@ -202,6 +215,9 @@ export function RallyScreen({ frameOf, controls, banner, names, seconds, onLeave
   useEffect(() => {
     let raf = 0;
     let lastHud = '';
+    let lastReady: number | null | undefined;
+    let held = 0;
+    let shownAt = 0;
     const paint = () => {
       raf = requestAnimationFrame(paint);
       const canvas = canvasRef.current;
@@ -225,8 +241,26 @@ export function RallyScreen({ frameOf, controls, banner, names, seconds, onLeave
       }
       const ctx = view3d.current ? null : canvas.getContext('2d');
       if (ctx) drawRally(ctx, frame);
+      // The map from above is drawn at once; the 3D world once its models and textures are in.
+      const drawn = viewRef.current === 'map' || (view3d.current?.isReady() ?? false);
+      const ready = drawn ? (frame.map ?? -1) : null;
+      if (ready !== lastReady) {
+        lastReady = ready;
+        setReadyMap(ready);
+        onReadyRef.current?.(ready);
+      }
       const mine = frame.me != null ? frame.cars[frame.me] : undefined;
       sound.current?.update(mine);
+      const item = mine?.item ?? 0;
+      const now = performance.now();
+      if (item !== held) {
+        held = item;
+        shownAt = item ? now : 0;
+        setPicked(item ? { item, at: now } : null);
+      } else if (shownAt && now - shownAt > PICKED_MS) {
+        shownAt = 0;
+        setPicked(null);
+      }
       const next = mine
         ? {
             lap: Math.min(Math.max(mine.lap + 1, 1), RALLY.LAPS),
@@ -262,31 +296,42 @@ export function RallyScreen({ frameOf, controls, banner, names, seconds, onLeave
       <div className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-black/70 to-transparent" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/60 to-transparent" />
 
-      {/* Top left: place, lap, time, and who's who. */}
-      <div className="pointer-events-none absolute left-0 top-0 p-4 sm:p-6" style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}>
-        {hud ? (
-          <div className="flex items-end gap-3">
-            <p
-              key={hud.place}
-              className={`hud-pop origin-bottom-left font-display text-7xl font-black italic leading-[0.8] drop-shadow-[0_2px_12px_rgba(0,0,0,0.6)] sm:text-8xl [@media(max-height:520px)]:text-5xl ${hud.place === 0 ? 'text-gold' : 'text-chalk'}`}
-            >
-              {hud.place + 1}
-              <span className="text-4xl sm:text-5xl [@media(max-height:520px)]:text-2xl">{ordinal(hud.place).slice(-2)}</span>
-            </p>
-            {names && names.length > 0 ? <span className="mb-1 font-display text-xl font-black text-chalk/70">/ {names.length}</span> : null}
-          </div>
-        ) : controls ? null : (
-          <p className="font-display text-5xl font-black uppercase leading-none drop-shadow-[0_2px_12px_rgba(0,0,0,0.6)]">Watching</p>
-        )}
-        <div className="mt-3 flex items-center gap-3">
+      {/* Top left, one slim bar: place, lap and time, with health, speed and shards under it. The buttons keep the right. */}
+      <div className="pointer-events-none absolute left-0 top-0 w-full pl-3 pr-[164px] sm:pl-5" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}>
+        <div className="flex h-11 w-fit max-w-full items-center gap-2.5 rounded-full bg-black/55 px-3.5 font-display font-black ring-1 ring-white/15 backdrop-blur">
           {hud ? (
-            <span className="rounded-lg bg-black/55 px-2.5 py-1 font-display text-xl font-black backdrop-blur">
+            <span key={hud.place} className={`hud-pop text-2xl italic leading-none ${hud.place === 0 ? 'text-gold' : 'text-chalk'}`}>
+              {ordinal(hud.place)}
+              {names && names.length > 0 ? <span className="text-sm not-italic text-chalk/60">/{names.length}</span> : null}
+            </span>
+          ) : (
+            <span className="text-lg uppercase">{controls ? 'Ready' : 'Watching'}</span>
+          )}
+          {hud ? (
+            <span className="whitespace-nowrap text-base">
               LAP <span className="text-lime">{hud.lap}</span>/{RALLY.LAPS}
             </span>
           ) : null}
-          <span className="rounded-lg bg-black/55 px-2.5 py-1 font-display text-xl font-black tabular-nums backdrop-blur">{clock}</span>
+          <span className="text-base tabular-nums text-chalk/80">{clock}</span>
         </div>
-        {tag}
+        {hud ? (
+          <div className="mt-2 flex w-full max-w-[260px] items-center gap-2 font-display text-xs font-black drop-shadow-[0_1px_4px_rgba(0,0,0,0.8)]">
+            <div className="h-2 flex-1 overflow-hidden rounded-full bg-black/60 ring-1 ring-white/15" role="img" aria-label={`Health ${Math.round(hpPct)}%`}>
+              <div
+                className={`h-full rounded-full transition-[width] duration-200 ease-snap ${hud.wrecked ? 'bg-danger' : hpPct > 50 ? 'bg-lime' : hpPct > 25 ? 'bg-gold' : 'bg-pink'}`}
+                style={{ width: `${hpPct}%` }}
+              />
+            </div>
+            <span className="tabular-nums text-chalk/80">{hud.kmh} km/h</span>
+            <span className="flex items-center gap-0.5 text-pink">
+              <Gem className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden="true" />
+              <span key={hud.shards} className="hud-pop tabular-nums">
+                {hud.shards}
+              </span>
+            </span>
+          </div>
+        ) : null}
+        {tag ? <div className="mt-2">{tag}</div> : null}
         {names && names.length > 0 ? (
           <ul className="mt-3 hidden space-y-1 md:block">
             {names.map((name, i) => (
@@ -314,30 +359,30 @@ export function RallyScreen({ frameOf, controls, banner, names, seconds, onLeave
         </HudButton>
       </div>
 
-      {/* Health, speed and shards: under the place on phones, top centre on a wide screen. */}
-      {hud ? (
-        <div className={`pointer-events-none absolute left-4 w-44 sm:left-6 md:left-1/2 md:top-6 md:w-72 md:-translate-x-1/2 [@media(max-height:520px)]:left-1/2 [@media(max-height:520px)]:top-[calc(env(safe-area-inset-top)_+_14px)] [@media(max-height:520px)]:w-56 [@media(max-height:520px)]:-translate-x-1/2 ${tag ? 'top-[calc(env(safe-area-inset-top)_+_196px)]' : 'top-[calc(env(safe-area-inset-top)_+_150px)]'}`}>
-          <div className="flex items-center justify-between font-display text-sm font-black uppercase drop-shadow-[0_1px_4px_rgba(0,0,0,0.8)]">
-            <span className={hud.wrecked ? 'text-danger' : ''}>{hud.wrecked ? 'Wrecked' : 'Health'}</span>
-            <span className="tabular-nums text-chalk/80">{hud.kmh} km/h</span>
-            <span className="flex items-center gap-1 text-pink">
-              <Gem className="h-4 w-4" strokeWidth={2.5} aria-hidden="true" />
-              <span key={hud.shards} className="hud-pop tabular-nums">
-                {hud.shards}
-              </span>
-            </span>
-          </div>
-          <div className="mt-1.5 h-3 overflow-hidden rounded-full bg-black/60 ring-1 ring-white/15">
-            <div
-              className={`h-full rounded-full transition-[width] duration-200 ease-snap ${hud.wrecked ? 'bg-danger' : hpPct > 50 ? 'bg-lime' : hpPct > 25 ? 'bg-gold' : 'bg-pink'}`}
-              style={{ width: `${hpPct}%` }}
-            />
+      {/* A new item in hand: what it is, what it does, and how to fire it. */}
+      {picked && controls && hud && !hud.finished ? (
+        <div className="pointer-events-none absolute inset-x-0 top-[24%] flex justify-center px-4">
+          <div key={picked.at} className="hud-pop flex max-w-sm items-center gap-3 rounded-2xl bg-black/70 px-4 py-3 ring-2 backdrop-blur" style={{ ['--tw-ring-color' as string]: ITEMS[picked.item]?.color }}>
+            <span className="h-4 w-4 shrink-0 rounded-full" style={{ background: ITEMS[picked.item]?.color }} />
+            <div>
+              <p className="font-display text-xl font-black uppercase leading-none">Got {ITEMS[picked.item]?.name}!</p>
+              <p className="mt-1 text-sm text-chalk/80">
+                {ITEMS[picked.item]?.about} <span className="font-bold text-lime md:pointer-fine:hidden">Tap it bottom right to fire.</span>
+                <span className="hidden font-bold text-lime md:pointer-fine:inline">Press E to fire.</span>
+              </p>
+            </div>
           </div>
         </div>
       ) : null}
 
       {hud?.wrecked ? (
         <div className="pointer-events-none absolute inset-x-0 top-1/3 text-center font-display text-6xl font-black uppercase text-danger drop-shadow-[0_3px_12px_rgba(0,0,0,0.7)]">Wrecked!</div>
+      ) : null}
+
+      {readyMap == null ? (
+        <div className="pointer-events-none absolute inset-x-0 top-[58%] flex justify-center">
+          <p className="animate-pulse rounded-full bg-black/60 px-4 py-2 font-display text-lg font-black uppercase tracking-wider backdrop-blur">Loading the track…</p>
+        </div>
       ) : null}
 
       {banner ? (
@@ -357,9 +402,14 @@ export function RallyScreen({ frameOf, controls, banner, names, seconds, onLeave
               ← → steer · ↑ boost ({hud.boosts}) · ↓ brake · E use item
             </p>
           </div>
+          {/* Touch anywhere: the left half of the screen steers left, the right half steers right. The buttons sit on top. */}
+          <div className="absolute inset-0 flex md:pointer-fine:hidden" aria-hidden="true">
+            <div className="h-full flex-1" {...controls.pad(LEFT)} />
+            <div className="h-full flex-1" {...controls.pad(RIGHT)} />
+          </div>
           {/* Touch: one thumb each side. Left thumb steers left with brake above it; right thumb steers right with boost and the item above it. */}
           <div
-            className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 px-[max(1rem,env(safe-area-inset-left))] md:pointer-fine:hidden"
+            className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 px-[max(1rem,env(safe-area-inset-left))] md:pointer-fine:hidden [&_button]:pointer-events-auto"
             style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))', paddingRight: 'max(1rem, env(safe-area-inset-right))' }}
           >
             <div className="flex flex-col items-start gap-2.5">

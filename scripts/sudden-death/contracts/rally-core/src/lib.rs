@@ -297,9 +297,14 @@ impl Track {
         track
     }
 
+    /// The point after point `i`, round the loop. No remainder: dividing is slow on the chain.
+    fn next(&self, i: usize) -> usize {
+        if i + 1 < self.len { i + 1 } else { 0 }
+    }
+
     /// Segment `i`: its start and the step to the next point.
     pub fn segment(&self, i: usize) -> (i64, i64, i64, i64) {
-        let j = (i + 1) % self.len;
+        let j = self.next(i);
         (self.x[i], self.y[i], self.x[j] - self.x[i], self.y[j] - self.y[i])
     }
 
@@ -319,11 +324,24 @@ impl Track {
         (cx, cy, ex * ex + ey * ey)
     }
 
-    /// The nearest point of the road's middle line within `NEAR` segments of segment `seg`.
+    /// The squared distance from a point to the box round segment `i`: never more than to any point of
+    /// the segment, `nearest`'s rounded one included, since that stays between the segment's ends.
+    fn boxed(&self, i: usize, px: i64, py: i64) -> i64 {
+        let j = self.next(i);
+        let gap = |p: i64, a: i64, b: i64| if p < a.min(b) { a.min(b) - p } else if p > a.max(b) { p - a.max(b) } else { 0 };
+        let (ex, ey) = (gap(px, self.x[i], self.x[j]), gap(py, self.y[i], self.y[j]));
+        ex * ex + ey * ey
+    }
+
+    /// The nearest point of the road's middle line within `NEAR` segments of segment `seg`. A segment
+    /// whose box is no nearer than the best so far can't beat it, so it is skipped without dividing.
     pub fn closest(&self, seg: usize, px: i64, py: i64) -> (i64, i64, i64) {
         let mut best = self.nearest(seg, px, py);
         for k in 1..=NEAR.min((self.len - 1) / 2) {
-            for s in [(seg + self.len - k) % self.len, (seg + k) % self.len] {
+            for s in [if seg >= k { seg - k } else { seg + self.len - k }, if seg + k < self.len { seg + k } else { seg + k - self.len }] {
+                if self.boxed(s, px, py) >= best.2 {
+                    continue;
+                }
                 let other = self.nearest(s, px, py);
                 if other.2 < best.2 {
                     best = other;

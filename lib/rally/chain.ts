@@ -13,8 +13,13 @@ import { requestWalletRefresh } from '@/lib/wallet-refresh';
  * its owner once a whole match has passed.
  */
 
-export const MATCH_LEN = 139;
-export const SEAT_LEN = 65;
+/** Data lengths: version 1 had no wait; version 2 adds the lobby's wait. */
+const MATCH_LEN_V1 = 139;
+export const MATCH_LEN = 143;
+const SEAT_LEN_V1 = 65;
+export const SEAT_LEN = 69;
+const OFF_WAIT = 139;
+const OFF_SEAT_WAIT = 65;
 const SEAT_TAG = 1;
 const OFF_SEATS = 1;
 const OFF_MAP = 2;
@@ -26,7 +31,7 @@ const OFF_RELAY = 107;
 const OFF_OWNER = 1;
 const OFF_KEY = 33;
 const RECORD_VERSION = 2;
-/** After this long, any match or seat cell may go home. Mirrors `MATCH_MS` in live-match. */
+/** After the lobby's wait and this long, any match or seat cell may go home. Mirrors `MATCH_MS` in live-match. */
 export const MATCH_MS = 10 * 60 * 1000;
 export const MIN_SEATS = 2;
 export const MAX_SEATS = 5;
@@ -44,6 +49,8 @@ export type MatchCell = {
   hostKey: ccc.Hex;
   game: ccc.Hex;
   relay: ccc.Hex;
+  /** The longest the lobby waits, in seconds; 0 for a match from before hosts picked one. */
+  wait: number;
 };
 
 export type OutPointRef = { txHash: string; index: string };
@@ -54,6 +61,8 @@ export type Seat = {
   cell: ccc.Cell;
   owner: ccc.Hex;
   key: ccc.Hex;
+  /** Its match's wait, copied when it joined, in seconds. */
+  wait: number;
   landed: Landed | null;
 };
 
@@ -112,7 +121,7 @@ function view(data: Uint8Array): DataView {
 
 export function encodeMatch(cell: MatchCell): Uint8Array {
   const data = new Uint8Array(MATCH_LEN);
-  data[0] = 1;
+  data[0] = 2;
   data[OFF_SEATS] = cell.seats;
   data[OFF_MAP] = cell.map;
   view(data).setBigUint64(OFF_ENTRY, cell.entry, true);
@@ -120,11 +129,13 @@ export function encodeMatch(cell: MatchCell): Uint8Array {
   data.set(ccc.bytesFrom(cell.hostKey), OFF_HOST_KEY);
   data.set(ccc.bytesFrom(cell.game), OFF_GAME);
   data.set(ccc.bytesFrom(cell.relay), OFF_RELAY);
+  view(data).setUint32(OFF_WAIT, cell.wait, true);
   return data;
 }
 
 export function decodeMatch(raw: Uint8Array): MatchCell | null {
-  if (raw.length !== MATCH_LEN || raw[0] !== 1) return null;
+  const v1 = raw.length === MATCH_LEN_V1 && raw[0] === 1;
+  if (!v1 && !(raw.length === MATCH_LEN && raw[0] === 2)) return null;
   return {
     seats: raw[OFF_SEATS]!,
     map: raw[OFF_MAP]!,
@@ -133,20 +144,24 @@ export function decodeMatch(raw: Uint8Array): MatchCell | null {
     hostKey: hexOf(raw.slice(OFF_HOST_KEY, OFF_HOST_KEY + 32)),
     game: hexOf(raw.slice(OFF_GAME, OFF_GAME + 32)),
     relay: hexOf(raw.slice(OFF_RELAY, OFF_RELAY + 32)),
+    wait: v1 ? 0 : view(raw).getUint32(OFF_WAIT, true),
   };
 }
 
-function encodeSeat(owner: ccc.Hex, key: ccc.Hex): Uint8Array {
-  const data = new Uint8Array(SEAT_LEN);
-  data[0] = 1;
+/** A seat has its match's version: with the match's wait, or none for a match from before. */
+function encodeSeat(owner: ccc.Hex, key: ccc.Hex, wait: number): Uint8Array {
+  const data = new Uint8Array(wait > 0 ? SEAT_LEN : SEAT_LEN_V1);
+  data[0] = wait > 0 ? 2 : 1;
   data.set(ccc.bytesFrom(owner), OFF_OWNER);
   data.set(ccc.bytesFrom(key), OFF_KEY);
+  if (wait > 0) view(data).setUint32(OFF_SEAT_WAIT, wait, true);
   return data;
 }
 
-export function decodeSeat(raw: Uint8Array): { owner: ccc.Hex; key: ccc.Hex } | null {
-  if (raw.length !== SEAT_LEN || raw[0] !== 1) return null;
-  return { owner: hexOf(raw.slice(OFF_OWNER, OFF_OWNER + 32)), key: hexOf(raw.slice(OFF_KEY, OFF_KEY + 32)) };
+export function decodeSeat(raw: Uint8Array): { owner: ccc.Hex; key: ccc.Hex; wait: number } | null {
+  const v1 = raw.length === SEAT_LEN_V1 && raw[0] === 1;
+  if (!v1 && !(raw.length === SEAT_LEN && raw[0] === 2)) return null;
+  return { owner: hexOf(raw.slice(OFF_OWNER, OFF_OWNER + 32)), key: hexOf(raw.slice(OFF_KEY, OFF_KEY + 32)), wait: v1 ? 0 : view(raw).getUint32(OFF_SEAT_WAIT, true) };
 }
 
 function toCellDep(s: ScriptConfig): ccc.CellDep {
@@ -248,7 +263,7 @@ export async function matchEnding(client: ccc.Client, matchId: string): Promise<
 /** Opens a match: the host's entry, naming the session key that drives their car and signs its moves. */
 export async function openMatch(
   signer: ccc.Signer,
-  input: { entry: bigint; seats: number; map: number; session: SessionKey },
+  input: { entry: bigint; seats: number; map: number; session: SessionKey; /** In seconds, 60 to 3600. */ wait: number },
 ): Promise<{ matchId: ccc.Hex; point: OutPointRef }> {
   const owner = (await signer.getRecommendedAddressObj()).script;
   const data = encodeMatch({
@@ -259,6 +274,7 @@ export async function openMatch(
     hostKey: input.session.lock.hash(),
     game: ccc.hexFrom(rallyGame.codeHash),
     relay: ccc.hexFrom(rallyRelay.lockHash),
+    wait: input.wait,
   });
   // The type id comes from the first input, known only once the wallet funds the transaction.
   const placeholder = matchScript(new Uint8Array(32));
@@ -289,11 +305,12 @@ export async function joinMatch(signer: ccc.Signer, snapshot: MatchSnapshot, ses
   if (players.length >= snapshot.match.seats) throw new Error('This match is full.');
   const type = seatScript(snapshot.matchId);
   const guard = proxyLock(type.hash());
+  const data = encodeSeat(owner.hash(), session.lock.hash(), snapshot.match.wait);
   const tx = ccc.Transaction.from({
     outputs: [
-      ccc.CellOutput.from({ capacity: snapshot.match.entry + minCapacity(guard, type, SEAT_LEN), lock: guard, type }),
+      ccc.CellOutput.from({ capacity: snapshot.match.entry + minCapacity(guard, type, data.length), lock: guard, type }),
     ],
-    outputsData: [ccc.hexFrom(encodeSeat(owner.hash(), session.lock.hash()))],
+    outputsData: [ccc.hexFrom(data)],
     // The seat names its match without spending it, so players never queue behind each other.
     cellDeps: [...matchCellDeps(), ccc.CellDep.from({ outPoint: snapshot.cell.outPoint, depType: 'code' })],
   });
@@ -304,19 +321,24 @@ export async function joinMatch(signer: ccc.Signer, snapshot: MatchSnapshot, ses
   return { txHash, index: '0x0' };
 }
 
-/** Whether a cell that landed at `landedMs` may go home by now. */
-export function mayGoHome(landedMs: bigint | null | undefined, nowMs: number): boolean {
-  return landedMs != null && nowMs >= Number(landedMs) + MATCH_MS;
+/** How long a cell of a match with this wait (in seconds) holds before it may go home, in ms. */
+export function holdMs(wait: number): number {
+  return wait * 1000 + MATCH_MS;
+}
+
+/** Whether a cell that landed at `landedMs`, of a match with this wait, may go home by now. */
+export function mayGoHome(landedMs: bigint | null | undefined, nowMs: number, wait: number): boolean {
+  return landedMs != null && nowMs >= Number(landedMs) + holdMs(wait);
 }
 
 /**
- * Sends a match or seat cell home to its owner once a whole match has passed since it landed. The
- * cell pays its own fee, so anyone may send it and no wallet is needed.
+ * Sends a match or seat cell home to its owner once its lobby's wait and a whole match have passed
+ * since it landed. The cell pays its own fee, so anyone may send it and no wallet is needed.
  */
-export async function sendHome(client: ccc.Client, cell: ccc.Cell, ownerHash: string): Promise<string> {
+export async function sendHome(client: ccc.Client, cell: ccc.Cell, ownerHash: string, wait: number): Promise<string> {
   const owner = await lockFromHistory(client, cell, ownerHash);
   const tx = ccc.Transaction.from({
-    inputs: [ccc.CellInput.from({ previousOutput: cell.outPoint, since: SINCE_RELATIVE_TIMESTAMP | BigInt(MATCH_MS / 1000) })],
+    inputs: [ccc.CellInput.from({ previousOutput: cell.outPoint, since: SINCE_RELATIVE_TIMESTAMP | BigInt(holdMs(wait) / 1000) })],
     outputs: [ccc.CellOutput.from({ capacity: BigInt(cell.cellOutput.capacity) - FEE, lock: owner })],
     outputsData: ['0x'],
     cellDeps: matchCellDeps(),

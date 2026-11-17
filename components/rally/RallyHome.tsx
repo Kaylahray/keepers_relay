@@ -19,6 +19,7 @@ import { newSessionKey } from '@/lib/chain/session';
 import { MAP_IMG } from '@/lib/crowns/art';
 import { rememberPendingKey, saveRallyKey } from '@/lib/rally/keys';
 import { MAX_SEATS, MIN_SEATS, openMatch } from '@/lib/rally/chain';
+import { WAIT_CHOICES } from '@/lib/rally/protocol';
 import { MAPS } from '@/lib/rally/rules';
 
 const CKB = 100_000_000n;
@@ -57,6 +58,8 @@ export function RallyHome() {
   const { isConnected } = useWallet();
   const [entry, setEntry] = useState(25);
   const [seats, setSeats] = useState(4);
+  // Minutes until the race starts, from when the match lands.
+  const [wait, setWait] = useState(10);
   const [map, setMap] = useState<number>(MAPS[0].id);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -73,7 +76,7 @@ export function RallyHome() {
       const session = await newSessionKey(getCkbClient());
       rememberPendingKey(session.secret);
       setBusy('Approve in your wallet to put your entry in the pot…');
-      const opened = await openMatch(signer, { entry: BigInt(entry) * CKB, seats, map, session });
+      const opened = await openMatch(signer, { entry: BigInt(entry) * CKB, seats, map, session, wait: wait * 60 });
       saveRallyKey(opened.matchId, session.secret);
       router.push(`/rally/${opened.matchId}`);
     } catch (cause) {
@@ -155,6 +158,14 @@ export function RallyHome() {
               <Label>Entry (CKB)</Label>
               <Segmented values={ENTRIES} value={entry} onChange={setEntry} id="entry" label="Entry in CKB" />
             </div>
+          </div>
+
+          <div className="mt-8">
+            <Label>Race starts in (minutes)</Label>
+            <Segmented values={[...WAIT_CHOICES]} value={wait} onChange={setWait} id="wait" label="Race starts in, in minutes" />
+            <p className="mt-2 text-sm text-fog">
+              Counted from when your race lands on chain. Each player who joins takes a fifth off the time left, down to 2 minutes. A full race starts at once, and you can start early once everyone who joined is here.
+            </p>
           </div>
 
           <div className="mt-8 flex flex-col gap-5 border-t border-line pt-6 sm:flex-row sm:items-center sm:justify-between">

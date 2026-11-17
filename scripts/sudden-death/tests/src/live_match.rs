@@ -28,6 +28,10 @@ const STORAGE: u64 = 300 * CKB;
 const MAX_TX_FEE: u64 = 10_000_000;
 const KEY_CAP: u64 = 100 * CKB;
 const MATCH_MS: u64 = 10 * 60 * 1000;
+/// The lobby's wait in these tests: half an hour, in seconds.
+const WAIT_S: u32 = 30 * 60;
+/// How long a match and its seats hold before anyone may send them home: the wait, then a match.
+const HOLD_MS: u64 = WAIT_S as u64 * 1000 + MATCH_MS;
 const SINCE_RELATIVE_TIMESTAMP: u64 = 0xC000_0000_0000_0000;
 const HARBOUR: u8 = 0;
 const SIG_LEN: usize = 65;
@@ -142,7 +146,16 @@ impl Lobby {
             .expect("proxy lock")
     }
 
+    /// A match as opened today: version 2, with the lobby's wait.
     fn match_data(&self, seats: u8, map: u8) -> Vec<u8> {
+        let mut raw = self.match_data_v1(seats, map);
+        raw[0] = 2;
+        raw.extend_from_slice(&WAIT_S.to_le_bytes());
+        raw
+    }
+
+    /// A match opened before the wait: version 1.
+    fn match_data_v1(&self, seats: u8, map: u8) -> Vec<u8> {
         let mut raw = vec![1u8, seats, map];
         raw.extend_from_slice(&ENTRY.to_le_bytes());
         raw.extend_from_slice(&hash_of(&self.players[0]));
@@ -152,7 +165,15 @@ impl Lobby {
         raw
     }
 
+    /// A seat as made today: version 2, with its match's wait.
     fn seat_data(&self, player: usize) -> Vec<u8> {
+        let mut raw = self.seat_data_v1(player);
+        raw[0] = 2;
+        raw.extend_from_slice(&WAIT_S.to_le_bytes());
+        raw
+    }
+
+    fn seat_data_v1(&self, player: usize) -> Vec<u8> {
         let mut raw = vec![1u8];
         raw.extend_from_slice(&hash_of(&self.players[player]));
         raw.extend_from_slice(&hash_of(&self.keys[player]));
@@ -166,9 +187,13 @@ impl Lobby {
     }
 
     fn place_seat(&self, context: &mut Context, player: usize) -> OutPoint {
+        let data = self.seat_data(player);
+        self.place_seat_with(context, data)
+    }
+
+    fn place_seat_with(&self, context: &mut Context, data: Vec<u8>) -> OutPoint {
         let type_script = self.seat_type(context);
         let guard = self.guard(context, &type_script);
-        let data = self.seat_data(player);
         context.create_cell(cell(STORAGE + ENTRY, guard, Some(type_script)), Bytes::from(data))
     }
 
@@ -237,6 +262,22 @@ fn a_match_without_a_relay_or_game_is_rejected() {
 }
 
 #[test]
+fn a_wait_outside_one_minute_to_an_hour_is_rejected() {
+    let mut context = Context::default();
+    let lobby = Lobby::new(&mut context);
+    for (wait, ok) in [(0u32, false), (59, false), (60, true), (3600, true), (3601, false)] {
+        let mut data = lobby.match_data(4, HARBOUR);
+        data[139..143].copy_from_slice(&wait.to_le_bytes());
+        let tx = open_tx(&mut context, &lobby, STORAGE + ENTRY, data);
+        if ok {
+            verify_and_dump_failed_tx(&context, &tx, MAX_CYCLES).expect("a wait in range");
+        } else {
+            rejects_with(&context, &tx, -17);
+        }
+    }
+}
+
+#[test]
 fn a_match_short_of_its_entry_is_rejected() {
     let mut context = Context::default();
     let lobby = Lobby::new(&mut context);
@@ -247,7 +288,12 @@ fn a_match_short_of_its_entry_is_rejected() {
 // ---------------------------------------------------------------- join
 
 fn join_tx(context: &mut Context, lobby: &Lobby, player: usize, cap: u64, with_match: bool, guarded: bool) -> TransactionView {
-    let data = lobby.match_data(5, HARBOUR);
+    let (data, seat) = (lobby.match_data(5, HARBOUR), lobby.seat_data(player));
+    join_with(context, lobby, player, cap, with_match, guarded, data, seat)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn join_with(context: &mut Context, lobby: &Lobby, player: usize, cap: u64, with_match: bool, guarded: bool, data: Vec<u8>, seat: Vec<u8>) -> TransactionView {
     let live = lobby.place_match(context, &data);
     let fund = lobby.wallet(context, &lobby.players[player], cap + 100 * CKB);
     let type_script = lobby.seat_type(context);
@@ -255,7 +301,7 @@ fn join_tx(context: &mut Context, lobby: &Lobby, player: usize, cap: u64, with_m
     let mut tx = TransactionBuilder::default()
         .input(input(fund, 0))
         .output(cell(cap, lock, Some(type_script)))
-        .output_data(Bytes::from(lobby.seat_data(player)).pack());
+        .output_data(Bytes::from(seat).pack());
     if with_match {
         tx = tx.cell_dep(CellDep::new_builder().out_point(live).build());
     }
@@ -268,6 +314,28 @@ fn a_player_joins_by_naming_the_match_without_spending_it() {
     let lobby = Lobby::new(&mut context);
     let tx = join_tx(&mut context, &lobby, 1, STORAGE + ENTRY, true, true);
     verify_and_dump_failed_tx(&context, &tx, MAX_CYCLES).expect("join");
+}
+
+#[test]
+fn a_seat_must_copy_its_matchs_wait() {
+    let mut context = Context::default();
+    let lobby = Lobby::new(&mut context);
+    // Another wait: it could go home before its match was over.
+    let mut short = lobby.seat_data(1);
+    short[65..69].copy_from_slice(&60u32.to_le_bytes());
+    let tx = join_with(&mut context, &lobby, 1, STORAGE + ENTRY, true, true, lobby.match_data(5, HARBOUR), short);
+    rejects_with(&context, &tx, -17);
+    // No wait at all, in a match that has one.
+    let tx = join_with(&mut context, &lobby, 1, STORAGE + ENTRY, true, true, lobby.match_data(5, HARBOUR), lobby.seat_data_v1(1));
+    rejects_with(&context, &tx, -17);
+}
+
+#[test]
+fn a_match_opened_before_the_wait_still_takes_seats() {
+    let mut context = Context::default();
+    let lobby = Lobby::new(&mut context);
+    let tx = join_with(&mut context, &lobby, 1, STORAGE + ENTRY, true, true, lobby.match_data_v1(5, HARBOUR), lobby.seat_data_v1(1));
+    verify_and_dump_failed_tx(&context, &tx, MAX_CYCLES).expect("old join");
 }
 
 #[test]
@@ -602,12 +670,15 @@ fn a_host_alone_cannot_race_themself() {
 // ---------------------------------------------------------------- close and leave
 
 fn close_tx(context: &mut Context, lobby: &Lobby, since: u64, signer: Option<Script>, with_seat: bool, to: &Script) -> TransactionView {
-    let data = lobby.match_data(4, HARBOUR);
+    close_with(context, lobby, lobby.match_data(4, HARBOUR), since, signer, with_seat, to)
+}
+
+fn close_with(context: &mut Context, lobby: &Lobby, data: Vec<u8>, since: u64, signer: Option<Script>, with_seat: bool, to: &Script) -> TransactionView {
     let live = lobby.place_match(context, &data);
     let mut tx = TransactionBuilder::default().input(input(live, since));
     if with_seat {
         let seat = lobby.place_seat(context, 1);
-        tx = tx.input(input(seat, waited(MATCH_MS))).output(cell(STORAGE + ENTRY - MAX_TX_FEE, lobby.players[1].clone(), None)).output_data(Bytes::new().pack());
+        tx = tx.input(input(seat, waited(HOLD_MS))).output(cell(STORAGE + ENTRY - MAX_TX_FEE, lobby.players[1].clone(), None)).output_data(Bytes::new().pack());
     }
     if let Some(lock) = signer {
         let key = lobby.wallet(context, &lock, KEY_CAP);
@@ -631,8 +702,29 @@ fn after_a_whole_match_anyone_can_send_the_host_home() {
     let mut context = Context::default();
     let lobby = Lobby::new(&mut context);
     let host = lobby.players[0].clone();
-    let tx = close_tx(&mut context, &lobby, waited(MATCH_MS), None, false, &host);
+    let tx = close_tx(&mut context, &lobby, waited(HOLD_MS), None, false, &host);
     verify_and_dump_failed_tx(&context, &tx, MAX_CYCLES).expect("timeout close");
+}
+
+#[test]
+fn nobody_sends_the_host_home_while_the_lobby_may_still_wait() {
+    let mut context = Context::default();
+    let lobby = Lobby::new(&mut context);
+    let host = lobby.players[0].clone();
+    // Ten minutes was a whole match before the wait; with a half-hour lobby it is far too soon.
+    let tx = close_tx(&mut context, &lobby, waited(MATCH_MS), None, false, &host);
+    rejects_with(&context, &tx, -10);
+    let tx = close_tx(&mut context, &lobby, waited(HOLD_MS - 60_000), None, false, &host);
+    rejects_with(&context, &tx, -10);
+}
+
+#[test]
+fn a_match_opened_before_the_wait_goes_home_after_ten_minutes() {
+    let mut context = Context::default();
+    let lobby = Lobby::new(&mut context);
+    let host = lobby.players[0].clone();
+    let tx = close_with(&mut context, &lobby, lobby.match_data_v1(4, HARBOUR), waited(MATCH_MS), None, false, &host);
+    verify_and_dump_failed_tx(&context, &tx, MAX_CYCLES).expect("old timeout close");
 }
 
 #[test]
@@ -640,7 +732,7 @@ fn the_host_cannot_close_early_alone() {
     let mut context = Context::default();
     let lobby = Lobby::new(&mut context);
     let host = lobby.players[0].clone();
-    let tx = close_tx(&mut context, &lobby, waited(MATCH_MS - 60_000), Some(lobby.players[0].clone()), false, &host);
+    let tx = close_tx(&mut context, &lobby, waited(HOLD_MS - 60_000), Some(lobby.players[0].clone()), false, &host);
     rejects_with(&context, &tx, -10);
 }
 
@@ -649,7 +741,7 @@ fn a_close_paying_someone_else_is_rejected() {
     let mut context = Context::default();
     let lobby = Lobby::new(&mut context);
     let stranger = lobby.stranger.clone();
-    let tx = close_tx(&mut context, &lobby, waited(MATCH_MS), None, false, &stranger);
+    let tx = close_tx(&mut context, &lobby, waited(HOLD_MS), None, false, &stranger);
     rejects_with(&context, &tx, -3);
 }
 
@@ -658,12 +750,16 @@ fn a_close_cannot_take_a_seat_with_it() {
     let mut context = Context::default();
     let lobby = Lobby::new(&mut context);
     let host = lobby.players[0].clone();
-    let tx = close_tx(&mut context, &lobby, waited(MATCH_MS), Some(lobby.relay.clone()), true, &host);
+    let tx = close_tx(&mut context, &lobby, waited(HOLD_MS), Some(lobby.relay.clone()), true, &host);
     rejects_with(&context, &tx, -17);
 }
 
 fn leave_tx(context: &mut Context, lobby: &Lobby, since: u64, to: &Script) -> TransactionView {
     let seats = [lobby.place_seat(context, 1), lobby.place_seat(context, 2)];
+    leave_seats(context, lobby, seats, since, to)
+}
+
+fn leave_seats(context: &mut Context, lobby: &Lobby, seats: [OutPoint; 2], since: u64, to: &Script) -> TransactionView {
     let tx = TransactionBuilder::default()
         .input(input(seats[0].clone(), since))
         .input(input(seats[1].clone(), since))
@@ -679,8 +775,18 @@ fn seats_that_never_raced_go_home_after_a_whole_match() {
     let mut context = Context::default();
     let lobby = Lobby::new(&mut context);
     let owner = lobby.players[1].clone();
-    let tx = leave_tx(&mut context, &lobby, waited(MATCH_MS), &owner);
+    let tx = leave_tx(&mut context, &lobby, waited(HOLD_MS), &owner);
     verify_and_dump_failed_tx(&context, &tx, MAX_CYCLES).expect("seats leave");
+}
+
+#[test]
+fn seats_from_before_the_wait_go_home_after_ten_minutes() {
+    let mut context = Context::default();
+    let lobby = Lobby::new(&mut context);
+    let owner = lobby.players[1].clone();
+    let seats = [lobby.place_seat_with(&mut context, lobby.seat_data_v1(1)), lobby.place_seat_with(&mut context, lobby.seat_data_v1(2))];
+    let tx = leave_seats(&mut context, &lobby, seats, waited(MATCH_MS), &owner);
+    verify_and_dump_failed_tx(&context, &tx, MAX_CYCLES).expect("old seats leave");
 }
 
 #[test]
@@ -688,7 +794,10 @@ fn a_seat_cannot_leave_while_its_match_may_still_be_racing() {
     let mut context = Context::default();
     let lobby = Lobby::new(&mut context);
     let owner = lobby.players[1].clone();
-    let tx = leave_tx(&mut context, &lobby, waited(MATCH_MS - 60_000), &owner);
+    let tx = leave_tx(&mut context, &lobby, waited(HOLD_MS - 60_000), &owner);
+    rejects_with(&context, &tx, -10);
+    // A match's worth of time alone isn't enough: the lobby may still be waiting.
+    let tx = leave_tx(&mut context, &lobby, waited(MATCH_MS), &owner);
     rejects_with(&context, &tx, -10);
 }
 
@@ -697,6 +806,6 @@ fn a_seat_leaving_to_someone_else_is_rejected() {
     let mut context = Context::default();
     let lobby = Lobby::new(&mut context);
     let stranger = lobby.stranger.clone();
-    let tx = leave_tx(&mut context, &lobby, waited(MATCH_MS), &stranger);
+    let tx = leave_tx(&mut context, &lobby, waited(HOLD_MS), &stranger);
     rejects_with(&context, &tx, -3);
 }

@@ -12,12 +12,18 @@
 //! - finish: the race record is in the match cell's witness. The game replays it and the money goes
 //!   where the result says (see below). It spends every seat that raced.
 //! - close: no record and no seats. The host's cell goes back to them, at once if the relay signs (a
-//!   lobby nobody joined), or by anyone once it has waited `MATCH_MS` (something broke).
+//!   lobby nobody joined), or by anyone once it has waited the host's wait and `MATCH_MS` more
+//!   (something broke).
 //!
 //! A **seat cell** (args: match id ‖ 1) holds one player's entry. It names the live match in its cell
 //! deps when it is made, so players join without touching the match cell or each other. Its lock is
 //! the proxy lock on its own type. It is spent by its match's finish, or goes back to its owner once
-//! it has waited `MATCH_MS`: a seat that never raced is never stuck.
+//! it has waited its match's wait and `MATCH_MS` more: a seat that never raced is never stuck. A seat
+//! copies its match's wait, so it knows how long once the match is gone.
+//!
+//! **The wait.** The host picks how long the lobby may wait before the race, 1 to 60 minutes. The
+//! relay may start sooner (a full lobby, the host's word, a clock cut by each join); the chain only
+//! needs the longest it could be, so nothing goes home while it might still race.
 //!
 //! **Finish.** The witness holds `version 2 ‖ cars u8 ‖ per car: count u16 LE ‖ events ‖ signature`.
 //! Car 0 is the host, then each seat in the order it is spent. The game is asked to judge the record
@@ -41,10 +47,10 @@
 //! `map u8 ‖ cars u8 ‖ per car: count u16 LE ‖ events`. It answers one byte per car, or an error for
 //! an illegal record or a map it doesn't have.
 //!
-//! Match cell data, version 1:
+//! Match cell data, version 2 (version 1 has no wait, and waits `MATCH_MS` alone):
 //!
 //! ```text
-//! 0   1   version = 1
+//! 0   1   version = 2
 //! 1   1   seats u8: the most cars, host included, 2 to 5
 //! 2   1   map u8, as the game numbers them
 //! 3   8   entry u64: what each player puts in the pot
@@ -52,9 +58,11 @@
 //! 43  32  host key lock hash
 //! 75  32  game: data hash of the game script that judges the match
 //! 107 32  relay lock hash
+//! 139 4   wait u32: the longest the lobby waits, in seconds
 //! ```
 //!
-//! Seat cell data, version 1: `version ‖ owner lock hash ‖ key lock hash`.
+//! Seat cell data, version 2: `version ‖ owner lock hash ‖ key lock hash ‖ wait u32`, the wait copied
+//! from its match. Version 1 has no wait. A seat has its match's version.
 
 use alloc::vec::Vec;
 use ckb_std::ckb_constants::Source;
@@ -77,7 +85,8 @@ default_alloc!();
 /// A match moved in a way its state does not allow.
 const ERR_MATCH: i8 = ERR_DUEL;
 
-const LIVE_VERSION: u8 = 1;
+const LIVE_V1: u8 = 1;
+const LIVE_V2: u8 = 2;
 const OFF_SEATS: usize = 1;
 const OFF_MAP: usize = 2;
 const OFF_ENTRY: usize = 3;
@@ -85,15 +94,21 @@ const OFF_HOST: usize = 11;
 const OFF_HOST_KEY: usize = 43;
 const OFF_LIVE_GAME: usize = 75;
 const OFF_RELAY: usize = 107;
-const LIVE_LEN: usize = 139;
+const LIVE_LEN_V1: usize = 139;
+const OFF_WAIT: usize = 139;
+const LIVE_LEN_V2: usize = 143;
+/// The shortest and longest a host may make the lobby wait, in seconds.
+const MIN_WAIT_S: u32 = 60;
+const MAX_WAIT_S: u32 = 60 * 60;
 const MIN_SEATS: u8 = 2;
 const MAX_SEATS: u8 = 5;
 
 const SEAT_TAG: u8 = 1;
-const SEAT_VERSION: u8 = 1;
 const OFF_OWNER: usize = 1;
 const OFF_KEY: usize = 33;
-const SEAT_LEN: usize = 65;
+const SEAT_LEN_V1: usize = 65;
+const OFF_SEAT_WAIT: usize = 65;
+const SEAT_LEN_V2: usize = 69;
 
 const RECORD_VERSION: u8 = 2;
 const SIG_LEN: usize = 65;
@@ -101,8 +116,8 @@ const SIG_LEN: usize = 65;
 const MOVES_DOMAIN: &[u8] = b"crowns-rally-moves-1";
 /// Set on a car's result by the game once it finished.
 const FINISHED: u8 = 0x80;
-/// A match is over by now: the lobby, the race, and time to sign the finish. After it, every cell
-/// may go home.
+/// After the lobby's wait, a match is over by now: the race and time to sign the finish. After both,
+/// every cell may go home.
 const MATCH_MS: u64 = 10 * 60 * 1000;
 
 fn program_entry() -> i8 {
@@ -157,21 +172,31 @@ fn seat_args(match_id: &[u8; 32]) -> [u8; 33] {
     args
 }
 
-fn parse_match(data: &[u8]) -> Result<(), i8> {
-    if data.len() != LIVE_LEN || data[0] != LIVE_VERSION {
-        return Err(ERR_LEN);
-    }
+/// A match cell's data: its version and the lobby's wait in seconds (0 for version 1).
+fn parse_match(data: &[u8]) -> Result<(u8, u32), i8> {
+    let wait = match (data.first(), data.len()) {
+        (Some(&LIVE_V1), LIVE_LEN_V1) => 0,
+        (Some(&LIVE_V2), LIVE_LEN_V2) => read_u32(data, OFF_WAIT)?,
+        _ => return Err(ERR_LEN),
+    };
     if !(MIN_SEATS..=MAX_SEATS).contains(&data[OFF_SEATS]) {
         return Err(ERR_MATCH);
     }
-    Ok(())
+    Ok((data[0], wait))
 }
 
-fn parse_seat(data: &[u8]) -> Result<(), i8> {
-    if data.len() != SEAT_LEN || data[0] != SEAT_VERSION {
-        return Err(ERR_LEN);
+/// A seat cell's data: its version and its match's wait in seconds (0 for version 1).
+fn parse_seat(data: &[u8]) -> Result<(u8, u32), i8> {
+    match (data.first(), data.len()) {
+        (Some(&LIVE_V1), SEAT_LEN_V1) => Ok((LIVE_V1, 0)),
+        (Some(&LIVE_V2), SEAT_LEN_V2) => Ok((LIVE_V2, read_u32(data, OFF_SEAT_WAIT)?)),
+        _ => Err(ERR_LEN),
     }
-    Ok(())
+}
+
+/// How long a cell with this wait holds before anyone may send it home.
+fn hold_ms(wait: u32) -> u64 {
+    wait as u64 * 1000 + MATCH_MS
 }
 
 /// The cell holds the entry and room for itself.
@@ -209,14 +234,14 @@ fn match_cell(own: &Script, match_id: &[u8; 32]) -> Result<(), i8> {
         (0, 1) => open(),
         (1, 0) => {
             let data = load_cell_data(0, Source::GroupInput).map_err(|_| ERR_LEN)?;
-            parse_match(&data)?;
+            let (_, wait) = parse_match(&data)?;
             let record = load_witness_args(0, Source::GroupInput)
                 .ok()
                 .and_then(|witness| witness.input_type().to_opt())
                 .map(|field| field.raw_data().to_vec());
             match record {
                 Some(record) => finish(own, match_id, &data, &record),
-                None => close(own, match_id, &data),
+                None => close(own, match_id, &data, wait),
             }
         }
         _ => Err(ERR_MODE),
@@ -226,7 +251,10 @@ fn match_cell(own: &Script, match_id: &[u8; 32]) -> Result<(), i8> {
 fn open() -> Result<(), i8> {
     check_type_id(0, 32).map_err(|_| ERR_LEN)?;
     let out = load_cell_data(0, Source::GroupOutput).map_err(|_| ERR_LEN)?;
-    parse_match(&out)?;
+    let (version, wait) = parse_match(&out)?;
+    if version == LIVE_V2 && !(MIN_WAIT_S..=MAX_WAIT_S).contains(&wait) {
+        return Err(ERR_MATCH);
+    }
     let entry = read_u64(&out, OFF_ENTRY)?;
     for offset in [OFF_HOST, OFF_HOST_KEY, OFF_LIVE_GAME, OFF_RELAY] {
         if bytes::<32>(&out, offset)? == [0u8; 32] {
@@ -241,12 +269,12 @@ fn open() -> Result<(), i8> {
 }
 
 /// The host's cell goes home. Seats are never spent with it: each goes home on its own.
-fn close(own: &Script, match_id: &[u8; 32], data: &[u8]) -> Result<(), i8> {
+fn close(own: &Script, match_id: &[u8; 32], data: &[u8], wait: u32) -> Result<(), i8> {
     if find_cell(own, &seat_args(match_id), Source::Input)?.is_some() {
         return Err(ERR_MATCH);
     }
     let since = load_input_since(0, Source::GroupInput).map_err(|_| ERR_LEN)?;
-    if !since_waited(since, MATCH_MS) && !has_input_locked_by(&bytes::<32>(data, OFF_RELAY)?) {
+    if !since_waited(since, hold_ms(wait)) && !has_input_locked_by(&bytes::<32>(data, OFF_RELAY)?) {
         return Err(ERR_SINCE);
     }
     let total = load_cell_capacity(0, Source::GroupInput).map_err(|_| ERR_POT)?;
@@ -409,12 +437,15 @@ fn join(own: &Script, match_id: &[u8; 32], n: usize) -> Result<(), i8> {
     }
     let index = find_cell(own, match_id, Source::CellDep)?.ok_or(ERR_MATCH)?;
     let data = load_cell_data(index, Source::CellDep).map_err(|_| ERR_LEN)?;
-    parse_match(&data)?;
+    let terms = parse_match(&data)?;
     let entry = read_u64(&data, OFF_ENTRY)?;
     let own_hash = current_script_hash()?;
     for i in 0..n {
         let seat = load_cell_data(i, Source::GroupOutput).map_err(|_| ERR_LEN)?;
-        parse_seat(&seat)?;
+        // The same version and wait as its match, so it waits as long once the match is gone.
+        if parse_seat(&seat)? != terms {
+            return Err(ERR_MATCH);
+        }
         if bytes::<32>(&seat, OFF_OWNER)? == [0u8; 32] || bytes::<32>(&seat, OFF_KEY)? == [0u8; 32] {
             return Err(ERR_MATCH);
         }
@@ -428,12 +459,12 @@ fn join(own: &Script, match_id: &[u8; 32], n: usize) -> Result<(), i8> {
 fn leave(n: usize) -> Result<(), i8> {
     let mut owed = Vec::new();
     for i in 0..n {
+        let seat = load_cell_data(i, Source::GroupInput).map_err(|_| ERR_LEN)?;
+        let (_, wait) = parse_seat(&seat)?;
         let since = load_input_since(i, Source::GroupInput).map_err(|_| ERR_LEN)?;
-        if !since_waited(since, MATCH_MS) {
+        if !since_waited(since, hold_ms(wait)) {
             return Err(ERR_SINCE);
         }
-        let seat = load_cell_data(i, Source::GroupInput).map_err(|_| ERR_LEN)?;
-        parse_seat(&seat)?;
         let capacity = load_cell_capacity(i, Source::GroupInput).map_err(|_| ERR_POT)?;
         owe(&mut owed, bytes::<32>(&seat, OFF_OWNER)?, capacity.checked_sub(MAX_TX_FEE).ok_or(ERR_POT)?)?;
     }

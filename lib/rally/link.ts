@@ -69,6 +69,12 @@ export class RallyLink {
     return reply.txHash;
   }
 
+  /** The host asks the relay to start the race now. */
+  async start(): Promise<void> {
+    if (!this.token) throw new Error('Join the race first.');
+    await this.post('/start', { matchId: this.matchId, token: this.token });
+  }
+
   private async post<T>(path: string, body: unknown): Promise<T> {
     const response = await fetch(`${rallyRelay.url}${path}`, {
       method: 'POST',

@@ -10,10 +10,10 @@ import { winnersOf, type RallyRunner } from '@/lib/rally/rules';
 
 /**
  * Earlier rally game cells with the same rules as the one this site runs: the race plays out the same,
- * only how the match script calls the game changed. 0x0800…6e1b answered over one pipe; the IPC
- * game that replaced it serves the same rules.
+ * only how fast the game replays it changed. 0x151d…6b6c is the rounded-road game before the cheaper replay.
+ * Games from before the rounded roads drive differently, so they are not here.
  */
-const SAME_RULES = ['0x0800778ca55ebcafbb5a648e00f0bad73fa5d107a22f9dfcfef53f0822576e1b'];
+const SAME_RULES = ['0x151d91491f9ddf21728ed1ac5bf879bdfbd176ed11b1ef23b4f72be369116b6c'];
 
 /** Whether a race whose match named `game` can be replayed with this site's rules. */
 export function playsByTheseRules(game: string): boolean {

@@ -22,7 +22,7 @@ import { loadRallyKey, pendingKeys, rememberPendingKey, saveRallyKey } from '@/l
 import { RallyLink } from '@/lib/rally/link';
 import { findMatch, findSeats, joinMatch, matchEnding, mayGoHome, racingSeats, sendHome, type Seat } from '@/lib/rally/chain';
 import { mapName } from '@/lib/rally/rules';
-import { LOBBY_MS } from '@/lib/rally/protocol';
+import { doorsOpen, LOBBY_MS } from '@/lib/rally/protocol';
 import { MAP_IMG } from '@/lib/crowns/art';
 import { rallyGame } from '@/lib/registry/config';
 
@@ -120,7 +120,7 @@ export function RallyView({ id }: { id: string }) {
   const full = Boolean(cell && players.length >= cell.seats);
   const confirming = Boolean(snapshot?.seats.some((seat) => !seat.landed && seat.owner.toLowerCase() === myLockHash));
   const mySeats = (ended ? (leftover.data ?? []) : (snapshot?.seats ?? [])).filter((seat) => seat.owner.toLowerCase() === myLockHash);
-  const hostCanGoHome = Boolean(iAmHost && snapshot && mayGoHome(snapshot.landed?.landedMs, now));
+  const hostCanGoHome = Boolean(iAmHost && snapshot && mayGoHome(snapshot.landed?.landedMs, now, snapshot.match.wait));
   // Our seat was sent but the chain doesn't show it yet; our entry was sent home but the cell's still there.
   const fresh = sent != null && now - sent.at < SENT_WAIT_MS;
   const seatLanding = fresh && sent?.what === 'join' && !iAmIn && !confirming;
@@ -196,11 +196,11 @@ export function RallyView({ id }: { id: string }) {
     }
   }
 
-  async function goHome(target: { cell: ccc.Cell; owner: string }) {
+  async function goHome(target: { cell: ccc.Cell; owner: string; wait: number }) {
     setError(null);
     try {
       setBusy('Sending your entry home…');
-      await sendHome(getCkbClient(), target.cell, target.owner);
+      await sendHome(getCkbClient(), target.cell, target.owner, target.wait);
       setSent({ what: 'home', at: sentAt(), cell: outPointKey(target.cell) });
       refresh();
     } catch (cause) {
@@ -236,8 +236,8 @@ export function RallyView({ id }: { id: string }) {
   }
 
   const homeButtons = mySeats.map((seat: Seat) =>
-    mayGoHome(seat.landed?.landedMs, now) ? (
-      <Button key={seat.cell.outPoint.txHash} variant="ghost" block onClick={() => void goHome({ cell: seat.cell, owner: seat.owner })} disabled={Boolean(busy)}>
+    mayGoHome(seat.landed?.landedMs, now, seat.wait) ? (
+      <Button key={seat.cell.outPoint.txHash} variant="ghost" block onClick={() => void goHome({ cell: seat.cell, owner: seat.owner, wait: seat.wait })} disabled={Boolean(busy)}>
         Send my entry home ({Number(seat.cell.cellOutput.capacity) / CKB} CKB)
       </Button>
     ) : null,
@@ -293,7 +293,7 @@ export function RallyView({ id }: { id: string }) {
           </div>
         ) : mySeats.length > 0 ? (
           <div className="mx-auto mt-8 max-w-md space-y-3">
-            <p className="text-gold">Your seat didn’t race, so your entry is still yours. It can go home 10 minutes after it landed.</p>
+            <p className="text-gold">Your seat didn’t race, so your entry is still yours. It can go home once its race could have ended: 10 minutes after the lobby’s wait.</p>
             {homeButtons}
           </div>
         ) : null}
@@ -387,9 +387,9 @@ export function RallyView({ id }: { id: string }) {
                   <span className={`font-display text-4xl font-black tabular-nums ${left < 30_000 ? 'text-pink' : ''}`}>{clock(left)}</span>
                 </div>
                 <div className="mt-3 h-2 overflow-hidden rounded-full bg-ink-3">
-                  <div className="h-full rounded-full bg-lime transition-[width] duration-1000 ease-linear" style={{ width: `${Math.min(100, (left / LOBBY_MS) * 100)}%` }} />
+                  <div className="h-full rounded-full bg-lime transition-[width] duration-1000 ease-linear" style={{ width: `${Math.min(100, (left / (cell.wait ? cell.wait * 1000 : LOBBY_MS)) * 100)}%` }} />
                 </div>
-                <p className="mt-2 text-sm text-fog">Starts when the clock runs out, or at once when every seat is full.</p>
+                <p className="mt-2 text-sm text-fog">Starts when the clock runs out, at once when every seat is full, or when the host starts it. Each player who joins takes a fifth off the time left, down to 2 minutes.</p>
               </div>
             ) : null}
 
@@ -402,7 +402,7 @@ export function RallyView({ id }: { id: string }) {
                 <>
                   {retired ? (
                     <p className="rounded-2xl bg-gold/10 p-4 text-gold">
-                      This race was opened on an older version of the game, which has since been replaced, so it can’t be raced. Every entry can go home 10 minutes after it landed.
+                      This race was opened on an older version of the game, which has since been replaced, so it can’t be raced. Every entry can go home 10 minutes after the lobby’s wait.
                     </p>
                   ) : iAmIn && session ? (
                     <Button variant="lime" size="xl" block onClick={() => setRacing(true)}>
@@ -414,6 +414,8 @@ export function RallyView({ id }: { id: string }) {
                     </p>
                   ) : confirming || seatLanding ? (
                     <ChainLoader compact title="Your seat is landing on chain…" note="Your entry is going into your own cell." />
+                  ) : !full && ends != null && !doorsOpen(ends, now) ? (
+                    <p className="text-fog">The doors have closed: this race starts within a minute. Watch it, or open your own.</p>
                   ) : !full ? (
                     <Button variant="lime" size="xl" block onClick={() => void join()} disabled={Boolean(busy) || !isConnected}>
                       {isConnected ? `Join – put ${Number(cell.entry) / CKB} CKB in the pot` : 'Connect your wallet to join'}
@@ -437,7 +439,7 @@ export function RallyView({ id }: { id: string }) {
                     </Button>
                   ) : null}
                   {hostCanGoHome ? (
-                    <Button variant="ghost" block onClick={() => void goHome({ cell: snapshot.cell, owner: cell.host })} disabled={Boolean(busy)}>
+                    <Button variant="ghost" block onClick={() => void goHome({ cell: snapshot.cell, owner: cell.host, wait: cell.wait })} disabled={Boolean(busy)}>
                       Something went wrong: send my entry home
                     </Button>
                   ) : null}

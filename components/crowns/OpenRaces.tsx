@@ -29,7 +29,7 @@ export function useNow(every = 1000): number {
 export function lobbyEnd(item: MatchSnapshot): number | null {
   if (!item.landed) return null;
   const seats = racingSeats(item).map((seat) => Number(seat.landed!.landedMs));
-  return lobbyEndsAt(Number(item.landed.landedMs), seats, item.match.seats);
+  return lobbyEndsAt(Number(item.landed.landedMs), seats, item.match.seats, item.match.wait * 1000);
 }
 
 function clock(ms: number): string {

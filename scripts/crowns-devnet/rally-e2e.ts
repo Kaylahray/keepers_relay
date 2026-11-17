@@ -123,7 +123,7 @@ async function main() {
   type Mode = 'drive' | 'park' | 'unsigned';
 
   /** One phone: joins with its session key, drives its car, and signs its moves as the relay passes them back. */
-  async function phone(matchId: string, secret: ccc.Hex, mode: Mode) {
+  async function phone(matchId: string, secret: ccc.Hex, mode: Mode, host = false) {
     const runner = await rules.loadRally(wasm);
     const snapshot = (await chain.findMatch(client, matchId))!;
     let cars: string[] = [];
@@ -135,6 +135,7 @@ async function main() {
     let token = '';
     let sent = -1;
     let done: { phase: string; txHash?: string; note?: string } | null = null;
+    let started = false;
     const own = new moves.OwnMoves(matchId, secret);
     const me = (await new ccc.SignerCkbPrivateKey(client, secret).getRecommendedAddressObj()).script.hash().toLowerCase();
 
@@ -150,6 +151,13 @@ async function main() {
           next = cars.map(() => 0);
         }
         if (message.phase === 'done' || message.phase === 'failed') done = { phase: message.phase, txHash: message.txHash, note: message.note };
+        // The host presses Start now as soon as the relay says it may.
+        if (host && message.startable && token && !started) {
+          started = true;
+          void post('/start', { matchId, token })
+            .then(() => console.log('  the host started it early'))
+            .catch((cause) => console.log(`  start not taken: ${cause instanceof Error ? cause.message : cause}`));
+        }
       } else if (message.type === 'tick') {
         const mine = cars.indexOf(me);
         let mineMoved = false;
@@ -207,15 +215,15 @@ async function main() {
   type Entrant = { signer: ccc.SignerCkbPrivateKey; key: import('@/lib/chain/session').SessionKey; lock: ccc.Script };
 
   /** Opens a match for `seats` with the first entrant as host, and seats the rest. */
-  async function lobby(seats: number, map: number, signers: ccc.SignerCkbPrivateKey[]) {
+  async function lobby(seats: number, map: number, signers: ccc.SignerCkbPrivateKey[], wait = 5 * 60) {
     const entrants: Entrant[] = [];
     for (const signer of signers) entrants.push({ signer, key: await session.newSessionKey(client), lock: (await signer.getRecommendedAddressObj()).script });
-    const opened = await chain.openMatch(entrants[0]!.signer, { entry: ENTRY, seats, map, session: entrants[0]!.key });
+    const opened = await chain.openMatch(entrants[0]!.signer, { entry: ENTRY, seats, map, session: entrants[0]!.key, wait });
     await waitCommitted(client, opened.point.txHash, 'open');
     // The indexer can lag the commit by a moment.
     let snapshot = null as Awaited<ReturnType<typeof chain.findMatch>>;
     await soon(async () => (snapshot = await chain.findMatch(client, opened.matchId)) != null);
-    check(snapshot != null && snapshot.match.seats === seats && snapshot.match.map === map, `a ${seats}-seat match opens on ${rules.mapName(map)}`);
+    check(snapshot != null && snapshot.match.seats === seats && snapshot.match.map === map && snapshot.match.wait === wait, `a ${seats}-seat match opens on ${rules.mapName(map)}, waiting ${wait / 60} min`);
     // Every seat names the match in its cell deps, so they all join at once.
     const joins = await Promise.all(entrants.slice(1).map((entrant) => chain.joinMatch(entrant.signer, snapshot!, entrant.key)));
     for (const joined of joins) await waitCommitted(client, joined.txHash, 'join');
@@ -246,13 +254,16 @@ async function main() {
     return paid;
   }
 
-  async function race(label: string, seats: number, map: number, signers: ccc.SignerCkbPrivateKey[], modes: Mode[]) {
+  async function race(label: string, seats: number, map: number, signers: ccc.SignerCkbPrivateKey[], modes: Mode[], early = false) {
     console.log(`\n${label}`);
-    const { matchId, entrants } = await lobby(seats, map, signers);
-    const phones = await Promise.all(entrants.map((entrant, i) => phone(matchId, entrant.key.secret, modes[i]!)));
+    const { matchId, entrants } = await lobby(seats, map, signers, early ? 60 * 60 : 5 * 60);
+    const opened = Date.now();
+    const phones = await Promise.all(entrants.map((entrant, i) => phone(matchId, entrant.key.secret, modes[i]!, early && i === 0)));
     console.log('  racing…');
     const ends = await Promise.all(phones.map((p) => p.finished()));
     const first = ends[0]!;
+    // An hour's wait, cut a fifth by one join: the race only ended this soon because the host started it.
+    if (early) check(Date.now() - opened < 10 * 60_000, 'the host started a half-empty race early', `${Math.round((Date.now() - opened) / 1000)} s`);
     check(first.done?.phase === 'done', 'the relay sent the finish', first.done?.note ?? first.done?.txHash ?? 'no result');
     check(ends.every((end) => JSON.stringify(end.results) === JSON.stringify(first.results)), 'every phone saw the same race', `results ${first.results.map((r) => r.toString(16)).join(',')}`);
     if (first.done?.txHash) {
@@ -306,6 +317,7 @@ async function main() {
     await race('Race 2: the only car that finishes never signs its moves', 3, 2, [host, guest, third], ['park', 'park', 'unsigned']);
     await race('Race 3: nobody leaves the line', 2, 1, [host, guest], ['park', 'park']);
     await emptyLobby();
+    await race('Race 5: two of four seats, an hour’s wait, the host starts it now', 4, 1, [host, guest], ['drive', 'drive'], true);
   } finally {
     // The relay runs under a shell; on Windows only a tree kill stops it.
     if (process.platform === 'win32' && relay.pid) spawnSync('taskkill', ['/pid', String(relay.pid), '/T', '/F']);

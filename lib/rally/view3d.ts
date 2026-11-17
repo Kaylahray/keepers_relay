@@ -102,6 +102,11 @@ export class RallyView3D {
     this.overhead = null;
   }
 
+  /** Whether the world is built: its models and road textures loaded. Until then nothing is drawn. */
+  isReady(): boolean {
+    return this.view?.isReady() ?? false;
+  }
+
   /** Draws one frame. Call once per animation frame with the race as it stands. */
   draw(frame: RallyFrame) {
     this.prepare(frame);

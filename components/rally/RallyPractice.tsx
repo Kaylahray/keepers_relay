@@ -37,17 +37,36 @@ export function RallyPractice() {
   const track = useRef<{ x: number; y: number }[]>([]);
   const controls = useRallyControls(() => {}, runner != null);
 
+  // The countdown waits for the round's track to be drawn. On a slow phone the road takes a while to load,
+  // and a race that started without it would be half over before the car showed.
+  const drawn = useRef<number | null>(null);
+  const waiting = useRef<number | null>(null);
+  const countdown = useCallback(() => {
+    if (waiting.current == null || drawn.current !== waiting.current) return;
+    waiting.current = null;
+    // The clock and the start from the same moment, so the countdown opens on 3, not on a timestamp.
+    const at = Date.now();
+    setNow(at);
+    setStartAt(at + COUNTDOWN_MS);
+  }, []);
+  const onReady = useCallback(
+    (ready: number | null) => {
+      drawn.current = ready;
+      countdown();
+    },
+    [countdown],
+  );
+
   // The next map each round, then the countdown.
   const startRound = useCallback((loaded: RallyRunner, next: number) => {
     setMap(next);
     loaded.start(0, next, CARS);
     track.current = loaded.track(0);
     setResult(null);
-    // The clock and the start from the same moment, so the countdown opens on 3, not on a timestamp.
-    const at = Date.now();
-    setNow(at);
-    setStartAt(at + COUNTDOWN_MS);
-  }, []);
+    setStartAt(null);
+    waiting.current = next;
+    countdown();
+  }, [countdown]);
 
   useEffect(() => {
     let live = true;
@@ -99,7 +118,7 @@ export function RallyPractice() {
   }
 
   const left = startAt == null ? 0 : startAt - now;
-  const banner = left > COUNTDOWN_MS ? null : left > 0 ? Math.ceil(left / 1000) : left > -800 ? 'Go!' : null;
+  const banner = startAt == null || left > COUNTDOWN_MS ? null : left > 0 ? Math.ceil(left / 1000) : left > -800 ? 'Go!' : null;
   const seconds = startAt == null || left > 0 ? 0 : (runner?.tick(0) ?? 0) / RALLY.TICK_HZ;
 
   const mine = result?.[0];
@@ -114,7 +133,8 @@ export function RallyPractice() {
       seconds={seconds}
       onLeave={() => router.push('/rally')}
       leaveLabel="Leave practice"
-      tag={<span className="mt-3 inline-block rounded-md bg-pink px-2 py-0.5 font-display text-sm font-black uppercase text-ink">Practice · free</span>}
+      onReady={onReady}
+      tag={<span className="inline-block rounded-md bg-pink px-1.5 py-0.5 font-display text-xs font-black uppercase text-ink">Practice · free</span>}
     >
       {mine ? (
         <div className="absolute inset-0 z-10 overflow-y-auto bg-ink">
