@@ -3,7 +3,7 @@
  * and listen on one event stream per match, which anyone may open to watch.
  *
  * The lobby is on chain: the host's match cell and a seat cell per player. It opens for
- * `LOBBY_MS` from the match landing; each seat that lands cuts the wait. A full lobby starts at
+ * `LOBBY_MS` from the match landing, however many join. A full lobby starts at
  * once. When the wait runs out the race starts with whoever has a seat, if that is two or more.
  *
  * The relay keeps the race clock. A phone asks for its input to start on a tick a little ahead of
@@ -72,18 +72,16 @@ export const INPUT_DELAY_TICKS = 3;
 export const COUNTDOWN_MS = 5_000;
 /** The longest a lobby stays open, from the match landing. */
 export const LOBBY_MS = 2 * 60_000;
-/** How much each seat that lands cuts the lobby's wait. */
-export const JOIN_CUT_MS = 30_000;
 /** The lobby stays open at least this long after the last seat lands, so its driver can get in. */
 export const LAST_CALL_MS = 20_000;
 
 /**
- * When a lobby closes: the match's landing, less the wait each seat cuts, but never before the last
+ * When a lobby closes: `LOBBY_MS` after the match landed, but never before the last
  * driver has had time to connect. A full lobby closes as soon as that time is up (or at once, once
  * every driver is connected: the relay sees that).
  */
 export function lobbyEndsAt(matchLandedMs: number, seatLandedMs: number[], seats: number): number {
   const lastCall = seatLandedMs.length > 0 ? Math.max(...seatLandedMs) + LAST_CALL_MS : 0;
   if (seatLandedMs.length >= seats - 1) return lastCall;
-  return Math.max(matchLandedMs + LOBBY_MS - JOIN_CUT_MS * seatLandedMs.length, lastCall);
+  return Math.max(matchLandedMs + LOBBY_MS, lastCall);
 }

@@ -389,7 +389,7 @@ export function RallyView({ id }: { id: string }) {
                 <div className="mt-3 h-2 overflow-hidden rounded-full bg-ink-3">
                   <div className="h-full rounded-full bg-lime transition-[width] duration-1000 ease-linear" style={{ width: `${Math.min(100, (left / LOBBY_MS) * 100)}%` }} />
                 </div>
-                <p className="mt-2 text-sm text-fog">Every join cuts the clock. Full seats start now.</p>
+                <p className="mt-2 text-sm text-fog">Starts when the clock runs out, or at once when every seat is full.</p>
               </div>
             ) : null}
 

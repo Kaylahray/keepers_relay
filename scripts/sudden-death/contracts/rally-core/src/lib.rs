@@ -3,8 +3,8 @@
 //! only, no allocation, no floats, so every target reaches the same finish from the same moves.
 //!
 //! Up to 5 cars race 3 laps of one closed road, all at once. A match races one of a few named maps,
-//! each a road drawn by hand point by point, with square corners, chicanes and hairpins, so players
-//! know the road before they join. Practice and tests can also make a road from a seed: 16 points
+//! each a road traced point by point round smooth bends, chicanes and hairpins, so players know
+//! the road before they join. Practice and tests can also make a road from a seed: 16 points
 //! around a centre, each pushed in or out. Cars drive themselves
 //! forward; a player only steers, brakes and fires one of 3 boosts. Grass slows a car, the barrier
 //! stops it, and cars bump each other: the car that drives into another loses speed and pushes the
@@ -32,16 +32,19 @@
 
 pub const TICK_HZ: u32 = 20;
 pub const LAPS: i32 = 3;
-/// A race stops after two minutes, finished or not.
-pub const MAX_TICKS: u32 = 120 * TICK_HZ;
+/// A race stops after three minutes, finished or not: the slowest road takes the bots two.
+pub const MAX_TICKS: u32 = 180 * TICK_HZ;
 pub const MAX_CARS: usize = 5;
 /// The most input changes one car may make in a race.
-pub const MAX_EVENTS: usize = 800;
+pub const MAX_EVENTS: usize = 1600;
 pub const EVENT_LEN: usize = 3;
 /// The points of a road made from a seed.
 pub const POINTS: usize = 16;
 /// The most points any road may have.
-pub const MAX_POINTS: usize = 32;
+pub const MAX_POINTS: usize = 64;
+/// How many segments either side of a car's own the road's nearest point is looked for. A bend is
+/// many short segments, and on its inside the nearest one can be several away.
+pub const NEAR: usize = 5;
 
 /// A full turn of heading.
 pub const ANGLES: i64 = 1024;
@@ -142,24 +145,36 @@ const DROP_BEHIND: i64 = 3 * CAR_RADIUS;
 /// Set on a car's result once it has finished every lap.
 pub const FINISHED: u8 = 0x80;
 
-/// The named maps, by number: each road's middle line in world units, from the start line on.
-/// Parts of a road that pass each other stay at least 200 apart, so their barriers never touch.
+/// The named maps, by number: each road's middle line in world units, from the start line on. Each
+/// bend is a run of short segments, so the road and its barrier curve. Parts of a road far apart
+/// along it stay far enough apart on the ground that their barriers never touch.
 ///
-/// Harbour Loop: long quay straights, square corners and a jink round the crane.
+/// Harbour Loop: the sample's dockside loop, corners rounded. 43 points.
 const HARBOUR_LOOP: &[(i64, i64)] = &[
-    (-400, 300), (-100, 300), (200, 300), (420, 300), (420, 80), (300, -20), (420, -120), (420, -320),
-    (150, -320), (-100, -320), (-250, -200), (-480, -20), (-480, 200),
+    (-301, -379), (272, -379), (479, -367), (534, -356), (581, -339), (615, -315), (639, -280), (661, -216),
+    (670, -158), (675, -39), (669, 91), (658, 168), (636, 231), (589, 291), (521, 327), (378, 350),
+    (251, 348), (214, 337), (196, 315), (168, 180), (145, 143), (115, 131), (67, 122), (-62, 120),
+    (-139, 132), (-176, 152), (-197, 191), (-230, 305), (-245, 329), (-315, 352), (-393, 353), (-474, 342),
+    (-537, 322), (-571, 297), (-601, 262), (-648, 165), (-669, 60), (-674, -93), (-664, -204), (-635, -286),
+    (-593, -331), (-520, -360), (-435, -372),
 ];
-/// Switchback Hill: three rows up the hill joined by hairpins, then a long sweep back down.
+/// Switchback Hill: the sample's mountain road and hairpins, 1.02x so the hairpins clear. 49 points.
 const SWITCHBACK_HILL: &[(i64, i64)] = &[
-    (-300, 300), (-50, 300), (200, 300), (310, 240), (310, 130), (200, 70), (-100, 70), (-210, 10),
-    (-210, -100), (-100, -160), (200, -160), (310, -270), (160, -390), (-150, -390), (-370, -250), (-430, -40),
-    (-420, 180),
+    (-310, -375), (228, -358), (341, -348), (427, -333), (479, -315), (534, -282), (576, -246), (609, -207),
+    (628, -170), (632, -140), (620, -107), (591, -66), (549, -24), (505, 9), (446, 37), (394, 40),
+    (326, 21), (133, -52), (61, -61), (8, -36), (-44, 11), (-81, 67), (-93, 115), (-79, 145),
+    (-24, 170), (321, 245), (413, 277), (500, 323), (561, 368), (591, 404), (530, 473), (421, 516),
+    (312, 544), (219, 551), (75, 534), (-91, 495), (-213, 454), (-295, 407), (-387, 322), (-517, 164),
+    (-591, 54), (-628, -30), (-633, -66), (-629, -109), (-598, -213), (-550, -295), (-519, -327), (-490, -347),
+    (-416, -368),
 ];
-/// Old Town: narrow streets round the blocks, a right angle at nearly every point.
+/// Old Town: the sample's street circuit, corners rounded. 38 points.
 const OLD_TOWN: &[(i64, i64)] = &[
-    (-300, 300), (0, 300), (200, 300), (200, 100), (420, 100), (420, -150), (200, -150), (200, -350),
-    (-100, -350), (-300, -350), (-300, -120), (-500, -120), (-500, 150), (-300, 150),
+    (-267, -313), (47, -300), (326, -305), (414, -291), (435, -279), (467, -184), (482, -48), (472, 39),
+    (455, 64), (424, 75), (232, 67), (201, 70), (165, 128), (176, 284), (168, 311), (148, 327),
+    (89, 347), (11, 357), (-67, 357), (-128, 346), (-149, 332), (-159, 306), (-162, 144), (-168, 118),
+    (-200, 91), (-233, 89), (-371, 106), (-419, 107), (-449, 93), (-475, 55), (-490, 7), (-499, -51),
+    (-494, -192), (-485, -230), (-470, -261), (-449, -284), (-420, -300), (-364, -310),
 ];
 pub const MAPS: [&[(i64, i64)]; 3] = [HARBOUR_LOOP, SWITCHBACK_HILL, OLD_TOWN];
 
@@ -179,11 +194,11 @@ const fn row(seg: u8, items: [u8; LANES]) -> PadRow {
 /// The four mixes of items a row may hold, so every map offers each item twice.
 const MIXES: [[u8; LANES]; MAX_ROWS] = [[RUSH, JOLT, PATCH], [SLICK, WARD, RAM], [DRAFT, BARRICADE, JOLT], [PATCH, RAM, SLICK]];
 
-/// Each named map's rows of pads, halfway along its long stretches.
+/// Each named map's rows of pads, halfway along straights at least 30 m long.
 pub const MAP_ROWS: [[PadRow; MAX_ROWS]; 3] = [
-    [row(1, MIXES[0]), row(3, MIXES[1]), row(8, MIXES[2]), row(11, MIXES[3])],
-    [row(1, MIXES[0]), row(6, MIXES[1]), row(10, MIXES[2]), row(13, MIXES[3])],
-    [row(1, MIXES[0]), row(4, MIXES[1]), row(8, MIXES[2]), row(12, MIXES[3])],
+    [row(1, MIXES[0]), row(14, MIXES[1]), row(22, MIXES[2]), row(36, MIXES[3])],
+    [row(16, MIXES[0]), row(24, MIXES[1]), row(34, MIXES[2]), row(38, MIXES[3])],
+    [row(1, MIXES[0]), row(9, MIXES[1]), row(21, MIXES[2]), row(31, MIXES[3])],
 ];
 
 pub fn map_track(map: u8) -> Option<Track> {
@@ -304,13 +319,15 @@ impl Track {
         (cx, cy, ex * ex + ey * ey)
     }
 
-    /// The nearest point of the road's middle line around segment `seg`.
+    /// The nearest point of the road's middle line within `NEAR` segments of segment `seg`.
     pub fn closest(&self, seg: usize, px: i64, py: i64) -> (i64, i64, i64) {
         let mut best = self.nearest(seg, px, py);
-        for s in [(seg + self.len - 1) % self.len, (seg + 1) % self.len] {
-            let other = self.nearest(s, px, py);
-            if other.2 < best.2 {
-                best = other;
+        for k in 1..=NEAR.min((self.len - 1) / 2) {
+            for s in [(seg + self.len - k) % self.len, (seg + k) % self.len] {
+                let other = self.nearest(s, px, py);
+                if other.2 < best.2 {
+                    best = other;
+                }
             }
         }
         best
@@ -1106,22 +1123,64 @@ mod tests {
         }
     }
 
+    /// How far along the road each point is from the start, in world units times `SCALE`.
+    fn distances(track: &Track) -> Vec<i64> {
+        let mut out = Vec::new();
+        let mut d = 0;
+        for i in 0..track.len {
+            out.push(d);
+            let (_, _, dx, dy) = track.segment(i);
+            d += isqrt(dx * dx + dy * dy);
+        }
+        out.push(d);
+        out
+    }
+
     #[test]
     fn maps_are_drawn_apart() {
-        // Parts of a road that are not neighbours stay far enough apart that their barriers never touch.
+        // Parts of a road far apart along it stay far enough apart on the ground that their barriers
+        // never touch. Close along the road is the same bend, which may fold as tight as it likes.
         for (map, points) in MAPS.iter().enumerate() {
             let track = map_track(map as u8).unwrap();
             assert_eq!(track.len, points.len());
+            assert!(track.len <= MAX_POINTS);
+            let along = distances(&track);
+            let lap = along[track.len];
             for i in 0..track.len {
                 let (_, _, dx, dy) = track.segment(i);
-                assert!(dx * dx + dy * dy >= (100 * SCALE).pow(2), "map {map}: segment {i} is too short");
+                assert!(dx * dx + dy * dy >= (16 * SCALE).pow(2), "map {map}: segment {i} is too short");
                 for j in 0..track.len {
-                    let gap = (i + track.len - j) % track.len;
-                    if gap <= 2 || gap >= track.len - 2 {
+                    // The nearer end of segment j, along the road, either way round.
+                    let gap = [along[j], along[j + 1]].iter().map(|at| (at - along[i]).rem_euclid(lap)).map(|d| d.min(lap - d)).min().unwrap();
+                    if gap < 300 * SCALE {
                         continue;
                     }
                     let (_, _, d2) = track.nearest(j, track.x[i], track.y[i]);
                     assert!(d2 >= (2 * WALL + 20 * SCALE).pow(2), "map {map}: point {i} comes too close to segment {j}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_barrier_is_where_the_whole_road_says() {
+        // Anywhere up to the barrier beside a segment, the search round that segment finds the same
+        // nearest point of the road as a search of all of it: no barrier inside a bend.
+        for map in 0..MAPS.len() as u8 {
+            let track = map_track(map).unwrap();
+            for i in 0..track.len {
+                let (ax, ay, dx, dy) = track.segment(i);
+                let len = isqrt(dx * dx + dy * dy).max(1);
+                for step in 0..=10 {
+                    for off in (-WALL..=WALL).step_by((5 * SCALE) as usize) {
+                        let px = ax + dx * step / 10 - dy * off / len;
+                        let py = ay + dy * step / 10 + dx * off / len;
+                        let whole = (0..track.len).map(|j| track.nearest(j, px, py).2).min().unwrap();
+                        if whole > WALL * WALL {
+                            continue;
+                        }
+                        assert_eq!(track.closest(i, px, py).2, whole, "map {map}: beside segment {i}, step {step}, off {off}");
+                    }
                 }
             }
         }

@@ -86,22 +86,22 @@ function ItemSlot({ item, pad, big = false }: { item: number; pad: ReturnType<Re
       aria-label={info ? `Use ${info.name}` : 'No item: drive over a pad'}
       {...pad}
       disabled={!info}
-      className={`relative grid place-items-center overflow-hidden rounded-3xl bg-black/60 ring-2 backdrop-blur-md transition-transform duration-100 active:scale-[0.92] ${big ? 'h-24 w-24' : 'h-[84px] w-[84px]'} ${info ? 'ring-lime' : 'ring-white/20'}`}
+      className={`relative grid place-items-center overflow-hidden bg-black/60 ring-2 backdrop-blur-md transition-transform duration-100 active:scale-[0.92] ${big ? 'h-24 w-24 rounded-3xl' : 'h-[clamp(52px,14vmin,70px)] w-[clamp(52px,14vmin,70px)] rounded-2xl'} ${info ? 'ring-lime' : 'ring-white/20'}`}
     >
       {info ? (
         <span key={item} className="hud-pop flex flex-col items-center">
           {picture ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={picture} alt="" className={`${big ? 'h-16 w-16' : 'h-14 w-14'} rounded-full object-cover`} />
+            <img src={picture} alt="" className={`${big ? 'h-16 w-16' : 'h-[clamp(32px,9vmin,46px)] w-[clamp(32px,9vmin,46px)]'} rounded-full object-cover`} />
           ) : Icon ? (
-            <span className={`grid place-items-center rounded-full text-ink ${big ? 'h-16 w-16' : 'h-14 w-14'}`} style={{ background: info.color }}>
+            <span className={`grid place-items-center rounded-full text-ink ${big ? 'h-16 w-16' : 'h-[clamp(32px,9vmin,46px)] w-[clamp(32px,9vmin,46px)]'}`} style={{ background: info.color }}>
               <Icon className="h-8 w-8" aria-hidden="true" />
             </span>
           ) : null}
-          <span className="-mt-1 font-display text-xs font-black uppercase tracking-wide">{info.name}</span>
+          <span className={`-mt-1 font-display font-black uppercase tracking-wide ${big ? 'text-xs' : 'text-[10px] leading-tight'}`}>{info.name}</span>
         </span>
       ) : (
-        <span className="font-display text-xs font-black uppercase text-fog">No item</span>
+        <span className="px-1 text-center font-display text-[10px] font-black uppercase leading-tight text-fog">No item</span>
       )}
     </button>
   );
@@ -260,7 +260,7 @@ export function RallyScreen({ frameOf, controls, banner, names, seconds, onLeave
       <canvas ref={canvasRef} className={`absolute inset-0 h-full w-full ${view === '3d' ? 'invisible' : ''}`} aria-label="The race, seen from above" />
       <div ref={stageRef} className={`absolute inset-0 ${view === '3d' ? '' : 'hidden'}`} />
       <div className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-black/70 to-transparent" />
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-black/70 to-transparent" />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/60 to-transparent" />
 
       {/* Top left: place, lap, time, and who's who. */}
       <div className="pointer-events-none absolute left-0 top-0 p-4 sm:p-6" style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}>
@@ -268,10 +268,10 @@ export function RallyScreen({ frameOf, controls, banner, names, seconds, onLeave
           <div className="flex items-end gap-3">
             <p
               key={hud.place}
-              className={`hud-pop origin-bottom-left font-display text-7xl font-black italic leading-[0.8] drop-shadow-[0_2px_12px_rgba(0,0,0,0.6)] sm:text-8xl ${hud.place === 0 ? 'text-gold' : 'text-chalk'}`}
+              className={`hud-pop origin-bottom-left font-display text-7xl font-black italic leading-[0.8] drop-shadow-[0_2px_12px_rgba(0,0,0,0.6)] sm:text-8xl [@media(max-height:520px)]:text-5xl ${hud.place === 0 ? 'text-gold' : 'text-chalk'}`}
             >
               {hud.place + 1}
-              <span className="text-4xl sm:text-5xl">{ordinal(hud.place).slice(-2)}</span>
+              <span className="text-4xl sm:text-5xl [@media(max-height:520px)]:text-2xl">{ordinal(hud.place).slice(-2)}</span>
             </p>
             {names && names.length > 0 ? <span className="mb-1 font-display text-xl font-black text-chalk/70">/ {names.length}</span> : null}
           </div>
@@ -303,7 +303,7 @@ export function RallyScreen({ frameOf, controls, banner, names, seconds, onLeave
       <div className="absolute right-0 top-0 z-20 flex gap-2 p-4 sm:p-6" style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}>
         {onLeave ? (
           <HudButton label={leaveLabel} onClick={onLeave} wide>
-            <X className="h-5 w-5" aria-hidden="true" /> <span className="hidden font-display text-lg font-black uppercase sm:inline">{leaveLabel}</span>
+            <X className="h-5 w-5" aria-hidden="true" /> <span className="hidden font-display text-lg font-black uppercase sm:inline [@media(max-height:520px)]:hidden">{leaveLabel}</span>
           </HudButton>
         ) : null}
         <HudButton label={muted ? 'Turn the sound on' : 'Mute the sound'} onClick={toggleSound} pressed={muted}>
@@ -316,7 +316,7 @@ export function RallyScreen({ frameOf, controls, banner, names, seconds, onLeave
 
       {/* Health, speed and shards: under the place on phones, top centre on a wide screen. */}
       {hud ? (
-        <div className={`pointer-events-none absolute left-4 w-44 sm:left-6 md:left-1/2 md:top-6 md:w-72 md:-translate-x-1/2 ${tag ? 'top-[calc(env(safe-area-inset-top)_+_196px)]' : 'top-[calc(env(safe-area-inset-top)_+_150px)]'}`}>
+        <div className={`pointer-events-none absolute left-4 w-44 sm:left-6 md:left-1/2 md:top-6 md:w-72 md:-translate-x-1/2 [@media(max-height:520px)]:left-1/2 [@media(max-height:520px)]:top-[calc(env(safe-area-inset-top)_+_14px)] [@media(max-height:520px)]:w-56 [@media(max-height:520px)]:-translate-x-1/2 ${tag ? 'top-[calc(env(safe-area-inset-top)_+_196px)]' : 'top-[calc(env(safe-area-inset-top)_+_150px)]'}`}>
           <div className="flex items-center justify-between font-display text-sm font-black uppercase drop-shadow-[0_1px_4px_rgba(0,0,0,0.8)]">
             <span className={hud.wrecked ? 'text-danger' : ''}>{hud.wrecked ? 'Wrecked' : 'Health'}</span>
             <span className="tabular-nums text-chalk/80">{hud.kmh} km/h</span>
@@ -357,30 +357,30 @@ export function RallyScreen({ frameOf, controls, banner, names, seconds, onLeave
               ← → steer · ↑ boost ({hud.boosts}) · ↓ brake · E use item
             </p>
           </div>
-          {/* Touch: steer on the left, brake, item and boost on the right. */}
+          {/* Touch: one thumb each side. Left thumb steers left with brake above it; right thumb steers right with boost and the item above it. */}
           <div
-            className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 p-4 md:pointer-fine:hidden"
-            style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+            className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 px-[max(1rem,env(safe-area-inset-left))] md:pointer-fine:hidden"
+            style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))', paddingRight: 'max(1rem, env(safe-area-inset-right))' }}
           >
-            <div className="flex gap-3">
-              <TouchPad label="Steer left" pad={controls.pad(LEFT)}>
-                <ArrowLeft className="h-9 w-9" strokeWidth={3} aria-hidden="true" />
+            <div className="flex flex-col items-start gap-2.5">
+              <TouchPad label="Brake" tone="pink" small pad={controls.pad(BRAKE)}>
+                <Octagon className="h-[45%] w-[45%]" strokeWidth={3} aria-hidden="true" />
               </TouchPad>
-              <TouchPad label="Steer right" pad={controls.pad(RIGHT)}>
-                <ArrowRight className="h-9 w-9" strokeWidth={3} aria-hidden="true" />
+              <TouchPad label="Steer left" big pad={controls.pad(LEFT)}>
+                <ArrowLeft className="h-[45%] w-[45%]" strokeWidth={3} aria-hidden="true" />
               </TouchPad>
             </div>
-            <div className="flex items-end gap-3">
-              <TouchPad label="Brake" tone="pink" small pad={controls.pad(BRAKE)}>
-                <Octagon className="h-7 w-7" strokeWidth={3} aria-hidden="true" />
-              </TouchPad>
-              <div className="flex flex-col items-center gap-3">
+            <div className="flex flex-col items-end gap-2.5">
+              <div className="flex items-end gap-2.5">
                 <ItemSlot item={hud.item} pad={controls.pad(USE)} />
-                <TouchPad label={`Boost, ${hud.boosts} left`} tone="lime" pad={controls.pad(BOOST)} disabled={hud.boosts === 0}>
-                  <Flame className="h-9 w-9" aria-hidden="true" />
-                  <span className="absolute -right-1 -top-1 grid h-7 w-7 place-items-center rounded-full bg-ink font-display text-sm font-black text-chalk">{hud.boosts}</span>
+                <TouchPad label={`Boost, ${hud.boosts} left`} tone="lime" small pad={controls.pad(BOOST)} disabled={hud.boosts === 0}>
+                  <Flame className="h-[45%] w-[45%]" aria-hidden="true" />
+                  <span className="absolute -right-1 -top-1 grid h-6 w-6 place-items-center rounded-full bg-ink font-display text-xs font-black text-chalk">{hud.boosts}</span>
                 </TouchPad>
               </div>
+              <TouchPad label="Steer right" big pad={controls.pad(RIGHT)}>
+                <ArrowRight className="h-[45%] w-[45%]" strokeWidth={3} aria-hidden="true" />
+              </TouchPad>
             </div>
           </div>
         </>
@@ -407,7 +407,7 @@ function HudButton({ children, label, onClick, wide, pressed }: { children: Reac
   );
 }
 
-function TouchPad({ children, label, tone, small, pad, disabled }: { children: ReactNode; label: string; tone?: 'pink' | 'lime'; small?: boolean; pad: Pad; disabled?: boolean }) {
+function TouchPad({ children, label, tone, small, big, pad, disabled }: { children: ReactNode; label: string; tone?: 'pink' | 'lime'; small?: boolean; big?: boolean; pad: Pad; disabled?: boolean }) {
   const look = tone === 'pink' ? 'bg-pink/25 text-pink ring-pink/60' : tone === 'lime' ? 'bg-lime/25 text-lime ring-lime/60' : 'bg-white/10 text-chalk ring-white/30';
   return (
     <button
@@ -415,7 +415,7 @@ function TouchPad({ children, label, tone, small, pad, disabled }: { children: R
       aria-label={label}
       disabled={disabled}
       {...pad}
-      className={`relative grid place-items-center rounded-full ring-2 backdrop-blur-md transition-transform duration-100 active:scale-[0.92] disabled:opacity-30 ${small ? 'h-[68px] w-[68px]' : 'h-[84px] w-[84px]'} ${look}`}
+      className={`relative grid place-items-center rounded-full ring-2 backdrop-blur-md transition-transform duration-100 active:scale-[0.92] disabled:opacity-30 ${small ? 'h-[clamp(44px,12vmin,58px)] w-[clamp(44px,12vmin,58px)]' : big ? 'h-[clamp(60px,17vmin,80px)] w-[clamp(60px,17vmin,80px)]' : 'h-[clamp(52px,14vmin,70px)] w-[clamp(52px,14vmin,70px)]'} ${look}`}
     >
       {children}
     </button>

@@ -4,9 +4,9 @@ export const RALLY = {
   TICK_HZ: 20,
   TICK_MS: 50,
   LAPS: 3,
-  MAX_TICKS: 120 * 20,
+  MAX_TICKS: 180 * 20,
   MAX_CARS: 5,
-  MAX_EVENTS: 800,
+  MAX_EVENTS: 1600,
   EVENT_LEN: 3,
   ANGLES: 1024,
   SCALE: 64,
@@ -45,9 +45,9 @@ export const FINISHED = 0x80;
 
 /** The named maps, by the number the rally game knows them by. */
 export const MAPS = [
-  { id: 0, name: 'Harbour Loop', about: 'Long straights along the quay, square corners and a quick jink. The fast one.' },
+  { id: 0, name: 'Harbour Loop', about: 'Long straights along the quay, wide bends and a quick chicane. The fast one.' },
   { id: 1, name: 'Switchback Hill', about: 'Up the hill on tight hairpins, then a long sweep back down. The slow one.' },
-  { id: 2, name: 'Old Town', about: 'Narrow streets round the blocks, with a right angle at nearly every turn.' },
+  { id: 2, name: 'Old Town', about: 'Narrow streets round the blocks, with a tight bend at nearly every turn.' },
 ] as const;
 
 export function mapName(id: number): string {

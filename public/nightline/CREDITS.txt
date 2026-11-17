@@ -1,0 +1,44 @@
+Nightline GT — Asset Credits & Licenses
+=======================================
+
+All 3D models, PBR textures, HDRI environments, and audio in this project are
+released under CC0 1.0 Universal (Public Domain Dedication) and bundled locally
+so the application runs reliably without external CDN dependencies.
+
+3D Models (glTF 2.0 / Binary .glb in /public/models/)
+-----------------------------------------------------
+- car.glb — Multi-part GT sports coupe chassis, canopy, aero wing, splitter,
+  and 5-spoke wheel/brake assembly. Authored procedurally via Three.js geometry
+  pipeline (scripts/generate-glbs.ts). License: CC0 1.0 Universal.
+- harbour_props.glb — Corrugated shipping container, harbour gantry crane,
+  mooring bollard, and overhead neon sign gantry. Authored procedurally.
+  License: CC0 1.0 Universal.
+- switchback_props.glb — Multi-tier mountain conifer tree, fractured rock
+  outcrop, curved highway lamp post, and steel guardrail post. Authored
+  procedurally. License: CC0 1.0 Universal.
+- oldtown_props.glb — European stone townhouse facade with pitched roof and
+  lit window frames, and wrought-iron street lantern. Authored procedurally.
+  License: CC0 1.0 Universal.
+- shared_props.glb — Holographic item pickup cube and concrete/steel road
+  barricade. Authored procedurally. License: CC0 1.0 Universal.
+
+PBR Textures & Sky Maps (/src/assets/images/ + procedural runtime maps)
+-----------------------------------------------------------------------
+- tex_harbour_asphalt_*.jpg — Seamless wet coastal asphalt albedo tile.
+  License: CC0 1.0 Universal.
+- tex_mountain_tarmac_*.jpg — Seamless mountain highway tarmac albedo tile.
+  License: CC0 1.0 Universal.
+- tex_oldtown_cobble_*.jpg — Seamless wet granite cobblestone street tile.
+  License: CC0 1.0 Universal.
+- tex_stone_facade_*.jpg — Seamless aged limestone/plaster masonry tile.
+  License: CC0 1.0 Universal.
+- Runtime-derived PBR Normal Maps, Wet Puddle Roughness Maps, Neon Sign Maps,
+  Light-Pool Decals, and Equirectangular Night/Dusk Sky Environments —
+  Generated procedurally at runtime via HTML5 Canvas & Three.js PMREMGenerator.
+  License: CC0 1.0 Universal.
+
+Audio
+-----
+- Procedural engine synthesizer, boost turbine, tire scrub, impact crunch,
+  jolt arc, pickup chime, and race countdown tones — Synthesized at runtime
+  via Web Audio API. License: CC0 1.0 Universal.

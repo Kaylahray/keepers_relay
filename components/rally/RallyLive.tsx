@@ -264,7 +264,7 @@ function LobbyPanel({ left, cars, trouble }: { left: number | null; cars: { name
             </li>
           ))}
         </ul>
-        <p className="mt-5 max-w-xl text-chalk/80">Every driver who joins cuts the wait. A full race starts at once. A car whose driver isn’t here sits on the line.</p>
+        <p className="mt-5 max-w-xl text-chalk/80">The race starts when the wait runs out, or at once when every seat is full. A car whose driver isn’t here sits on the line.</p>
         {trouble ? <p className="mt-3 text-danger">{trouble}</p> : null}
       </div>
     </div>
