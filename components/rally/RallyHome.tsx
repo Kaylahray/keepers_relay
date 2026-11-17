@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { ccc } from '@ckb-ccc/connector-react';
 import { motion } from 'framer-motion';
 import { Check, Gauge } from 'lucide-react';
-import { CkbAmount } from '@/components/crowns/Board';
+import { CkbAmount, LatestRaces } from '@/components/crowns/Board';
 import { EASE } from '@/components/crowns/motion';
 import { OpenRaces, useOpenRaces } from '@/components/crowns/OpenRaces';
 import { ArenaStage } from '@/components/ui/ArenaStage';
@@ -197,6 +197,14 @@ export function RallyHome() {
           <OpenRaces />
         </section>
       </div>
+
+      <section aria-labelledby="finished" className="mt-16">
+        <h2 id="finished" className="font-display text-4xl font-black uppercase">
+          Finished races
+        </h2>
+        <p className="mb-4 mt-1 text-fog">Open one to see the places, each driver’s moves, and a replay rebuilt from the chain.</p>
+        <LatestRaces limit={15} />
+      </section>
 
       {busy ? (
         <div className="fixed inset-0 z-[60] grid place-items-center bg-ink/85 px-6 backdrop-blur-sm">

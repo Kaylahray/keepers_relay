@@ -1,6 +1,6 @@
 import { ccc } from '@ckb-ccc/core';
 import { liveMatch, rallyGame } from '@/lib/registry/config';
-import { winnersOf, type RallyRunner } from '@/lib/rally/rules';
+import { winnersOf, type RallyEvent, type RallyRunner } from '@/lib/rally/rules';
 
 /**
  * A finished race checked in the browser: the moves are read back out of the finish transaction and
@@ -77,6 +77,20 @@ export function recordOf(witness: ccc.HexLike, map: number): Uint8Array | null {
     offset += len + SIG_LEN;
   }
   return offset === raw.length ? Uint8Array.from(out) : null;
+}
+
+/** Each car's events from a race record (`map ‖ cars ‖ per car: count u16 LE ‖ tick u16 LE, bits u8 …`), to play it again. */
+export function tapesOf(record: Uint8Array): RallyEvent[][] {
+  const tapes: RallyEvent[][] = [];
+  let offset = 2;
+  for (let car = 0; car < (record[1] ?? 0); car += 1) {
+    const count = record[offset]! | (record[offset + 1]! << 8);
+    offset += 2;
+    const events: RallyEvent[] = [];
+    for (let i = 0; i < count; i += 1, offset += EVENT_LEN) events.push({ tick: record[offset]! | (record[offset + 1]! << 8), bits: record[offset + 2]! });
+    tapes.push(events);
+  }
+  return tapes;
 }
 
 /** Replays a race record with the rules, as the chain does. Null if the rules refuse the record. */

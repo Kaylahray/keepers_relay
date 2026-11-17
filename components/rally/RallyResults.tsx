@@ -1,14 +1,16 @@
 'use client';
 
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { CornerDownLeft, ExternalLink, ShieldCheck, TriangleAlert } from 'lucide-react';
+import { CornerDownLeft, ExternalLink, Play, ShieldCheck, TriangleAlert } from 'lucide-react';
 import { CkbAmount, nameFor, PlayerFace, ShardCount, usePlayerBook } from '@/components/crowns/Board';
 import { EASE } from '@/components/crowns/motion';
-import { buttonClass } from '@/components/ui/Button';
+import { Button, buttonClass } from '@/components/ui/Button';
 import { ChainLoader } from '@/components/ui/ChainLoader';
 import { ClaimTrophy } from '@/components/rally/ClaimTrophy';
+import { RallyReplay } from '@/components/rally/RallyReplay';
 import { ckbWhole } from '@/hooks/useRallyStats';
 import { getCkbClient } from '@/lib/ckb/client';
 import { IMG } from '@/lib/crowns/art';
@@ -40,6 +42,7 @@ function Label({ children, className = '' }: { children: string; className?: str
  */
 export function RallyResults({ txHash, me }: { txHash: string; me: string | null }) {
   const book = usePlayerBook();
+  const [watching, setWatching] = useState(false);
   const result = useQuery({
     queryKey: ['race-result', txHash],
     queryFn: async () => {
@@ -48,10 +51,10 @@ export function RallyResults({ txHash, me }: { txHash: string; me: string | null
       if (!race) return null;
       // A race run on older rules can't be replayed with these: it would make up places and shards.
       const sameRules = playsByTheseRules(race.game);
-      if (!sameRules) return { race, sameRules, replayed: null, bytes: 0 };
+      if (!sameRules) return { race, sameRules, replayed: null, bytes: 0, record: null };
       const [record, runner] = await Promise.all([readRaceRecord(client, txHash, race.map), loadRally()]);
       const replayed = record ? replayRecord(runner, record) : null;
-      return { race, sameRules, replayed, bytes: record?.length ?? 0 };
+      return { race, sameRules, replayed, bytes: record?.length ?? 0, record };
     },
     staleTime: Infinity,
   });
@@ -83,7 +86,7 @@ export function RallyResults({ txHash, me }: { txHash: string; me: string | null
     );
   }
 
-  const { race, sameRules, replayed, bytes } = result.data;
+  const { race, sameRules, replayed, bytes, record } = result.data;
   const paidOwners = new Set(race.winners.map((winner) => winner.owner));
   const replayOwners = new Set((replayed?.winners ?? []).map((car) => race.players[car]));
   const agrees = Boolean(replayed) && paidOwners.size === replayOwners.size && [...paidOwners].every((owner) => replayOwners.has(owner));
@@ -95,6 +98,9 @@ export function RallyResults({ txHash, me }: { txHash: string; me: string | null
     const row = replayed?.cars[car];
     return row ? (row.finishTick != null ? clock(row.finishTick) : 'DNF') : '—';
   };
+  if (watching && record) {
+    return <RallyReplay record={record} map={race.map} names={race.players.map(nameOf)} follow={Math.max(0, order[0] ?? 0)} onClose={() => setWatching(false)} />;
+  }
   // The top three, laid out 2nd, 1st, 3rd like a real podium.
   const podium = refunded ? [] : [1, 0, 2].filter((i) => i < order.length);
 
@@ -152,11 +158,12 @@ export function RallyResults({ txHash, me }: { txHash: string; me: string | null
           ) : null}
 
           <div className={podium.length > 0 ? 'mt-8' : ''}>
-            <div className="grid grid-cols-[2rem_1fr_auto_auto] gap-x-4 border-b border-line pb-2">
+            <div className="grid grid-cols-[2rem_1fr_auto_auto_auto] gap-x-4 border-b border-line pb-2">
               <Label>#</Label>
               <Label>Racer</Label>
               <Label className="text-right">Time</Label>
               <Label className="text-right">Shards</Label>
+              <Label className="text-right">Moves</Label>
             </div>
             <ul className="divide-y divide-line">
               {order.map((car, i) => {
@@ -179,7 +186,7 @@ export function RallyResults({ txHash, me }: { txHash: string; me: string | null
                   </>
                 );
                 return (
-                  <li key={car} className="grid grid-cols-[2rem_1fr_auto_auto] items-center gap-x-4 py-3">
+                  <li key={car} className="grid grid-cols-[2rem_1fr_auto_auto_auto] items-center gap-x-4 py-3">
                     <span className="font-display text-2xl font-black text-fog">{row && !row.finished ? '–' : i + 1}</span>
                     {player ? (
                       <Link href={`/profile/${encodeURIComponent(player.address)}`} className="flex min-w-0 items-center gap-3 transition-colors duration-150 hover:text-lime">
@@ -190,10 +197,12 @@ export function RallyResults({ txHash, me }: { txHash: string; me: string | null
                     )}
                     <span className="text-right font-display text-xl font-black tabular-nums">{timeOf(car)}</span>
                     <span className="flex items-center justify-end font-display text-xl font-black">{row ? <ShardCount value={row.shards} /> : '—'}</span>
+                    <span className="text-right font-display text-xl font-black tabular-nums text-chalk/80">{row ? row.moves : '—'}</span>
                   </li>
                 );
               })}
             </ul>
+            {replayed ? <p className="mt-4 text-sm text-fog">Moves: how many times each driver changed what they were pressing. Each phone signed its own.</p> : null}
             {refunded ? <p className="mt-4 text-fog">Nobody finished 3 laps, so every entry went back to its wallet. Nothing was lost.</p> : null}
           </div>
         </div>
@@ -221,6 +230,11 @@ export function RallyResults({ txHash, me }: { txHash: string; me: string | null
                   ? 'This race ran on an earlier version of the rules than this site has now, so your browser can’t replay it exactly. The payout is read straight from the chain.'
                   : 'The chain already replayed this race before paying, so the payout stands. This browser may have different rules from the chain.'}
             </p>
+            {record && replayed ? (
+              <Button variant="lime" size="lg" block className="mt-5" onClick={() => setWatching(true)}>
+                <Play className="h-5 w-5" aria-hidden="true" /> Watch the replay
+              </Button>
+            ) : null}
             <a className="mt-4 inline-flex items-center gap-2 font-mono text-sm text-lime hover:underline" href={ckbTxExplorerUrl(txHash)} target="_blank" rel="noreferrer">
               {short(txHash)} <ExternalLink className="h-4 w-4" aria-hidden="true" />
             </a>

@@ -32,7 +32,11 @@ export function useRallyControls(onChange: (bits: number) => void, enabled: bool
     const pad = (bit: number) => ({
       onPointerDown: (event: PointerEvent<HTMLElement>) => {
         event.preventDefault();
-        event.currentTarget.setPointerCapture?.(event.pointerId);
+        try {
+          event.currentTarget.setPointerCapture?.(event.pointerId);
+        } catch {
+          // The touch already ended: nothing to hold on to.
+        }
         held.current.pads |= bit;
         publish();
       },

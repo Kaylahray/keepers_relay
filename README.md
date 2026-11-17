@@ -4,13 +4,13 @@ Crowns is a live 3D car race on Nervos CKB. Up to five players put in the same e
 
 ## How a race works
 
-1. **Host.** The host picks a track (Harbour Loop, Switchback Hill or Old Town), the seats (2 to 5) and the entry (10, 25, 50 or 100 CKB), then puts their entry in. This opens a match cell on chain.
-2. **Join.** Anyone with the link takes a seat by putting in the same entry. Each seat is its own cell, so players join without touching each other's cells. The lobby runs for 2 minutes, or until every seat is taken.
-3. **Race.** A 5-second countdown, then 3 laps. Each phone drives its own car and signs its moves with a session key, so there are no wallet prompts while racing. Pick up items on the road (Ram, Slick, Jolt, Barricade, Crown Rush), use boost pads, and collect shards.
+1. **Host.** The host picks a track (Harbour Loop, Switchback Hill or Old Town), the seats (2 to 5), the entry (10, 25, 50 or 100 CKB) and when the race starts (in 5, 10, 15, 30 or 60 minutes), then puts their entry in. This opens a match cell on chain.
+2. **Join.** Anyone with the link takes a seat by putting in the same entry. Each seat is its own cell, so players join without touching each other's cells. Each player who joins takes a fifth off the time left, never below 2 minutes, while the pot grows. Joining closes 1 minute before the start. The race starts when the clock runs out, at once when every seat is taken, or when the host presses **Start now** (once someone else has a seat and every driver is here).
+3. **Race.** A 5-second countdown, then 3 laps. Each phone drives its own car and signs its moves with a session key, so there are no wallet prompts while racing. On a phone, touch the left or right half of the screen to steer. Every item pad gives a crown shard, plus its item if your hands are empty: Ram, Slick, Jolt, Barricade, Crown Rush, Ward, Patch or Draft. You hold one item at a time; tap the item slot (or press E) to fire it.
 4. **Finish.** When the race ends, the relay sends the finish transaction. The match script runs the race game, which replays every car's moves and returns the places. The first car over the line takes every entry. Cars that cross on the same tick split it.
 5. **Trophy.** The winner can claim a trophy, minted as a Spore NFT, and it shows on their profile.
 
-If nobody joins, the host's entry goes back. If something breaks, every seat and the match cell can be taken back by their owners once the match times out, so no CKB is ever stuck.
+If nobody joins, the host's entry goes back. If something breaks, every seat and the match cell can be taken back by their owners once the match times out (the lobby's wait plus 10 minutes), so no CKB is ever stuck.
 
 **Practice** is free, runs against two bots on the same rules, and puts nothing on chain.
 
@@ -87,6 +87,20 @@ offckb node
 pnpm exec tsx scripts/crowns-devnet/deploy.ts
 pnpm exec tsx scripts/crowns-devnet/rally-e2e.ts
 ```
+
+## Measuring cycles
+
+What a finish costs on chain, with the deployed build (WSL):
+
+```bash
+cd scripts/sudden-death
+DUMP_TX=/tmp/two.json cargo test -p tests --release the_relay_alone_pays_the_winner_from_signed_moves -- --nocapture
+DUMP_TX=/tmp/five.json cargo test -p tests --release five_cars_race_and_the_relay_settles_it -- --nocapture
+ckb-debugger --tx-file /tmp/two.json --script input.0.type                          # the match script and the game
+ckb-debugger --tx-file /tmp/two.json --script input.0.type --mode full --vm-id 1    # the game alone
+```
+
+The tests print each finish's cycles. `DUMP_TX` saves the last transaction a test checks, so `/tmp/five.json` is the Old Town race. Today a 2-car finish costs about 47M cycles, and the worst 5-car race (Switchback Hill, all 3 minutes) about 141M. With `--vm-id 1`, ckb-debugger shows the game's replay alone is about 80% of a 2-car finish and 90% of a 5-car one.
 
 ## Deploying the scripts
 
