@@ -10,10 +10,14 @@ import { winnersOf, type RallyEvent, type RallyRunner } from '@/lib/rally/rules'
 
 /**
  * Earlier rally game cells with the same rules as the one this site runs: the race plays out the same,
- * only how fast the game replays it changed. 0x151d…6b6c is the rounded-road game before the cheaper replay.
+ * only how fast the game replays it changed. 0x151d…6b6c is the rounded-road game before the cheaper replay;
+ * 0x5e93…9eed is the cheaper replay on ckb-script-ipc 1.1.0, before the move to 1.1.1.
  * Games from before the rounded roads drive differently, so they are not here.
  */
-const SAME_RULES = ['0x151d91491f9ddf21728ed1ac5bf879bdfbd176ed11b1ef23b4f72be369116b6c'];
+const SAME_RULES = [
+  '0x151d91491f9ddf21728ed1ac5bf879bdfbd176ed11b1ef23b4f72be369116b6c',
+  '0x5e9372053b4f86f1622911f83d751c7674288b50d414e19b29a542a78f7d9eed',
+];
 
 /** Whether a race whose match named `game` can be replayed with this site's rules. */
 export function playsByTheseRules(game: string): boolean {

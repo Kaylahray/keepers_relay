@@ -291,6 +291,64 @@ export function projectPointOntoTrack(
 }
 
 /**
+ * Whether a whole footprint stands clear of the walls, not just its middle: the rectangle `minX..maxX`
+ * by `minZ..maxZ` in the prop's own frame, turned by `rotY` as three.js turns it, checked round its edge.
+ */
+export function isFootprintSafe(
+  sampled: SampledTrack,
+  x: number,
+  y: number,
+  rotY: number,
+  minX: number,
+  maxX: number,
+  minZ: number,
+  maxZ: number,
+  clearanceRadius: number,
+): boolean {
+  const c = Math.cos(rotY);
+  const s = Math.sin(rotY);
+  for (let a = 0; a <= 4; a++) {
+    for (let b = 0; b <= 4; b++) {
+      if (a > 0 && a < 4 && b > 0 && b < 4) continue;
+      const u = minX + ((maxX - minX) * a) / 4;
+      const v = minZ + ((maxZ - minZ) * b) / 4;
+      if (!isScenerySpotSafe(sampled, x + u * c + v * s, y - u * s + v * c, clearanceRadius)) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * How far along the line from (fromX, fromY) to (toX, toY), from 0 to 1, stays within `limit` of the
+ * centre line. Scenery stands outside the walls, so a chase camera kept inside them never ends up in a
+ * crane or a building, or with one between it and the car. `fromX, fromY` should be on the road.
+ */
+export function insideWallsFraction(
+  sampled: SampledTrack,
+  fromX: number,
+  fromY: number,
+  toX: number,
+  toY: number,
+  limit: number,
+): number {
+  const out = (t: number) => projectPointOntoTrack(sampled, fromX + (toX - fromX) * t, fromY + (toY - fromY) * t).distance > limit;
+  const STEPS = 8;
+  for (let i = 1; i <= STEPS; i++) {
+    if (!out(i / STEPS)) continue;
+    // Narrow down where the line crosses out between the last point inside and this one.
+    let lo = (i - 1) / STEPS;
+    let hi = i / STEPS;
+    for (let k = 0; k < 5; k++) {
+      const mid = (lo + hi) / 2;
+      if (out(mid)) hi = mid;
+      else lo = mid;
+    }
+    return lo;
+  }
+  return 1;
+}
+
+/**
  * Returns true if a circle at (x, y) with given clearance radius is strictly
  * outside the entire closed-loop track wall corridor (never touching or crossing the road).
  */

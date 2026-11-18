@@ -480,9 +480,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-script-ipc"
-version = "1.1.0"
+version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c1ca793acac5a71361fcb625044e753d5664dd2b8239cdbb3d2dccc70461235"
+checksum = "89e4fa6bf25c92e96c87ee333d590523924b54ee5024b2211dbee8f1be411124"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -491,9 +491,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-script-ipc-common"
-version = "1.1.0"
+version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "209e2ce9aac0001d6c193de21553225fc6663f92b91d74bec34e1d228ab02610"
+checksum = "a775d03004b5157f7c1aae21b11c8a340b8d8f77aaaf8f332cdaf0ea3d4adf3a"
 dependencies = [
  "ckb-rust-std",
  "ckb-std",

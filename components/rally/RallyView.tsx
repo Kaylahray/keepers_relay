@@ -64,6 +64,8 @@ export function RallyView({ id }: { id: string }) {
   const queryClient = useQueryClient();
   const myLockHash = useMyLockHash()?.toLowerCase() ?? null;
   const [racing, setRacing] = useState(false);
+  // A driver goes straight to the start line; one who steps out is brought back when the doors close.
+  const [steppedOut, setSteppedOut] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -220,7 +222,13 @@ export function RallyView({ id }: { id: string }) {
     }
   }
 
-  if (racing && snapshot?.landed) {
+  const ends = snapshot ? lobbyEnd(snapshot) : null;
+  const left = ends == null ? null : Math.max(0, ends - now);
+  // Every driver waits on the start line, connected, so the whole field starts on the same tick.
+  const driving = Boolean(iAmIn && session && !retired);
+  const nearStart = left != null && left > 0 && !doorsOpen(ends!, now);
+
+  if ((racing || (driving && (!steppedOut || nearStart))) && snapshot?.landed) {
     return (
       <RallyLive
         snapshot={snapshot}
@@ -228,6 +236,7 @@ export function RallyView({ id }: { id: string }) {
         nameOf={nameOf}
         onLeave={() => {
           setRacing(false);
+          setSteppedOut(true);
           refresh();
         }}
         onEnded={refresh}
@@ -242,9 +251,6 @@ export function RallyView({ id }: { id: string }) {
       </Button>
     ) : null,
   );
-  const ends = snapshot ? lobbyEnd(snapshot) : null;
-  const left = ends == null ? null : Math.max(0, ends - now);
-
   const backLink = (
     <Link href="/rally" className="inline-flex h-10 items-center gap-2 font-display text-lg font-bold uppercase tracking-wide text-fog hover:text-chalk">
       <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Races
@@ -405,9 +411,9 @@ export function RallyView({ id }: { id: string }) {
                       This race was opened on an older version of the game, which has since been replaced, so it can’t be raced. Every entry can go home 10 minutes after the lobby’s wait.
                     </p>
                   ) : iAmIn && session ? (
-                    <Button variant="lime" size="xl" block onClick={() => setRacing(true)}>
-                      <Flag className="h-5 w-5" aria-hidden="true" /> Enter the race
-                    </Button>
+                    <p className="flex items-start gap-3 rounded-2xl bg-lime/10 p-4 text-lime">
+                      <Flag className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" /> You’re in. A minute before the start you’re put back on the start line, so everyone starts together.
+                    </p>
                   ) : iAmIn ? (
                     <p className="rounded-2xl bg-gold/10 p-4 text-gold">
                       This browser doesn’t have this race’s play key, so it can’t drive here. Open the race in the browser you entered from, or close it below to take your entry back.

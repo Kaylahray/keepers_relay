@@ -9,6 +9,8 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 
 import {
   buildSampledTrack,
+  insideWallsFraction,
+  isFootprintSafe,
   isScenerySpotSafe,
   offsetEdge,
   sampleTrackAtT,
@@ -120,6 +122,32 @@ const VignetteGrainShader = {
       float n = (rand(vUv + fract(time)) - 0.5) * grainStrength;
       col.rgb += n;
       gl_FragColor = col;
+    }
+  `,
+};
+
+/**
+ * Clears pixels the scene drew as NaN or infinity before the bloom sees them. Harbour's water mirror and
+ * the wet road now and then shade a pixel to NaN; the bloom's blur then spreads it into black blocks
+ * that cover half the screen, edge to edge.
+ */
+const NanGuardShader = {
+  uniforms: { tDiffuse: { value: null } },
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform sampler2D tDiffuse;
+    varying vec2 vUv;
+
+    void main() {
+      vec4 col = texture2D(tDiffuse, vUv);
+      if (any(isnan(col)) || any(isinf(col))) col = vec4(0.0, 0.0, 0.0, 1.0);
+      gl_FragColor = min(col, vec4(64.0));
     }
   `,
 };
@@ -456,6 +484,7 @@ export class RaceView {
       composer.setPixelRatio(pr);
       composer.setSize(width, height);
       composer.addPass(new RenderPass(this.scene, this.camera));
+      composer.addPass(new ShaderPass(NanGuardShader));
 
       const bloom = new UnrealBloomPass(
         new THREE.Vector2(Math.floor(width / 2), Math.floor(height / 2)),
@@ -1219,7 +1248,9 @@ export class RaceView {
       if (i % (propStep * 4) === 0) {
         const gx = s.x + s.nx * (this.sampled.wallDistance + 13.5);
         const gz = s.y + s.ny * (this.sampled.wallDistance + 13.5);
-        if (isScenerySpotSafe(this.sampled, gx, gz, 6.5)) {
+        // A crane is 12 m wide and 30 m deep (from 9.5 m inside its middle to 20.5 m out): on a bend its
+        // middle can be clear while a leg stands on the road, so the whole footprint must be.
+        if (isScenerySpotSafe(this.sampled, gx, gz, 6.5) && isFootprintSafe(this.sampled, gx, gz, heading, -6, 6, -9.5, 20.5, 1)) {
           craneTransforms.push({ x: gx, y: -1.6, z: gz, rotY: heading });
         }
       }
@@ -1237,10 +1268,12 @@ export class RaceView {
       const t = (k + 0.08) / signCount;
       const s = sampleTrackAtT(this.sampled, t);
       const side = k % 2 === 0 ? 1 : -1;
-      const sx = s.x + s.nx * side * (this.sampled.wallDistance + 2.4);
-      const sz = s.y + s.ny * side * (this.sampled.wallDistance + 2.4);
-      if (isScenerySpotSafe(this.sampled, sx, sz, 1.2)) {
-        const rotY = -Math.atan2(s.ty, s.tx) + (side > 0 ? Math.PI / 2 : -Math.PI / 2);
+      // The frame runs 2.4 m either side of its middle, across the road's line: far enough out that its
+      // near end stays off the wall.
+      const sx = s.x + s.nx * side * (this.sampled.wallDistance + 2.9);
+      const sz = s.y + s.ny * side * (this.sampled.wallDistance + 2.9);
+      const rotY = -Math.atan2(s.ty, s.tx) + (side > 0 ? Math.PI / 2 : -Math.PI / 2);
+      if (isScenerySpotSafe(this.sampled, sx, sz, 1.2) && isFootprintSafe(this.sampled, sx, sz, rotY, -2.4, 2.3, -0.2, 0.2, 0.3)) {
         signFrameTransforms.push({ x: sx, y: s.elevation, z: sz, rotY });
 
         const spec = signSpecs[k % signSpecs.length];
@@ -2365,13 +2398,23 @@ export class RaceView {
       this.camLook.z = THREE.MathUtils.damp(this.camLook.z, _v3B.z, lookLambda, dt);
     }
 
+    // On a bend the spot behind the car is past the wall, among the cranes and buildings: from inside
+    // one it sees only the prop. Keep the camera inside the walls, pulled in along the line to the car.
+    let camX = this.camPos.x;
+    let camZ = this.camPos.z;
+    if (this.cameraMode !== 'topdown') {
+      const keep = insideWallsFraction(this.sampled, player.x, player.y, camX, camZ, this.sampled.wallDistance - 0.5);
+      camX = player.x + (camX - player.x) * keep;
+      camZ = player.y + (camZ - player.y) * keep;
+    }
+
     // Apply trauma shake
     this.camTrauma = Math.max(0, this.camTrauma - dt * 1.9);
     const shake = this.camTrauma * this.camTrauma * 0.45;
     this.camera.position.set(
-      this.camPos.x + (Math.random() - 0.5) * shake,
+      camX + (Math.random() - 0.5) * shake,
       this.camPos.y + (Math.random() - 0.5) * shake,
-      this.camPos.z + (Math.random() - 0.5) * shake,
+      camZ + (Math.random() - 0.5) * shake,
     );
     this.camera.lookAt(this.camLook);
 

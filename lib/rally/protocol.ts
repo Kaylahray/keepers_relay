@@ -75,7 +75,7 @@ export const MAX_AHEAD_TICKS = 40;
 /** How far ahead phones schedule inputs, so most land on the tick they asked for. */
 export const INPUT_DELAY_TICKS = 3;
 /** Between the lobby closing and tick 0. */
-export const COUNTDOWN_MS = 5_000;
+export const COUNTDOWN_MS = 10_000;
 /** The wait of a match opened before hosts picked one. */
 export const LOBBY_MS = 2 * 60_000;
 /** The waits a host may pick, in minutes. The chain allows 1 to 60. */
