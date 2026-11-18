@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ccc } from '@ckb-ccc/connector-react';
 import Link from 'next/link';
@@ -64,8 +64,12 @@ export function RallyView({ id }: { id: string }) {
   const queryClient = useQueryClient();
   const myLockHash = useMyLockHash()?.toLowerCase() ?? null;
   const [racing, setRacing] = useState(false);
-  // A driver goes straight to the start line; one who steps out is brought back when the doors close.
-  const [steppedOut, setSteppedOut] = useState(false);
+  // Set when this driver leaves the race screen, so the lobby doesn't send them straight back in.
+  const [leftRace, setLeftRace] = useState(false);
+  // The relay as the lobby sees it: whether the host may start now.
+  const [startable, setStartable] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const lobbyLink = useRef<RallyLink | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -131,6 +135,30 @@ export function RallyView({ id }: { id: string }) {
   // A match opened on a game this site has since replaced: the match script can't call that game any
   // more, so it can't be raced, only sent home.
   const retired = Boolean(cell && cell.game.toLowerCase() !== rallyGame.codeHash.toLowerCase());
+
+  // A driver waits in the lobby, but already joined at the relay, so the host can start once everyone
+  // is here. When the relay starts the countdown (the clock ran out, every seat filled, or the host
+  // started it), every driver's page goes to the race at once and sees the same 10 → Go.
+  const driver = Boolean(iAmIn && session && !retired && snapshot?.landed);
+  useEffect(() => {
+    if (!driver || racing || !session) return;
+    const link = new RallyLink(
+      id,
+      (message) => {
+        if (message.type !== 'state') return;
+        setStartable(message.startable);
+        if (!leftRace && (message.phase === 'countdown' || message.phase === 'racing')) setRacing(true);
+      },
+      () => undefined,
+    );
+    link.listen();
+    void link.join(getCkbClient(), session).catch(() => undefined);
+    lobbyLink.current = link;
+    return () => {
+      link.close();
+      if (lobbyLink.current === link) lobbyLink.current = null;
+    };
+  }, [driver, racing, leftRace, session, id]);
 
   // The wallet approved but the page never heard back (closed popup, reload): the play key is still
   // set aside here as pending. Find it by the key the match or our seat recorded, and keep it.
@@ -222,13 +250,7 @@ export function RallyView({ id }: { id: string }) {
     }
   }
 
-  const ends = snapshot ? lobbyEnd(snapshot) : null;
-  const left = ends == null ? null : Math.max(0, ends - now);
-  // Every driver waits on the start line, connected, so the whole field starts on the same tick.
-  const driving = Boolean(iAmIn && session && !retired);
-  const nearStart = left != null && left > 0 && !doorsOpen(ends!, now);
-
-  if ((racing || (driving && (!steppedOut || nearStart))) && snapshot?.landed) {
+  if (racing && snapshot?.landed) {
     return (
       <RallyLive
         snapshot={snapshot}
@@ -236,7 +258,7 @@ export function RallyView({ id }: { id: string }) {
         nameOf={nameOf}
         onLeave={() => {
           setRacing(false);
-          setSteppedOut(true);
+          setLeftRace(true);
           refresh();
         }}
         onEnded={refresh}
@@ -251,6 +273,21 @@ export function RallyView({ id }: { id: string }) {
       </Button>
     ) : null,
   );
+  const ends = snapshot ? lobbyEnd(snapshot) : null;
+  const left = ends == null ? null : Math.max(0, ends - now);
+
+  async function startNow() {
+    setError(null);
+    setStarting(true);
+    try {
+      await lobbyLink.current?.start();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The race could not start.');
+    } finally {
+      setStarting(false);
+    }
+  }
+
   const backLink = (
     <Link href="/rally" className="inline-flex h-10 items-center gap-2 font-display text-lg font-bold uppercase tracking-wide text-fog hover:text-chalk">
       <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Races
@@ -411,9 +448,11 @@ export function RallyView({ id }: { id: string }) {
                       This race was opened on an older version of the game, which has since been replaced, so it can’t be raced. Every entry can go home 10 minutes after the lobby’s wait.
                     </p>
                   ) : iAmIn && session ? (
-                    <p className="flex items-start gap-3 rounded-2xl bg-lime/10 p-4 text-lime">
-                      <Flag className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" /> You’re in. A minute before the start you’re put back on the start line, so everyone starts together.
-                    </p>
+                    iAmHost && players.length > 1 ? (
+                      <Button variant="lime" size="xl" block onClick={() => void startNow()} disabled={!startable || starting}>
+                        <Flag className="h-5 w-5" aria-hidden="true" /> {starting ? 'Starting…' : 'Start now'}
+                      </Button>
+                    ) : null
                   ) : iAmIn ? (
                     <p className="rounded-2xl bg-gold/10 p-4 text-gold">
                       This browser doesn’t have this race’s play key, so it can’t drive here. Open the race in the browser you entered from, or close it below to take your entry back.
@@ -429,11 +468,11 @@ export function RallyView({ id }: { id: string }) {
                   ) : (
                     <p className="text-fog">This race is full.</p>
                   )}
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className={`grid gap-3 ${retired || (iAmIn && session) ? 'grid-cols-1' : 'grid-cols-2'}`}>
                     <Button variant="ghost" block onClick={() => void share()}>
                       <Link2 className="h-5 w-5" aria-hidden="true" /> {copied ? 'Copied' : 'Share link'}
                     </Button>
-                    {retired ? null : (
+                    {retired || (iAmIn && session) ? null : (
                       <Button variant="ghost" block onClick={() => setRacing(true)}>
                         <Eye className="h-5 w-5" aria-hidden="true" /> Watch
                       </Button>
