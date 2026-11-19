@@ -53,7 +53,7 @@ function Label({ children }: { children: string }) {
 
 function homeError(cause: unknown): string {
   // The chain's clock (the median of recent blocks) runs a few minutes behind the wall clock.
-  if (cause instanceof Error && /Immature/i.test(cause.message)) return 'Not yet: the chain’s clock runs a few minutes behind. Try again in a minute.';
+  if (cause instanceof Error && /Immature/i.test(cause.message)) return 'Not quite yet. Try again in a minute.';
   return plainChainError(cause, 'The entry could not be sent home.');
 }
 
@@ -192,7 +192,7 @@ export function RallyView({ id }: { id: string }) {
       setBusy('Preparing your seat…');
       const key = await newSessionKey(getCkbClient());
       rememberPendingKey(key.secret);
-      setBusy('Approve in your wallet to put your entry in the pot…');
+      setBusy('Confirm your entry fee…');
       await joinMatch(signer, snapshot, key);
       saveRallyKey(id, key.secret);
       setKeyVersion((v) => v + 1);
@@ -208,7 +208,7 @@ export function RallyView({ id }: { id: string }) {
   async function closeLobby() {
     setError(null);
     try {
-      setBusy('Sending your entry home…');
+      setBusy('Getting your money back…');
       await new RallyLink(id, () => undefined, () => undefined).closeLobby();
       setSent({ what: 'home', at: Date.now(), cell: snapshot ? outPointKey(snapshot.cell) : undefined });
       refresh();
@@ -222,7 +222,7 @@ export function RallyView({ id }: { id: string }) {
   async function goHome(target: { cell: ccc.Cell; owner: string; wait: number }) {
     setError(null);
     try {
-      setBusy('Sending your entry home…');
+      setBusy('Getting your money back…');
       await sendHome(getCkbClient(), target.cell, target.owner, target.wait);
       setSent({ what: 'home', at: sentAt(), cell: outPointKey(target.cell) });
       refresh();
@@ -265,7 +265,7 @@ export function RallyView({ id }: { id: string }) {
   const homeButtons = mySeats.map((seat: Seat) =>
     mayGoHome(seat.landed?.landedMs, now, seat.wait) ? (
       <Button key={seat.cell.outPoint.txHash} variant="ghost" block onClick={() => void goHome({ cell: seat.cell, owner: seat.owner, wait: seat.wait })} disabled={Boolean(busy)}>
-        Send my entry home ({Number(seat.cell.cellOutput.capacity) / CKB} CKB)
+        Get my money back ({Number(seat.cell.cellOutput.capacity) / CKB} CKB)
       </Button>
     ) : null,
   );
@@ -295,11 +295,11 @@ export function RallyView({ id }: { id: string }) {
         {awaitingResult ? (
           <ChainLoader title="Loading the result…" note="The chain paid out. The result shows here in a moment." />
         ) : match.isPending ? (
-          <ChainLoader title="Reading the race from the chain…" />
+          <ChainLoader title="Loading the race…" />
         ) : sentHome ? (
-          <ChainLoader title="Sending your entry home…" note="It shows in your wallet within a minute." />
+          <ChainLoader title="Getting your money back…" note="It’s back in your account within a minute." />
         ) : (
-          <ChainLoader title="Waiting for the race to land on chain…" note="A new race shows up within a minute. Your entry stays in your own cell until the race locks." />
+          <ChainLoader title="Setting up your race…" note="A new race shows up within a minute. Your money stays yours until the race starts." />
         )}
         {overlay}
       </div>
@@ -320,7 +320,7 @@ export function RallyView({ id }: { id: string }) {
         )}
         {mySeats.length > 0 && goingHome ? (
           <div className="mt-6">
-            <ChainLoader compact title="Sending your entry home…" />
+            <ChainLoader compact title="Getting your money back…" />
           </div>
         ) : mySeats.length > 0 ? (
           <div className="mx-auto mt-8 max-w-md space-y-3">
@@ -428,7 +428,7 @@ export function RallyView({ id }: { id: string }) {
               {!snapshot.landed ? (
                 <ChainLoader compact title="The race is confirming…" />
               ) : goingHome ? (
-                <ChainLoader compact title="Sending your entry home…" />
+                <ChainLoader compact title="Getting your money back…" />
               ) : (
                 <>
                   {retired ? (
@@ -440,12 +440,12 @@ export function RallyView({ id }: { id: string }) {
                       This browser doesn’t have this race’s play key, so it can’t drive here. Open the race in the browser you entered from, or close it below to take your entry back.
                     </p>
                   ) : confirming || seatLanding ? (
-                    <ChainLoader compact title="Your seat is landing on chain…" note="Your entry is going into your own cell." />
+                    <ChainLoader compact title="Saving your seat…" note="Your entry is locked in safely." />
                   ) : !full && ends != null && !doorsOpen(ends, now) ? (
                     <p className="text-fog">The doors have closed: this race starts within a minute. Watch it, or open your own.</p>
                   ) : !full ? (
                     <Button variant="lime" size="xl" block onClick={() => void join()} disabled={Boolean(busy) || !isConnected}>
-                      {isConnected ? `Join – put ${Number(cell.entry) / CKB} CKB in the pot` : 'Connect your wallet to join'}
+                      {isConnected ? `Join – put ${Number(cell.entry) / CKB} CKB in the pot` : 'Sign in to join'}
                     </Button>
                   ) : (
                     <p className="text-fog">This race is full.</p>

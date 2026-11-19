@@ -106,7 +106,7 @@ function Hero() {
             transition={{ duration: 0.3, ease: EASE, delay: 0.3 }}
             className="max-w-xl font-display text-3xl font-extrabold uppercase leading-none sm:text-5xl"
           >
-            Race live. <span className="text-lime">The chain pays the winner.</span>
+            Race live. <span className="text-lime">The winner gets paid automatically.</span>
           </motion.p>
           <motion.div
             initial={{ opacity: 0, y: 12 }}
@@ -125,7 +125,7 @@ function Hero() {
 const STEPS = [
   {
     title: 'Put in your entry',
-    body: 'Everyone adds the same entry in CKB. It all goes in one pot, held by the match script, not by us.',
+    body: 'Everyone puts in the same entry fee in CKB. It all goes into one locked pot. Not even we can touch it.',
     img: IMG.stepEntry,
     alt: 'A glowing glass cell full of gold coins',
     tone: 'text-gold',
@@ -138,8 +138,8 @@ const STEPS = [
     tone: 'text-pink',
   },
   {
-    title: 'The chain pays',
-    body: 'It replays the race from every signed move, then pays the winner. Nobody finishes? Everyone gets their entry back.',
+    title: 'The winner gets paid',
+    body: 'The race is checked move by move, then the winner is paid. Nobody finishes? Everyone gets their money back.',
     img: IMG.stepPayout,
     alt: 'A car crossing a glowing lime finish arch with a wireframe replay trailing behind it',
     tone: 'text-lime',
@@ -217,7 +217,7 @@ function Tracks() {
           <br />
           battleground.
         </SectionTitle>
-        <p className="max-w-xs text-lg text-fog">Every race is 3 laps. Learn the lines in practice before you put CKB down.</p>
+        <p className="max-w-xs text-lg text-fog">Every race is 3 laps. Learn the track in practice before you play for CKB.</p>
       </div>
       <div className="mx-auto mt-12 max-w-[1440px] sm:mt-16 sm:px-8">
         <ul className="flex snap-x snap-mandatory gap-4 overflow-x-auto px-5 pb-4 [scrollbar-width:none] sm:px-0 lg:grid lg:grid-cols-[1.35fr_1fr_1fr] lg:gap-5 lg:overflow-visible lg:pb-0">
@@ -360,7 +360,7 @@ function Trophies() {
             <img src={IMG.trophy} alt="A gold crown trophy set with green gems on a black pedestal" className="aspect-square w-full object-cover" />
             <figcaption className="absolute inset-x-0 bottom-0 flex flex-wrap items-end justify-between gap-3 bg-gradient-to-t from-black via-black/80 to-transparent p-5 pt-16 sm:p-7 sm:pt-20">
               <div>
-                <p className="font-display text-sm font-extrabold uppercase tracking-wider text-gold">{latestWin ? 'Spore trophy · latest win' : 'Spore trophy'}</p>
+                <p className="font-display text-sm font-extrabold uppercase tracking-wider text-gold">{latestWin ? 'Trophy · latest win' : 'Trophy'}</p>
                 <p className="mt-1 font-display text-3xl font-black uppercase leading-none sm:text-4xl">{mapName(latestWin?.map ?? 0)}</p>
               </div>
               {latestWin ? (
@@ -386,7 +386,7 @@ function Trophies() {
           </SectionTitle>
           <Reveal delay={0.05}>
             <p className="mt-6 max-w-md text-xl text-chalk/85">
-              Win a race and claim a crown. It’s a Spore NFT on CKB, and it only counts if that race really paid you. The CKB it holds stays yours.
+              Win a race and claim a crown. It’s a collectible you own, and you can only get one for a race you really won. The CKB inside it stays yours.
             </p>
           </Reveal>
           <Reveal delay={0.1}>
@@ -431,9 +431,9 @@ function HomeLeaderboard() {
 }
 
 const FAIR = [
-  { claim: 'The chain checks every race.', detail: 'When a race ends, the chain replays it from the moves each player signed.' },
-  { claim: 'Your entry sits in a cell on chain.', detail: 'Not in our wallet. Not on a server. If the race server goes quiet, every entry can go home after 10 minutes.' },
-  { claim: 'Nobody can take the pot.', detail: 'Not us, not the race server. Only the replay decides who gets paid.' },
+  { claim: 'Every race is checked.', detail: 'When a race ends, it’s replayed from each player’s own moves to confirm the winner.' },
+  { claim: 'Your money stays locked, not with us.', detail: 'We never hold it. If our race server goes down, everyone gets their money back after 10 minutes.' },
+  { claim: 'Nobody can take the pot.', detail: 'Not us, not anyone. Only the race result decides who gets paid.' },
 ];
 
 function Fair() {

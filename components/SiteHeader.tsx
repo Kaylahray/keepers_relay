@@ -133,12 +133,12 @@ export function SiteHeader() {
             <>
               {!handle && pathname !== '/join' ? (
                 <Button href={`/join?next=${encodeURIComponent(pathname)}`} variant="pink" size="sm">
-                  <AtSign className="h-4 w-4" aria-hidden="true" /> Claim name
+                  <AtSign className="h-4 w-4" aria-hidden="true" /> Pick your name
                 </Button>
               ) : null}
               <Link
                 href="/profile"
-                title={formattedAddress || 'Your wallet'}
+                title={formattedAddress || 'Your account'}
                 aria-label={`Your profile. Wallet balance ${formatWalletCkb(balance)} CKB`}
                 className="flex items-center gap-2.5 rounded-full border border-line bg-ink-2/80 py-1 pl-1 pr-4 transition-colors duration-150 hover:border-chalk/30"
               >
@@ -161,7 +161,7 @@ export function SiteHeader() {
           ) : (
             <Button disabled={authBusy} onClick={() => void ensureAuth().catch(() => undefined)}>
               <WalletMinimal className="h-4 w-4" aria-hidden="true" />
-              {authBusy ? (isConnected ? 'Signing in…' : 'Connecting…') : isConnected ? 'Sign in' : 'Connect wallet'}
+              {authBusy ? 'Signing in…' : isConnected ? 'Finish signing in' : 'Sign in'}
             </Button>
           )}
         </div>
@@ -205,7 +205,7 @@ export function SiteFooter() {
       <div className="mx-auto grid max-w-[1440px] gap-12 px-5 py-14 sm:px-8 sm:py-20 lg:grid-cols-[1.4fr_2fr]">
         <div>
           <Logo size="lg" />
-          <p className="mt-4 max-w-xs text-fog">A live car race on Nervos CKB. The chain pays the winner.</p>
+          <p className="mt-4 max-w-xs text-fog">A live car race on Nervos CKB. The winner gets paid automatically.</p>
           <p className="mt-6 inline-flex items-center gap-2 text-sm text-chalk/80">
             <span className="h-1.5 w-1.5 rounded-full bg-gold" />
             Live on testnet
@@ -231,7 +231,7 @@ export function SiteFooter() {
       <div className="border-t border-line">
         <div className="mx-auto flex max-w-[1440px] flex-col gap-2 px-5 py-6 text-sm text-fog sm:flex-row sm:justify-between sm:px-8">
           <span>Crowns</span>
-          <span>Built on Nervos CKB · Trophies are Spore NFTs</span>
+          <span>Powered by Nervos CKB</span>
         </div>
       </div>
     </footer>

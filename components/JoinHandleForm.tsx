@@ -90,7 +90,7 @@ export function JoinHandleForm({ nextHref = '/' }: { nextHref?: string }) {
       });
       router.push(nextHref);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Username claim failed.');
+      setError(e instanceof Error ? e.message : 'That name couldn’t be saved.');
     } finally {
       setBusy(false);
     }
@@ -148,12 +148,12 @@ export function JoinHandleForm({ nextHref = '/' }: { nextHref?: string }) {
           </motion.h1>
 
           {!isReady ? (
-            <p className="mt-10 text-fog">Checking wallet…</p>
+            <p className="mt-10 text-fog">Signing you in…</p>
           ) : step === 0 ? (
             <div className="mt-8">
               <p className="max-w-md text-lg text-chalk/85">No password or seed phrase. JoyID uses your phone&apos;s fingerprint or face to sign you in.</p>
               <Button size="xl" className="mt-8 w-full sm:w-auto" disabled={authBusy} onClick={() => void ensureAuth().catch(() => undefined)}>
-                <Fingerprint className="h-6 w-6" aria-hidden="true" /> {authBusy ? 'Opening your wallet…' : 'Connect with JoyID'}
+                <Fingerprint className="h-6 w-6" aria-hidden="true" /> {authBusy ? 'Signing you in…' : 'Connect with JoyID'}
               </Button>
             </div>
           ) : step === 1 ? (
@@ -220,10 +220,10 @@ export function JoinHandleForm({ nextHref = '/' }: { nextHref?: string }) {
               <Button type="submit" size="xl" className="mt-10 w-full sm:w-auto" disabled={busy || !usernameOk}>
                 {busy ? (
                   <>
-                    <Loader2 className="h-6 w-6 animate-spin" aria-hidden="true" /> Approve in your wallet…
+                    <Loader2 className="h-6 w-6 animate-spin" aria-hidden="true" /> Confirm to sign in…
                   </>
                 ) : (
-                  'Claim name'
+                  'Pick your name'
                 )}
               </Button>
               <p className="mt-4 text-sm text-fog">One signature. Add a picture and bio later from your profile. Your name stays.</p>
@@ -232,7 +232,7 @@ export function JoinHandleForm({ nextHref = '/' }: { nextHref?: string }) {
             <div className="mt-8">
               <div className="flex items-center gap-4">
                 <Avatar name={`@${claimed}`} size={80} src={null} />
-                <p className="max-w-sm text-lg text-chalk/85">This face is yours for now. Mint your own picture any time from your profile.</p>
+                <p className="max-w-sm text-lg text-chalk/85">This face is yours for now. Create your own picture any time from your profile.</p>
               </div>
               <div className="mt-10 flex flex-col gap-3 sm:flex-row">
                 <Button size="xl" onClick={() => router.push(nextHref)}>

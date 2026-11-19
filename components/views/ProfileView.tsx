@@ -139,7 +139,7 @@ export function ProfileView({ address }: { address: string }) {
       <ArenaStage>
         <EmptyState
           title="Connect to view"
-          body="Your profile and picture are tied to your wallet."
+          body="Your profile and picture are tied to your account."
           action={
             <Button
               variant="lime"
@@ -147,7 +147,7 @@ export function ProfileView({ address }: { address: string }) {
               onClick={() => void ensureAuth().catch(() => undefined)}
             >
               <WalletMinimal className="h-4 w-4" />
-              Connect wallet
+              Sign in
             </Button>
           }
         />
@@ -236,7 +236,7 @@ export function ProfileView({ address }: { address: string }) {
               <>
                 {!handle ? (
                   <Button href="/join?next=/profile" variant="pink">
-                    Claim your @name
+                    Pick your @name
                   </Button>
                 ) : null}
                 <Button href="/profile/edit" variant="ghost">
@@ -294,7 +294,7 @@ export function ProfileView({ address }: { address: string }) {
           ) : null}
         </div>
         {trophySpores.isLoading || stats.isLoading ? (
-          <ChainLoader compact title="Reading trophies from the chain…" />
+          <ChainLoader compact title="Loading trophies…" />
         ) : trophies.length > 0 ? (
           <ul className="-mx-5 mt-5 flex snap-x snap-mandatory gap-4 overflow-x-auto px-5 pb-2 [scrollbar-width:none] sm:mx-0 sm:grid sm:grid-cols-2 sm:overflow-visible sm:px-0 lg:grid-cols-4">
             {trophies.map((trophy, i) => (
@@ -326,7 +326,7 @@ export function ProfileView({ address }: { address: string }) {
             <p className="mt-4 font-display text-3xl font-black uppercase">No trophies yet</p>
             <p className="mt-2 max-w-md text-fog">
               {isSelf
-                ? "Win a race, then claim its trophy from the results. It lands in your wallet and shows up here."
+                ? "Win a race, then collect its trophy from the results. It’s yours, and it shows up here."
                 : "Wins show up here as gold crowns."}
             </p>
             {isSelf ? (
@@ -343,7 +343,7 @@ export function ProfileView({ address }: { address: string }) {
           Recent races
         </h2>
         {stats.isLoading ? (
-          <ChainLoader compact title="Reading races from the chain…" />
+          <ChainLoader compact title="Loading races…" />
         ) : myRaces.length === 0 || !lockHash ? (
           <p className="mt-4 text-fog">
             {isSelf ? "No finished races yet. Host one or join one." : "No finished races yet."}

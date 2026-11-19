@@ -214,13 +214,13 @@ export function RallyLive({ snapshot, session, nameOf, onLeave, onEnded }: Props
       />
     );
   } else if (relay.phase === 'settling') {
-    panel = <Overlay title="Finish!" note={relay.note ?? 'The relay sends the result. The chain replays the race, checks the winner signed their moves, and pays out. Nobody needs to stay.'} />;
+    panel = <Overlay title="Finish!" note={relay.note ?? 'Checking the race and paying the winner. You can leave: it happens on its own.'} />;
   } else if (relay.phase === 'done' || relay.phase === 'failed') {
     panel = (
-      <Overlay title={relay.phase === 'done' ? 'Paid out' : 'Not paid yet'} note={relay.note ?? (relay.phase === 'done' ? 'The chain replayed the race and paid out.' : 'The result could not be sent.')}>
+      <Overlay title={relay.phase === 'done' ? 'Paid!' : 'Not paid yet'} note={relay.note ?? (relay.phase === 'done' ? 'The race was checked and the winner was paid.' : 'The result could not be sent.')}>
         {relay.txHash ? (
-          <a href={ckbTxExplorerUrl(relay.txHash)} target="_blank" rel="noreferrer" className="mt-3 block break-all font-mono text-xs text-lime underline">
-            {relay.txHash}
+          <a href={ckbTxExplorerUrl(relay.txHash)} target="_blank" rel="noreferrer" className="mt-3 block text-sm font-semibold text-lime underline">
+            View receipt
           </a>
         ) : null}
         <Button variant="lime" size="lg" block className="mt-5" onClick={onLeave}>

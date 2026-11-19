@@ -105,7 +105,7 @@ export default function PlayersPage() {
           {list.length === 0 ? (
             <li className="py-16 text-center">
               <p className="font-display text-3xl font-black uppercase">{q ? `No one called @${s}` : 'No players yet'}</p>
-              <p className="mt-2 text-fog">{q ? 'Check the spelling, or the name is still free.' : 'Claim a @name and you’ll be the first one here.'}</p>
+              <p className="mt-2 text-fog">{q ? 'Check the spelling, or the name is still free.' : 'Pick a @name and you’ll be the first one here.'}</p>
               <Button href="/rally" className="mt-6">
                 Host a race
               </Button>

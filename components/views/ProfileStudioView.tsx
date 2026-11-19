@@ -177,7 +177,7 @@ export function ProfileStudioView() {
     try {
       await spore.mintSpore(await lookFile(FACES[i]!, LOOK_NAMES[i]!));
     } catch (e) {
-      setProfileError(e instanceof Error ? e.message : 'Could not mint that look.');
+      setProfileError(e instanceof Error ? e.message : 'Could not create that look.');
     } finally {
       setMintingLook(null);
     }
@@ -227,8 +227,8 @@ export function ProfileStudioView() {
       <div className="mx-auto w-full max-w-[1100px] px-5 pt-6 sm:px-8 sm:pt-10">
         <EmptyState
           title="Connect first"
-          body="Connect your wallet to mint a picture and set it as your profile picture."
-          action={<Button onClick={() => void ensureAuth().catch(() => undefined)}>Connect wallet</Button>}
+          body="Sign in to create a picture and set it as your profile picture."
+          action={<Button onClick={() => void ensureAuth().catch(() => undefined)}>Sign in</Button>}
         />
       </div>
     );
@@ -321,11 +321,11 @@ export function ProfileStudioView() {
         <h2 id="owned" className="font-display text-3xl font-black uppercase">
           Your pictures
         </h2>
-        <p className="mt-1 text-fog">Spores in your wallet. Set one as your profile picture.</p>
+        <p className="mt-1 text-fog">Your pictures. Set one as your profile picture.</p>
         {spore.isLoadingSpores ? (
           <ChainLoader compact title="Reading your pictures…" />
         ) : spore.mintedSpores.length === 0 ? (
-          <p className="mt-5 rounded-3xl border border-dashed border-line px-6 py-10 text-center text-fog">No pictures in this wallet yet. Mint a look below, or upload your own.</p>
+          <p className="mt-5 rounded-3xl border border-dashed border-line px-6 py-10 text-center text-fog">No pictures yet. Create a look below, or upload your own.</p>
         ) : (
           <ul className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
             {spore.mintedSpores.map((item) => {
@@ -368,11 +368,11 @@ export function ProfileStudioView() {
         <h2 id="looks" className="font-display text-3xl font-black uppercase">
           Ready-made looks
         </h2>
-        <p className="mt-1 text-fog">Mint one to your wallet. It costs only the CKB to store it, which you get back if you burn it.</p>
+        <p className="mt-1 text-fog">Create one you own. It costs a small CKB deposit, which you get back if you delete it.</p>
         {spore.isMinting ? (
           <p className="mt-3 flex items-center gap-2 font-semibold text-lime" aria-live="polite">
             <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-            {mintingLook != null ? `Minting ${LOOK_NAMES[mintingLook]}. Approve it in your wallet; the others wait until it lands.` : 'Minting your picture. Approve it in your wallet; the looks wait until it lands.'}
+            {mintingLook != null ? `Creating ${LOOK_NAMES[mintingLook]}. Confirm it when asked; the others wait until it’s done.` : 'Creating your picture. Confirm it when asked; the looks wait until it’s done.'}
           </p>
         ) : null}
         <ul className="-mx-5 mt-5 flex snap-x snap-mandatory gap-3 overflow-x-auto px-5 pb-2 [scrollbar-width:none] sm:mx-0 sm:grid sm:grid-cols-3 sm:overflow-visible sm:px-0 lg:grid-cols-4">
@@ -397,7 +397,7 @@ export function ProfileStudioView() {
                   ) : spore.isMinting ? (
                     'One at a time'
                   ) : (
-                    'Mint'
+                    'Create'
                   )}
                 </Button>
               </div>
@@ -423,9 +423,9 @@ export function ProfileStudioView() {
           </button>
           <div className="min-w-0 flex-1">
             <p className="font-display text-2xl font-black uppercase leading-none">Your own picture</p>
-            {compressionNote ? <p className="mt-1 font-mono text-xs text-fog">{compressionNote}</p> : <p className="mt-1 text-fog">Upload any image and mint it as a Spore you own.</p>}
+            {compressionNote ? <p className="mt-1 font-mono text-xs text-fog">{compressionNote}</p> : <p className="mt-1 text-fog">Upload any image and turn it into a picture you own.</p>}
             <Button variant="pink" className="mt-3" disabled={!selectedFile || spore.isMinting} onClick={() => void onMint()}>
-              <Sparkles className="h-4 w-4" aria-hidden="true" /> {spore.isMinting && mintingLook == null ? 'Minting…' : 'Mint my picture'}
+              <Sparkles className="h-4 w-4" aria-hidden="true" /> {spore.isMinting && mintingLook == null ? 'Creating…' : 'Create my picture'}
             </Button>
           </div>
         </div>

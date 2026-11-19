@@ -67,7 +67,7 @@ export function RallyHome() {
 
   async function host() {
     if (!signer) {
-      setError('Connect your wallet to host a race.');
+      setError('Sign in to host a race.');
       return;
     }
     setError(null);
@@ -75,7 +75,7 @@ export function RallyHome() {
       setBusy('Preparing your race…');
       const session = await newSessionKey(getCkbClient());
       rememberPendingKey(session.secret);
-      setBusy('Approve in your wallet to put your entry in the pot…');
+      setBusy('Confirm your entry fee…');
       const opened = await openMatch(signer, { entry: BigInt(entry) * CKB, seats, map, session, wait: wait * 60 });
       saveRallyKey(opened.matchId, session.secret);
       router.push(`/rally/${opened.matchId}`);
@@ -202,7 +202,7 @@ export function RallyHome() {
         <h2 id="finished" className="font-display text-4xl font-black uppercase">
           Finished races
         </h2>
-        <p className="mb-4 mt-1 text-fog">Open one to see the places, each driver’s moves, and a replay rebuilt from the chain.</p>
+        <p className="mb-4 mt-1 text-fog">Open one to see the places, each driver’s moves, and a full replay.</p>
         <LatestRaces limit={15} />
       </section>
 

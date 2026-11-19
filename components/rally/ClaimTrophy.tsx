@@ -43,9 +43,9 @@ export function ClaimTrophy({ race, ticks }: { race: RaceResult; ticks: number }
     try {
       setBusy('Making your trophy…');
       const { tx, holds } = await trophyTx(signer, trophy);
-      setBusy(`Approve in your wallet. The trophy holds ${ckbWhole(holds)} CKB of yours.`);
+      setBusy(`Confirm to collect it. The trophy holds ${ckbWhole(holds)} CKB of yours.`);
       const hash = await signer.sendTransaction(tx);
-      setBusy('Your trophy is landing on chain…');
+      setBusy('Adding your trophy…');
       await signer.client.waitTransaction(hash);
       await queryClient.invalidateQueries({ queryKey: ['my-trophy', race.txHash] });
       await queryClient.invalidateQueries({ queryKey: ['trophies'] });
@@ -72,7 +72,7 @@ export function ClaimTrophy({ race, ticks }: { race: RaceResult; ticks: number }
       </div>
       <div className="p-6">
         <p className="font-display text-4xl font-black uppercase leading-none sm:text-5xl">
-          {mine.data ? 'Your' : 'Claim your'} <span className="text-gold">trophy</span>
+          {mine.data ? 'Your' : 'Collect your'} <span className="text-gold">trophy</span>
         </p>
         <p className="mt-2 text-fog">
           {mapName(race.map)} · 1st of {race.players.length} · {raceTime(ticks)} · {ckbWhole(race.pot)} CKB pot
@@ -81,11 +81,11 @@ export function ClaimTrophy({ race, ticks }: { race: RaceResult; ticks: number }
           {busy ? (
             <ChainLoader compact title={busy} />
           ) : mine.data ? (
-            <p className="text-lime">It&apos;s in your wallet and on your profile.</p>
+            <p className="text-lime">It&apos;s yours, and it&apos;s on your profile.</p>
           ) : (
             <>
               <Button variant="gold" size="xl" block onClick={() => void claim()} disabled={!signer || mine.isLoading}>
-                Claim your trophy
+                Collect your trophy
               </Button>
               <p className="mt-3 text-sm text-fog">
                 It&apos;s a Spore in your own wallet. It holds about 230 CKB of yours as storage, which you get back if you ever melt it.

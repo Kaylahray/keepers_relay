@@ -48,7 +48,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
               {preview ? `${preview.track} · 3 laps` : '3D car races on CKB'}
             </div>
             <div style={{ display: 'flex', fontSize: 78, fontWeight: 800, lineHeight: 1.05, marginTop: 10, maxWidth: 1050 }}>
-              {preview ? preview.headline : 'Race. The chain pays the winner.'}
+              {preview ? preview.headline : 'Race. The winner gets paid automatically.'}
             </div>
           </div>
 

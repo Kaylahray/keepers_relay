@@ -79,7 +79,7 @@ export async function racePreview(id: string): Promise<RacePreview | null> {
     track: mapName(race.map),
     stage: 'finished',
     headline: winner ? `${champName} won ${whole(BigInt(winner.share))} CKB` : 'Nobody finished: every entry went home',
-    description: `${mapName(race.map)} · ${race.players.length} cars · ${pot} CKB pot. The chain replayed the race and paid out.`,
+    description: `${mapName(race.map)} · ${race.players.length} cars · ${pot} CKB pot. The race was checked and the winner was paid.`,
     stats: [
       { label: 'Pot', value: `${pot} CKB` },
       { label: 'Cars', value: String(race.players.length) },

@@ -12,7 +12,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: 'Crowns',
   description:
-    'Live car races on CKB. 2 to 5 players race on the same track, and the chain replays every race and pays the winner.',
+    'Live car races for 2 to 5 players. Put in an entry, race 3 laps, and the winner takes the pot automatically.',
 };
 
 export default function RootLayout({

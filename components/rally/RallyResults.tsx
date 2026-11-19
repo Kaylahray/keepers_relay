@@ -59,7 +59,7 @@ export function RallyResults({ txHash, me }: { txHash: string; me: string | null
     staleTime: Infinity,
   });
 
-  if (result.isPending) return <ChainLoader compact title="Reading the race from the chain…" />;
+  if (result.isPending) return <ChainLoader compact title="Loading the race…" />;
   if (!result.data) {
     return (
       <div className="mt-4 max-w-2xl">
@@ -73,9 +73,9 @@ export function RallyResults({ txHash, me }: { txHash: string; me: string | null
           <br />
           <span className="text-lime">Entries went home.</span>
         </h1>
-        <p className="mt-5 text-lg text-chalk/85">The lobby closed without a race, so every entry went back to its wallet. Nothing was lost.</p>
+        <p className="mt-5 text-lg text-chalk/85">The lobby closed without a race, so everyone got their money back. Nothing was lost.</p>
         <a className="mt-4 inline-flex items-center gap-2 font-mono text-sm text-fog hover:text-lime" href={ckbTxExplorerUrl(txHash)} target="_blank" rel="noreferrer">
-          {short(txHash)} <ExternalLink className="h-4 w-4" aria-hidden="true" />
+          View receipt · {short(txHash)} <ExternalLink className="h-4 w-4" aria-hidden="true" />
         </a>
         <div className="mt-8">
           <Link href="/rally" className={buttonClass('lime', 'xl')}>
@@ -202,8 +202,8 @@ export function RallyResults({ txHash, me }: { txHash: string; me: string | null
                 );
               })}
             </ul>
-            {replayed ? <p className="mt-4 text-sm text-fog">Moves: how many times each driver changed what they were pressing. Each phone signed its own.</p> : null}
-            {refunded ? <p className="mt-4 text-fog">Nobody finished 3 laps, so every entry went back to its wallet. Nothing was lost.</p> : null}
+            {replayed ? <p className="mt-4 text-sm text-fog">Moves: how many times each driver changed what they were pressing. Each player’s moves are their own and can’t be faked.</p> : null}
+            {refunded ? <p className="mt-4 text-fog">Nobody finished 3 laps, so everyone got their money back. Nothing was lost.</p> : null}
           </div>
         </div>
 
@@ -220,7 +220,7 @@ export function RallyResults({ txHash, me }: { txHash: string; me: string | null
                 <TriangleAlert className={`h-7 w-7 shrink-0 ${sameRules ? 'text-gold' : 'text-fog'}`} aria-hidden="true" />
               )}
               <p className="font-display text-2xl font-black uppercase leading-none">
-                {agrees ? 'Checked on chain' : !sameRules ? 'Raced on older rules' : replayed ? 'Replay disagrees' : 'Couldn’t replay here'}
+                {agrees ? 'Verified result' : !sameRules ? 'Raced on older rules' : replayed ? 'Replay disagrees' : 'Couldn’t replay here'}
               </p>
             </div>
             <p className="mt-3 text-chalk/85">
@@ -228,7 +228,7 @@ export function RallyResults({ txHash, me }: { txHash: string; me: string | null
                 ? `The chain replayed every signed move before paying. Your browser read the moves (${bytes.toLocaleString('en-US')} bytes) from the finish, replayed all ${replayed!.ticks.toLocaleString('en-US')} ticks too, and got the same ${refunded ? 'result: nobody finished' : 'winner'}.`
                 : !sameRules
                   ? 'This race ran on an earlier version of the rules than this site has now, so your browser can’t replay it exactly. The payout is read straight from the chain.'
-                  : 'The chain already replayed this race before paying, so the payout stands. This browser may have different rules from the chain.'}
+                  : 'This race was already checked before it paid out, so the result stands. This browser may just have different rules.'}
             </p>
             {record && replayed ? (
               <Button variant="lime" size="lg" block className="mt-5" onClick={() => setWatching(true)}>
@@ -236,7 +236,7 @@ export function RallyResults({ txHash, me }: { txHash: string; me: string | null
               </Button>
             ) : null}
             <a className="mt-4 inline-flex items-center gap-2 font-mono text-sm text-lime hover:underline" href={ckbTxExplorerUrl(txHash)} target="_blank" rel="noreferrer">
-              {short(txHash)} <ExternalLink className="h-4 w-4" aria-hidden="true" />
+              View receipt · {short(txHash)} <ExternalLink className="h-4 w-4" aria-hidden="true" />
             </a>
           </div>
 
