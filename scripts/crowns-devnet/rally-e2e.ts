@@ -123,7 +123,7 @@ async function main() {
   type Mode = 'drive' | 'park' | 'unsigned';
 
   /** One phone: joins with its session key, drives its car, and signs its moves as the relay passes them back. */
-  async function phone(matchId: string, secret: ccc.Hex, mode: Mode, host = false) {
+  async function phone(matchId: string, secret: ccc.Hex, mode: Mode) {
     const runner = await rules.loadRally(wasm);
     const snapshot = (await chain.findMatch(client, matchId))!;
     let cars: string[] = [];
@@ -135,7 +135,9 @@ async function main() {
     let token = '';
     let sent = -1;
     let done: { phase: string; txHash?: string; note?: string } | null = null;
-    let started = false;
+    // The lobby's clock as the relay last told it, and when the relay started the countdown.
+    let lobbyEnds: number | null = null;
+    let countdownAt: number | null = null;
     const own = new moves.OwnMoves(matchId, secret);
     const me = (await new ccc.SignerCkbPrivateKey(client, secret).getRecommendedAddressObj()).script.hash().toLowerCase();
 
@@ -151,13 +153,8 @@ async function main() {
           next = cars.map(() => 0);
         }
         if (message.phase === 'done' || message.phase === 'failed') done = { phase: message.phase, txHash: message.txHash, note: message.note };
-        // The host presses Start now as soon as the relay says it may.
-        if (host && message.startable && token && !started) {
-          started = true;
-          void post('/start', { matchId, token })
-            .then(() => console.log('  the host started it early'))
-            .catch((cause) => console.log(`  start not taken: ${cause instanceof Error ? cause.message : cause}`));
-        }
+        if (message.phase === 'lobby') lobbyEnds = message.lobbyEndsAt;
+        if (message.phase === 'countdown' && countdownAt == null) countdownAt = message.now;
       } else if (message.type === 'tick') {
         const mine = cars.indexOf(me);
         let mineMoved = false;
@@ -195,12 +192,14 @@ async function main() {
 
     return {
       finished: async () => {
-        for (let waited = 0; !done && waited < 300; waited += 1) await sleep(1_000);
+        for (let waited = 0; !done && waited < 600; waited += 1) await sleep(1_000);
         clearInterval(drive);
         stop();
         const views = cars.map((_, i) => runner.car(0, i));
         return {
           done,
+          lobbyEnds,
+          countdownAt,
           results: cars.length > 0 ? rules.resultsOf(runner, 0) : [],
           cars,
           car: cars.indexOf(me),
@@ -254,16 +253,20 @@ async function main() {
     return paid;
   }
 
-  async function race(label: string, seats: number, map: number, signers: ccc.SignerCkbPrivateKey[], modes: Mode[], early = false) {
+  async function race(label: string, seats: number, map: number, signers: ccc.SignerCkbPrivateKey[], modes: Mode[]) {
     console.log(`\n${label}`);
-    const { matchId, entrants } = await lobby(seats, map, signers, early ? 60 * 60 : 5 * 60);
-    const opened = Date.now();
-    const phones = await Promise.all(entrants.map((entrant, i) => phone(matchId, entrant.key.secret, modes[i]!, early && i === 0)));
-    console.log('  racing…');
+    // Two minutes: the shortest wait no join cuts, so the clock is the host's wait.
+    const { matchId, entrants } = await lobby(seats, map, signers, 2 * 60);
+    const phones = await Promise.all(entrants.map((entrant, i) => phone(matchId, entrant.key.secret, modes[i]!)));
+    console.log('  waiting for the lobby clock, then racing…');
     const ends = await Promise.all(phones.map((p) => p.finished()));
     const first = ends[0]!;
-    // An hour's wait, cut a fifth by one join: the race only ended this soon because the host started it.
-    if (early) check(Date.now() - opened < 10 * 60_000, 'the host started a half-empty race early', `${Math.round((Date.now() - opened) / 1000)} s`);
+    // Full or not, only the clock starts the race.
+    check(
+      first.lobbyEnds != null && first.countdownAt != null && first.countdownAt >= first.lobbyEnds,
+      'the race started when the lobby clock ran out, not before',
+      first.lobbyEnds != null && first.countdownAt != null ? `${Math.round((first.countdownAt - first.lobbyEnds) / 1000)} s after` : 'no clock seen',
+    );
     check(first.done?.phase === 'done', 'the relay sent the finish', first.done?.note ?? first.done?.txHash ?? 'no result');
     check(ends.every((end) => JSON.stringify(end.results) === JSON.stringify(first.results)), 'every phone saw the same race', `results ${first.results.map((r) => r.toString(16)).join(',')}`);
     if (first.done?.txHash) {
@@ -317,7 +320,7 @@ async function main() {
     await race('Race 2: the only car that finishes never signs its moves', 3, 2, [host, guest, third], ['park', 'park', 'unsigned']);
     await race('Race 3: nobody leaves the line', 2, 1, [host, guest], ['park', 'park']);
     await emptyLobby();
-    await race('Race 5: two of four seats, an hour’s wait, the host starts it now', 4, 1, [host, guest], ['drive', 'drive'], true);
+    await race('Race 5: two of four seats, started by the clock', 4, 1, [host, guest], ['drive', 'drive']);
   } finally {
     // The relay runs under a shell; on Windows only a tree kill stops it.
     if (process.platform === 'win32' && relay.pid) spawnSync('taskkill', ['/pid', String(relay.pid), '/T', '/F']);

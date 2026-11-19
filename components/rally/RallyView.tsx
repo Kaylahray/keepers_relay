@@ -1,10 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ccc } from '@ckb-ccc/connector-react';
 import Link from 'next/link';
-import { ArrowLeft, Eye, Flag, Link2, Plus, Timer } from 'lucide-react';
+import { ArrowLeft, Eye, Link2, Plus, Timer } from 'lucide-react';
 import { CkbAmount, PlayerFace, usePlayerBook } from '@/components/crowns/Board';
 import { lobbyEnd } from '@/components/crowns/OpenRaces';
 import { ChainLoader } from '@/components/ui/ChainLoader';
@@ -66,10 +66,8 @@ export function RallyView({ id }: { id: string }) {
   const [racing, setRacing] = useState(false);
   // Set when this driver leaves the race screen, so the lobby doesn't send them straight back in.
   const [leftRace, setLeftRace] = useState(false);
-  // The relay as the lobby sees it: whether the host may start now.
-  const [startable, setStartable] = useState(false);
-  const [starting, setStarting] = useState(false);
-  const lobbyLink = useRef<RallyLink | null>(null);
+  // Set when the race screen saw the payout: the chain still shows the lobby for a moment after.
+  const [paidOut, setPaidOut] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -136,9 +134,9 @@ export function RallyView({ id }: { id: string }) {
   // more, so it can't be raced, only sent home.
   const retired = Boolean(cell && cell.game.toLowerCase() !== rallyGame.codeHash.toLowerCase());
 
-  // A driver waits in the lobby, but already joined at the relay, so the host can start once everyone
-  // is here. When the relay starts the countdown (the clock ran out, every seat filled, or the host
-  // started it), every driver's page goes to the race at once and sees the same 10 → Go.
+  // A driver waits in the lobby, but already joined at the relay, so it shows them as here. When the
+  // clock runs out the relay starts the countdown, and every driver's page goes to the race at once
+  // and sees the same 10 → Go.
   const driver = Boolean(iAmIn && session && !retired && snapshot?.landed);
   useEffect(() => {
     if (!driver || racing || !session) return;
@@ -146,18 +144,13 @@ export function RallyView({ id }: { id: string }) {
       id,
       (message) => {
         if (message.type !== 'state') return;
-        setStartable(message.startable);
         if (!leftRace && (message.phase === 'countdown' || message.phase === 'racing')) setRacing(true);
       },
       () => undefined,
     );
     link.listen();
     void link.join(getCkbClient(), session).catch(() => undefined);
-    lobbyLink.current = link;
-    return () => {
-      link.close();
-      if (lobbyLink.current === link) lobbyLink.current = null;
-    };
+    return () => link.close();
   }, [driver, racing, leftRace, session, id]);
 
   // The wallet approved but the page never heard back (closed popup, reload): the play key is still
@@ -261,7 +254,10 @@ export function RallyView({ id }: { id: string }) {
           setLeftRace(true);
           refresh();
         }}
-        onEnded={refresh}
+        onEnded={(paid) => {
+          if (paid) setPaidOut(true);
+          refresh();
+        }}
       />
     );
   }
@@ -275,18 +271,6 @@ export function RallyView({ id }: { id: string }) {
   );
   const ends = snapshot ? lobbyEnd(snapshot) : null;
   const left = ends == null ? null : Math.max(0, ends - now);
-
-  async function startNow() {
-    setError(null);
-    setStarting(true);
-    try {
-      await lobbyLink.current?.start();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'The race could not start.');
-    } finally {
-      setStarting(false);
-    }
-  }
 
   const backLink = (
     <Link href="/rally" className="inline-flex h-10 items-center gap-2 font-display text-lg font-bold uppercase tracking-wide text-fog hover:text-chalk">
@@ -302,11 +286,15 @@ export function RallyView({ id }: { id: string }) {
     </div>
   ) : null;
 
-  if (match.isPending || ((landing || sentHome) && !ending.data && (leftover.data ?? []).length === 0)) {
+  // After a payout the chain shows the old lobby until the finish is indexed: wait for the result instead.
+  const awaitingResult = paidOut && (snapshot != null || !ending.data);
+  if (match.isPending || awaitingResult || ((landing || sentHome) && !ending.data && (leftover.data ?? []).length === 0)) {
     return (
       <div className="mx-auto w-full max-w-[1440px] px-5 pt-6 sm:px-8">
         {backLink}
-        {match.isPending ? (
+        {awaitingResult ? (
+          <ChainLoader title="Loading the result…" note="The chain paid out. The result shows here in a moment." />
+        ) : match.isPending ? (
           <ChainLoader title="Reading the race from the chain…" />
         ) : sentHome ? (
           <ChainLoader title="Sending your entry home…" note="It shows in your wallet within a minute." />
@@ -432,7 +420,7 @@ export function RallyView({ id }: { id: string }) {
                 <div className="mt-3 h-2 overflow-hidden rounded-full bg-ink-3">
                   <div className="h-full rounded-full bg-lime transition-[width] duration-1000 ease-linear" style={{ width: `${Math.min(100, (left / (cell.wait ? cell.wait * 1000 : LOBBY_MS)) * 100)}%` }} />
                 </div>
-                <p className="mt-2 text-sm text-fog">Starts when the clock runs out, at once when every seat is full, or when the host starts it. Each player who joins takes a fifth off the time left, down to 2 minutes.</p>
+                <p className="mt-2 text-sm text-fog">Starts for everyone at once when the clock runs out, even if every seat is full. Each player who joins takes a fifth off the time left, down to 2 minutes.</p>
               </div>
             ) : null}
 
@@ -447,13 +435,7 @@ export function RallyView({ id }: { id: string }) {
                     <p className="rounded-2xl bg-gold/10 p-4 text-gold">
                       This race was opened on an older version of the game, which has since been replaced, so it can’t be raced. Every entry can go home 10 minutes after the lobby’s wait.
                     </p>
-                  ) : iAmIn && session ? (
-                    iAmHost && players.length > 1 ? (
-                      <Button variant="lime" size="xl" block onClick={() => void startNow()} disabled={!startable || starting}>
-                        <Flag className="h-5 w-5" aria-hidden="true" /> {starting ? 'Starting…' : 'Start now'}
-                      </Button>
-                    ) : null
-                  ) : iAmIn ? (
+                  ) : iAmIn && session ? null : iAmIn ? (
                     <p className="rounded-2xl bg-gold/10 p-4 text-gold">
                       This browser doesn’t have this race’s play key, so it can’t drive here. Open the race in the browser you entered from, or close it below to take your entry back.
                     </p>

@@ -30,6 +30,8 @@ export function useRallyControls(onChange: (bits: number) => void, enabled: bool
       }
     };
     const pad = (bit: number) => ({
+      // The race screen keeps the phone's own long-press and double-tap gestures off these.
+      'data-pad': '',
       onPointerDown: (event: PointerEvent<HTMLElement>) => {
         event.preventDefault();
         try {
@@ -168,6 +170,7 @@ function savedView(): View {
 
 /** The race on the full screen: the road in 3D or from above, a top bar (lap, place, health, time) and the pads. */
 export function RallyScreen({ frameOf, controls, banner, names, seconds, onLeave, leaveLabel = 'Leave', tag, onReady, children }: Props) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const view3d = useRef<RallyView3D | null>(null);
@@ -183,6 +186,25 @@ export function RallyScreen({ frameOf, controls, banner, names, seconds, onLeave
   const [picked, setPicked] = useState<{ item: number; at: number; full: boolean } | null>(null);
   const viewRef = useRef(view);
   const onReadyRef = useRef(onReady);
+
+  // A phone turns a long press or quick double tap into text selection, its copy/paste bar or a zoom,
+  // and steering is all long presses and quick taps. Stop that everywhere but on real buttons and
+  // links (Leave, sound, the finish), which still need their tap. Native and not passive, so it can.
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const hold = (event: Event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest('[data-pad]') || !target?.closest('button, a, input')) event.preventDefault();
+    };
+    const noSelect = (event: Event) => event.preventDefault();
+    root.addEventListener('touchstart', hold, { passive: false });
+    root.addEventListener('selectstart', noSelect);
+    return () => {
+      root.removeEventListener('touchstart', hold);
+      root.removeEventListener('selectstart', noSelect);
+    };
+  }, []);
 
   // Sound starts on the first tap or key (the browser's rule) and stops when the race screen closes.
   useEffect(() => {
@@ -319,7 +341,12 @@ export function RallyScreen({ frameOf, controls, banner, names, seconds, onLeave
   const hpPct = hud ? (hud.hp / RALLY.MAX_HP) * 100 : 0;
 
   return (
-    <div className="fixed inset-0 z-50 select-none bg-ink text-chalk" style={{ touchAction: 'none' }}>
+    <div
+      ref={rootRef}
+      className="fixed inset-0 z-50 select-none bg-ink text-chalk"
+      style={{ touchAction: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none', WebkitTapHighlightColor: 'transparent' }}
+      onContextMenu={(event) => event.preventDefault()}
+    >
       <canvas ref={canvasRef} className={`absolute inset-0 h-full w-full ${view === '3d' ? 'invisible' : ''}`} aria-label="The race, seen from above" />
       <div ref={stageRef} className={`absolute inset-0 ${view === '3d' ? '' : 'hidden'}`} />
       <div className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-black/70 to-transparent" />

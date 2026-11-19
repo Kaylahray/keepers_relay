@@ -46,7 +46,7 @@ export async function racePreview(id: string): Promise<RacePreview | null> {
     const players = 1 + racingSeats(snapshot).length;
     const host = await nameOf(match.host);
     const ends = snapshot.landed
-      ? lobbyEndsAt(Number(snapshot.landed.landedMs), racingSeats(snapshot).map((seat) => Number(seat.landed!.landedMs)), match.seats, match.wait * 1000)
+      ? lobbyEndsAt(Number(snapshot.landed.landedMs), racingSeats(snapshot).map((seat) => Number(seat.landed!.landedMs)), match.wait * 1000)
       : null;
     const open = players < match.seats && (ends == null || doorsOpen(ends, Date.now()));
     const by = host ? ` Hosted by @${host}.` : '';

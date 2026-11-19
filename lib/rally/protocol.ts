@@ -3,9 +3,9 @@
  * and listen on one event stream per match, which anyone may open to watch.
  *
  * The lobby is on chain: the host's match cell and a seat cell per player. It waits as long as the
- * host picked from the match landing, less a cut for each player who joins (see `lobbyEndsAt`). A
- * full lobby starts at once, and the host may start it sooner once every driver is here. When the
- * wait runs out the race starts with whoever has a seat, if that is two or more.
+ * host picked from the match landing, less a cut for each player who joins (see `lobbyEndsAt`). The
+ * race starts only when that clock runs out, full or not, with whoever has a seat, if that is two or
+ * more: every driver's phone goes to the race at the same moment.
  *
  * The relay keeps the race clock. A phone asks for its input to start on a tick a little ahead of
  * now; the relay takes it on that tick, or on the next tick it has not played yet if the input came
@@ -38,9 +38,6 @@ export type MovesRequest = { matchId: string; token: string; count: number; sign
 /** Asks the relay to close a lobby nobody joined, so the host's entry goes home now. */
 export type CloseRequest = { matchId: string };
 
-/** The host asks the relay to start now: once someone else has a seat and every driver is here. */
-export type StartRequest = { matchId: string; token: string };
-
 /** `settling`: the race is over and the relay is sending the finish. */
 export type RallyPhase = 'lobby' | 'countdown' | 'racing' | 'settling' | 'done' | 'failed';
 
@@ -62,8 +59,6 @@ export type RelayMessage =
       cars: string[];
       /** The key lock hashes of the phones connected now. */
       joined: string[];
-      /** In the lobby: two or more cars and every driver here, so the host may start now. */
-      startable: boolean;
       note?: string;
       txHash?: string;
     }
@@ -90,15 +85,14 @@ export const DOORS_MS = 60_000;
 export const LAST_CALL_MS = 20_000;
 
 /**
- * When a lobby closes. It starts as the host's wait from the match landing; each seat, as it lands,
- * takes `JOIN_CUT` of the time then left, never below `CUT_FLOOR_MS`. It never closes before the last
- * driver has had time to connect. A full lobby closes as soon as that time is up (or at once, once
- * every driver is connected: the relay sees that). `waitMs` is 0 for a match from before hosts picked
- * one, which waits `LOBBY_MS` with no cuts.
+ * When a lobby closes, and the race starts: the only way it does. It starts as the host's wait from
+ * the match landing; each seat, as it lands, takes `JOIN_CUT` of the time then left, never below
+ * `CUT_FLOOR_MS`. It never closes before the last driver has had time to connect. A full lobby waits
+ * out its clock like any other, so every driver knows when the race starts. `waitMs` is 0 for a match
+ * from before hosts picked one, which waits `LOBBY_MS` with no cuts.
  */
-export function lobbyEndsAt(matchLandedMs: number, seatLandedMs: number[], seats: number, waitMs: number): number {
+export function lobbyEndsAt(matchLandedMs: number, seatLandedMs: number[], waitMs: number): number {
   const lastCall = seatLandedMs.length > 0 ? Math.max(...seatLandedMs) + LAST_CALL_MS : 0;
-  if (seatLandedMs.length >= seats - 1) return lastCall;
   if (waitMs <= 0) return Math.max(matchLandedMs + LOBBY_MS, lastCall);
   let ends = matchLandedMs + waitMs;
   for (const landed of [...seatLandedMs].sort((a, b) => a - b)) {

@@ -19,11 +19,11 @@ type Props = {
   /** A car's name, by its session key's lock hash. */
   nameOf: (key: string) => string;
   onLeave: () => void;
-  /** The finish landed on chain (or the relay gave up): time to read the chain again. */
-  onEnded: () => void;
+  /** The finish landed on chain (`paid`), or the relay gave up: time to read the chain again. */
+  onEnded: (paid: boolean) => void;
 };
 
-type Relay = { phase: RallyPhase; lobbyEndsAt: number | null; startAt: number | null; cars: string[]; joined: string[]; startable: boolean; note?: string; txHash?: string };
+type Relay = { phase: RallyPhase; lobbyEndsAt: number | null; startAt: number | null; cars: string[]; joined: string[]; note?: string; txHash?: string };
 
 /** The last input a car holds at `tick`, from its events. */
 function bitsAt(events: RallyEvent[], tick: number): { tick: number; bits: number } | null {
@@ -49,10 +49,9 @@ export function RallyLive({ snapshot, session, nameOf, onLeave, onEnded }: Props
   const matchId = snapshot.matchId;
   const map = snapshot.match.map;
   const [runner, setRunner] = useState<RallyRunner | null>(null);
-  const [relay, setRelay] = useState<Relay>({ phase: 'lobby', lobbyEndsAt: null, startAt: null, cars: [], joined: [], startable: false });
+  const [relay, setRelay] = useState<Relay>({ phase: 'lobby', lobbyEndsAt: null, startAt: null, cars: [], joined: [] });
   const [key, setKey] = useState<string | null>(null);
   const [trouble, setTrouble] = useState<string | null>(null);
-  const [starting, setStarting] = useState(false);
   const [now, setNow] = useState(0);
   const linkRef = useRef<RallyLink | null>(null);
   const track = useRef<{ x: number; y: number }[]>([]);
@@ -122,8 +121,8 @@ export function RallyLive({ snapshot, session, nameOf, onLeave, onEnded }: Props
             next.current = message.cars.map(() => 0);
             confirmed.current = 0;
           }
-          setRelay({ phase: message.phase, lobbyEndsAt: message.lobbyEndsAt, startAt: message.startAt, cars: message.cars, joined: message.joined, startable: message.startable, note: message.note, txHash: message.txHash });
-          if (message.phase === 'done' || message.phase === 'failed') endedRef.current();
+          setRelay({ phase: message.phase, lobbyEndsAt: message.lobbyEndsAt, startAt: message.startAt, cars: message.cars, joined: message.joined, note: message.note, txHash: message.txHash });
+          if (message.phase === 'done' || message.phase === 'failed') endedRef.current(message.phase === 'done');
         } else if (message.type === 'tick') {
           let mineMoved = false;
           for (const [car, tick, bits] of message.ev) {
@@ -200,18 +199,6 @@ export function RallyLive({ snapshot, session, nameOf, onLeave, onEnded }: Props
   const shownNames = relay.cars.map((car, i) => (i === myCar ? `${nameOf(car)} (you)` : nameOf(car)));
   const lobbyLeft = relay.lobbyEndsAt == null || now === 0 ? null : Math.max(0, Math.ceil((relay.lobbyEndsAt - now) / 1000));
 
-  const iAmHost = key != null && key === snapshot.match.hostKey.toLowerCase();
-  async function startNow() {
-    setStarting(true);
-    try {
-      await linkRef.current?.start();
-    } catch (cause) {
-      setTrouble(cause instanceof Error ? cause.message : 'The race could not start.');
-    } finally {
-      setStarting(false);
-    }
-  }
-
   let panel: ReactNode = null;
   if (trouble && relay.phase !== 'done') {
     panel = <p className="rounded-2xl bg-danger/20 px-4 py-3 font-semibold text-danger backdrop-blur">{trouble}</p>;
@@ -224,7 +211,6 @@ export function RallyLive({ snapshot, session, nameOf, onLeave, onEnded }: Props
         // The relay names the cars at the countdown; until then, the seats on chain.
         cars={playersOf(snapshot).map((player) => player.key.toLowerCase()).map((car) => ({ name: nameOf(car), here: relay.joined.includes(car) }))}
         trouble={trouble}
-        start={iAmHost ? { ready: relay.startable, busy: starting, onStart: () => void startNow() } : null}
       />
     );
   } else if (relay.phase === 'settling') {
@@ -269,14 +255,11 @@ function LobbyPanel({
   total,
   cars,
   trouble,
-  start,
 }: {
   left: number | null;
   total: number;
   cars: { name: string; here: boolean }[];
   trouble: string | null;
-  /** Only the host's phone gets this. */
-  start: { ready: boolean; busy: boolean; onStart: () => void } | null;
 }) {
   const here = cars.filter((car) => car.here).length;
   return (
@@ -299,15 +282,7 @@ function LobbyPanel({
             </li>
           ))}
         </ul>
-        {start ? (
-          <div className="mt-5 max-w-xl">
-            <Button variant="lime" size="lg" onClick={start.onStart} disabled={!start.ready || start.busy}>
-              {start.busy ? 'Starting…' : 'Start now'}
-            </Button>
-            {start.ready ? null : <p className="mt-2 text-sm text-chalk/70">You can start once someone else has a seat and every driver is here.</p>}
-          </div>
-        ) : null}
-        <p className="mt-5 max-w-xl text-chalk/80">The race starts when the wait runs out, at once when every seat is full, or when the host starts it. A car whose driver isn’t here sits on the line.</p>
+        <p className="mt-5 max-w-xl text-chalk/80">The race starts for everyone at once when the clock runs out. A car whose driver isn’t here sits on the line.</p>
         {trouble ? <p className="mt-3 text-danger">{trouble}</p> : null}
       </div>
     </div>
