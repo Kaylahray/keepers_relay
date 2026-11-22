@@ -119,7 +119,7 @@ export function RallyResults({ txHash, me }: { txHash: string; me: string | null
         {refunded ? 'Nobody finished.' : iWon ? 'You won.' : `${nameOf(race.winners[0]!.owner)} won.`}
         <br />
         {refunded ? (
-          <span className="text-lime">Entries went home.</span>
+          <span className="text-lime">{race.prize && race.prize !== '0' ? 'The prize went back to the sponsor.' : 'Entries went home.'}</span>
         ) : (
           <span className="text-gold">
             <CkbAmount value={Number(BigInt(race.pot) / CKB)} /> paid.

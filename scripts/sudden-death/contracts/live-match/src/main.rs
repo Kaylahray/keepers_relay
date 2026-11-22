@@ -26,7 +26,7 @@
 //! needs the longest it could be, so nothing goes home while it might still race.
 //!
 //! **Finish.** The witness holds `version 2 ‖ cars u8 ‖ per car: count u16 LE ‖ events ‖ signature`.
-//! Car 0 is the host, then each seat in the order it is spent. The game is asked to judge the record
+//! Car 0 is the host if they race, then each seat in the order it is spent. The game is asked to judge the record
 //! with the match's map in front (without the signatures), and says for each car its place with 0x80 set if it
 //! finished every lap. A car that finished first wins; cars that crossed on the same tick split the
 //! pot. If nobody finished, every entry goes back. Each player always gets their storage back; the
@@ -61,8 +61,20 @@
 //! 139 4   wait u32: the longest the lobby waits, in seconds
 //! ```
 //!
+//! Version 3 adds a sponsor's prize and who may race:
+//!
+//! ```text
+//! 143 8   prize u64: what the host adds to the pot on top of the entries (0 for none)
+//! 151 1   flags u8: bit 0 set if the host races; unset, the host only sponsors and every car is a seat
+//! 152 32  pass: type hash of a cell each player must hold to take a seat, such as a username (zero for anyone)
+//! ```
+//!
+//! The pot is every car's entry and the prize. The entry may be 0 only with a prize: a sponsored race,
+//! free to join. With a prize, no two seats (or a seat and a racing host) may share an owner. With no
+//! winner, the prize goes back to the host with everything else.
+//!
 //! Seat cell data, version 2: `version ‖ owner lock hash ‖ key lock hash ‖ wait u32`, the wait copied
-//! from its match. Version 1 has no wait. A seat has its match's version.
+//! from its match. Version 1 has no wait. A seat has its match's version; version 3 is laid out as 2.
 
 use alloc::vec::Vec;
 use ckb_std::ckb_constants::Source;
@@ -73,7 +85,7 @@ use ckb_std::entry;
 use ckb_std::ckb_types::prelude::{Builder, Pack};
 use ckb_std::high_level::{
     load_cell_capacity, load_cell_data, load_cell_lock, load_cell_lock_hash, load_cell_occupied_capacity,
-    load_cell_type, load_input_since, load_script, load_witness_args, QueryIter,
+    load_cell_type, load_cell_type_hash, load_input_since, load_script, load_witness_args, QueryIter,
 };
 use k256::ecdsa::{RecoveryId, Signature, VerifyingKey};
 use ckb_std::type_id::check_type_id;
@@ -87,6 +99,7 @@ const ERR_MATCH: i8 = ERR_DUEL;
 
 const LIVE_V1: u8 = 1;
 const LIVE_V2: u8 = 2;
+const LIVE_V3: u8 = 3;
 const OFF_SEATS: usize = 1;
 const OFF_MAP: usize = 2;
 const OFF_ENTRY: usize = 3;
@@ -97,6 +110,11 @@ const OFF_RELAY: usize = 107;
 const LIVE_LEN_V1: usize = 139;
 const OFF_WAIT: usize = 139;
 const LIVE_LEN_V2: usize = 143;
+const OFF_PRIZE: usize = 143;
+const OFF_FLAGS: usize = 151;
+const OFF_PASS: usize = 152;
+const LIVE_LEN_V3: usize = 184;
+const HOST_RACES: u8 = 1;
 /// The shortest and longest a host may make the lobby wait, in seconds.
 const MIN_WAIT_S: u32 = 60;
 const MAX_WAIT_S: u32 = 60 * 60;
@@ -172,26 +190,49 @@ fn seat_args(match_id: &[u8; 32]) -> [u8; 33] {
     args
 }
 
-/// A match cell's data: its version and the lobby's wait in seconds (0 for version 1).
-fn parse_match(data: &[u8]) -> Result<(u8, u32), i8> {
-    let wait = match (data.first(), data.len()) {
-        (Some(&LIVE_V1), LIVE_LEN_V1) => 0,
-        (Some(&LIVE_V2), LIVE_LEN_V2) => read_u32(data, OFF_WAIT)?,
+/// What a match cell's data says beyond its seats and entry. Matches from before version 3 have no
+/// prize and no pass, and their host always races.
+struct Terms {
+    version: u8,
+    /// The lobby's wait in seconds, 0 for version 1.
+    wait: u32,
+    prize: u64,
+    host_races: bool,
+    pass: [u8; 32],
+}
+
+fn parse_match(data: &[u8]) -> Result<Terms, i8> {
+    let mut terms = Terms { version: data.first().copied().unwrap_or(0), wait: 0, prize: 0, host_races: true, pass: [0; 32] };
+    match (terms.version, data.len()) {
+        (LIVE_V1, LIVE_LEN_V1) => {}
+        (LIVE_V2, LIVE_LEN_V2) => terms.wait = read_u32(data, OFF_WAIT)?,
+        (LIVE_V3, LIVE_LEN_V3) => {
+            terms.wait = read_u32(data, OFF_WAIT)?;
+            terms.prize = read_u64(data, OFF_PRIZE)?;
+            terms.host_races = data[OFF_FLAGS] & HOST_RACES != 0;
+            terms.pass = bytes::<32>(data, OFF_PASS)?;
+        }
         _ => return Err(ERR_LEN),
-    };
+    }
     if !(MIN_SEATS..=MAX_SEATS).contains(&data[OFF_SEATS]) {
         return Err(ERR_MATCH);
     }
-    Ok((data[0], wait))
+    Ok(terms)
 }
 
 /// A seat cell's data: its version and its match's wait in seconds (0 for version 1).
 fn parse_seat(data: &[u8]) -> Result<(u8, u32), i8> {
     match (data.first(), data.len()) {
         (Some(&LIVE_V1), SEAT_LEN_V1) => Ok((LIVE_V1, 0)),
-        (Some(&LIVE_V2), SEAT_LEN_V2) => Ok((LIVE_V2, read_u32(data, OFF_SEAT_WAIT)?)),
+        (Some(&version @ (LIVE_V2 | LIVE_V3)), SEAT_LEN_V2) => Ok((version, read_u32(data, OFF_SEAT_WAIT)?)),
         _ => Err(ERR_LEN),
     }
+}
+
+/// What the host's cell puts in the pot: their entry if they race, and the prize.
+fn host_stake(entry: u64, terms: &Terms) -> Result<u64, i8> {
+    let entry = if terms.host_races { entry } else { 0 };
+    entry.checked_add(terms.prize).ok_or(ERR_POT)
 }
 
 /// How long a cell with this wait holds before anyone may send it home.
@@ -234,14 +275,14 @@ fn match_cell(own: &Script, match_id: &[u8; 32]) -> Result<(), i8> {
         (0, 1) => open(),
         (1, 0) => {
             let data = load_cell_data(0, Source::GroupInput).map_err(|_| ERR_LEN)?;
-            let (_, wait) = parse_match(&data)?;
+            let terms = parse_match(&data)?;
             let record = load_witness_args(0, Source::GroupInput)
                 .ok()
                 .and_then(|witness| witness.input_type().to_opt())
                 .map(|field| field.raw_data().to_vec());
             match record {
-                Some(record) => finish(own, match_id, &data, &record),
-                None => close(own, match_id, &data, wait),
+                Some(record) => finish(own, match_id, &data, &terms, &record),
+                None => close(own, match_id, &data, terms.wait),
             }
         }
         _ => Err(ERR_MODE),
@@ -251,21 +292,26 @@ fn match_cell(own: &Script, match_id: &[u8; 32]) -> Result<(), i8> {
 fn open() -> Result<(), i8> {
     check_type_id(0, 32).map_err(|_| ERR_LEN)?;
     let out = load_cell_data(0, Source::GroupOutput).map_err(|_| ERR_LEN)?;
-    let (version, wait) = parse_match(&out)?;
-    if version == LIVE_V2 && !(MIN_WAIT_S..=MAX_WAIT_S).contains(&wait) {
+    let terms = parse_match(&out)?;
+    if terms.version >= LIVE_V2 && !(MIN_WAIT_S..=MAX_WAIT_S).contains(&terms.wait) {
         return Err(ERR_MATCH);
     }
     let entry = read_u64(&out, OFF_ENTRY)?;
-    for offset in [OFF_HOST, OFF_HOST_KEY, OFF_LIVE_GAME, OFF_RELAY] {
+    for offset in [OFF_HOST, OFF_LIVE_GAME, OFF_RELAY] {
         if bytes::<32>(&out, offset)? == [0u8; 32] {
             return Err(ERR_MATCH);
         }
     }
-    if entry == 0 {
+    // A host who races drives with a key; one who only sponsors needs none.
+    if terms.host_races && bytes::<32>(&out, OFF_HOST_KEY)? == [0u8; 32] {
+        return Err(ERR_MATCH);
+    }
+    // Something must be raced for: an entry, a prize, or both.
+    if entry == 0 && terms.prize == 0 {
         return Err(ERR_MATCH);
     }
     proxy_guarded(0, Source::GroupOutput, &current_script_hash()?)?;
-    holds_entry(0, Source::GroupOutput, entry)
+    holds_entry(0, Source::GroupOutput, host_stake(entry, &terms)?)
 }
 
 /// The host's cell goes home. Seats are never spent with it: each goes home on its own.
@@ -291,14 +337,16 @@ struct Player {
     capacity: u64,
 }
 
-/// Every player, car by car: the host, then each seat of this match in the order it is spent.
-fn players(own: &Script, match_id: &[u8; 32], data: &[u8]) -> Result<Vec<Player>, i8> {
+/// Every player, car by car: the host if they race, then each seat of this match in the order it is spent.
+fn players(own: &Script, match_id: &[u8; 32], data: &[u8], terms: &Terms) -> Result<Vec<Player>, i8> {
     let mut players = Vec::new();
-    players.push(Player {
-        owner: bytes::<32>(data, OFF_HOST)?,
-        key: bytes::<32>(data, OFF_HOST_KEY)?,
-        capacity: load_cell_capacity(0, Source::GroupInput).map_err(|_| ERR_POT)?,
-    });
+    if terms.host_races {
+        players.push(Player {
+            owner: bytes::<32>(data, OFF_HOST)?,
+            key: bytes::<32>(data, OFF_HOST_KEY)?,
+            capacity: load_cell_capacity(0, Source::GroupInput).map_err(|_| ERR_POT)?,
+        });
+    }
     let args = seat_args(match_id);
     let n = QueryIter::new(load_cell_lock_hash, Source::Input).count();
     for index in 0..n {
@@ -368,10 +416,14 @@ fn winners_signed(match_id: &[u8; 32], players: &[Player], tapes: &[Tape], winne
     Ok(())
 }
 
-fn finish(own: &Script, match_id: &[u8; 32], data: &[u8], record: &[u8]) -> Result<(), i8> {
-    let players = players(own, match_id, data)?;
+fn finish(own: &Script, match_id: &[u8; 32], data: &[u8], terms: &Terms, record: &[u8]) -> Result<(), i8> {
+    let players = players(own, match_id, data, terms)?;
     let cars = players.len();
     if cars < MIN_SEATS as usize || cars > data[OFF_SEATS] as usize {
+        return Err(ERR_MATCH);
+    }
+    // A prize is worth racing for with many wallets: each car has its own owner.
+    if terms.prize > 0 && (1..cars).any(|car| players[..car].iter().any(|other| other.owner == players[car].owner)) {
         return Err(ERR_MATCH);
     }
     if record.first() != Some(&RECORD_VERSION) {
@@ -398,13 +450,20 @@ fn finish(own: &Script, match_id: &[u8; 32], data: &[u8], record: &[u8]) -> Resu
     }
 
     let entry = read_u64(data, OFF_ENTRY)?;
+    let host = bytes::<32>(data, OFF_HOST)?;
+    let host_capacity = load_cell_capacity(0, Source::GroupInput).map_err(|_| ERR_POT)?;
+    let host_stake = host_stake(entry, terms)?;
     let mut owed = Vec::new();
-    for player in &players {
+    // The host's cell, raced or not: with a winner, all but what it put in; with none, all of it.
+    let host_back = host_capacity.checked_sub(host_stake).ok_or(ERR_POT)?;
+    owe(&mut owed, host, if winners.is_empty() { host_capacity } else { host_back })?;
+    let seats = if terms.host_races { &players[1..] } else { &players[..] };
+    for player in seats {
         let deposit = player.capacity.checked_sub(entry).ok_or(ERR_POT)?;
         owe(&mut owed, player.owner, if winners.is_empty() { player.capacity } else { deposit })?;
     }
     if !winners.is_empty() {
-        let pot = entry.checked_mul(cars as u64).ok_or(ERR_POT)?;
+        let pot = entry.checked_mul(cars as u64).and_then(|pot| pot.checked_add(terms.prize)).ok_or(ERR_POT)?;
         let share = pot / winners.len() as u64;
         for (n, car) in winners.iter().enumerate() {
             // What doesn't divide goes to the first of them.
@@ -413,7 +472,7 @@ fn finish(own: &Script, match_id: &[u8; 32], data: &[u8], record: &[u8]) -> Resu
         }
     }
     // The host's storage pays the fee.
-    if let Some((_, due)) = owed.iter_mut().find(|(who, _)| *who == players[0].owner) {
+    if let Some((_, due)) = owed.iter_mut().find(|(who, _)| *who == host) {
         *due = due.checked_sub(MAX_TX_FEE).ok_or(ERR_POT)?;
     }
     paid(&owed)
@@ -443,16 +502,29 @@ fn join(own: &Script, match_id: &[u8; 32], n: usize) -> Result<(), i8> {
     for i in 0..n {
         let seat = load_cell_data(i, Source::GroupOutput).map_err(|_| ERR_LEN)?;
         // The same version and wait as its match, so it waits as long once the match is gone.
-        if parse_seat(&seat)? != terms {
+        if parse_seat(&seat)? != (terms.version, terms.wait) {
             return Err(ERR_MATCH);
         }
-        if bytes::<32>(&seat, OFF_OWNER)? == [0u8; 32] || bytes::<32>(&seat, OFF_KEY)? == [0u8; 32] {
+        let owner = bytes::<32>(&seat, OFF_OWNER)?;
+        if owner == [0u8; 32] || bytes::<32>(&seat, OFF_KEY)? == [0u8; 32] {
             return Err(ERR_MATCH);
+        }
+        if terms.pass != [0u8; 32] && !holds_pass(&terms.pass, &owner) {
+            return Err(ERR_AUTH);
         }
         proxy_guarded(i, Source::GroupOutput, &own_hash)?;
         holds_entry(i, Source::GroupOutput, entry)?;
     }
     Ok(())
+}
+
+/// Whether the transaction names, in its cell deps, a cell of the pass's type that `owner` holds.
+fn holds_pass(pass: &[u8; 32], owner: &[u8; 32]) -> bool {
+    let n = QueryIter::new(load_cell_lock_hash, Source::CellDep).count();
+    (0..n).any(|index| {
+        load_cell_type_hash(index, Source::CellDep).ok().flatten().as_ref() == Some(pass)
+            && load_cell_lock_hash(index, Source::CellDep).ok().as_ref() == Some(owner)
+    })
 }
 
 /// Seats that never raced go home once they have waited out a whole match.

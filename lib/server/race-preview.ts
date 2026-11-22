@@ -1,5 +1,5 @@
 import { getServerCkbClient } from '@/lib/ckb/server-client';
-import { findMatch, matchEnding, racingSeats } from '@/lib/rally/chain';
+import { findMatch, isSponsored, matchEnding, playersOf, potOf, racingSeats } from '@/lib/rally/chain';
 import { doorsOpen, lobbyEndsAt } from '@/lib/rally/protocol';
 import { mapName } from '@/lib/rally/rules';
 import { raceOf } from '@/lib/rally/stats';
@@ -43,25 +43,27 @@ export async function racePreview(id: string): Promise<RacePreview | null> {
 
   if (snapshot) {
     const { match } = snapshot;
-    const players = 1 + racingSeats(snapshot).length;
+    const players = playersOf(snapshot).length;
+    const free = isSponsored(match);
     const host = await nameOf(match.host);
     const ends = snapshot.landed
       ? lobbyEndsAt(Number(snapshot.landed.landedMs), racingSeats(snapshot).map((seat) => Number(seat.landed!.landedMs)), match.wait * 1000)
       : null;
     const open = players < match.seats && (ends == null || doorsOpen(ends, Date.now()));
-    const by = host ? ` Hosted by @${host}.` : '';
+    const by = host ? ` ${free ? 'Sponsored' : 'Hosted'} by @${host}.` : '';
+    const pot = whole(potOf(match, players));
     return {
       map: match.map,
       track: mapName(match.map),
       stage: open ? 'open' : 'starting',
-      headline: open ? `Race me for ${whole(match.entry * BigInt(players + 1))} CKB` : 'This race is about to start',
+      headline: !open ? 'This race is about to start' : free ? `Race free for ${whole(match.prize)} CKB` : `Race me for ${whole(potOf(match, players + 1))} CKB`,
       description: open
-        ? `${mapName(match.map)} · ${whole(match.entry)} CKB entry · ${players}/${match.seats} seats taken.${by} Winner takes the pot.`
-        : `${mapName(match.map)} · ${players} cars · ${whole(match.entry * BigInt(players))} CKB pot. Watch it live.`,
+        ? `${mapName(match.map)} · ${free ? 'free entry' : `${whole(match.entry)} CKB entry`} · ${players}/${match.seats} seats taken.${by} Winner takes the ${free ? 'prize' : 'pot'}.`
+        : `${mapName(match.map)} · ${players} cars · ${pot} CKB ${free ? 'prize' : 'pot'}. Watch it live.`,
       stats: [
-        { label: 'Entry', value: `${whole(match.entry)} CKB` },
+        { label: 'Entry', value: free ? 'Free' : `${whole(match.entry)} CKB` },
         { label: 'Seats', value: `${players}/${match.seats}` },
-        { label: open ? 'Starts in' : 'Pot', value: open && ends != null ? minutes(ends - Date.now()) : `${whole(match.entry * BigInt(players))} CKB` },
+        { label: open ? 'Starts in' : free ? 'Prize' : 'Pot', value: open && ends != null ? minutes(ends - Date.now()) : `${pot} CKB` },
       ],
       host,
     };
@@ -71,7 +73,7 @@ export async function racePreview(id: string): Promise<RacePreview | null> {
   const race = ending ? await raceOf(client, ending.txHash).catch(() => null) : null;
   if (!race) return null;
   const winner = race.winners[0];
-  const [host, champ] = await Promise.all([nameOf(race.players[0]!), winner ? nameOf(winner.owner) : null]);
+  const [host, champ] = await Promise.all([nameOf(race.host), winner ? nameOf(winner.owner) : null]);
   const champName = champ ? `@${champ}` : 'The winner';
   const pot = whole(BigInt(race.pot));
   return {

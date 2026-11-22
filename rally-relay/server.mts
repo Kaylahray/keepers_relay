@@ -293,17 +293,20 @@ async function pollLobby(race: Race) {
   }
 }
 
-/** Nobody joined in time: the host's entry goes home. */
+/**
+ * Too few joined in time: the host's cell goes home. Anyone who did join (a lone player in a race the
+ * host only sponsors) goes home after the timeout, as the chain allows.
+ */
 async function closeLobby(race: Race) {
   race.phase = 'settling';
-  race.note = 'Nobody joined. Sending the host’s entry home…';
+  race.note = race.snapshot.match.hostRaces ? 'Nobody joined. Sending the host’s entry home…' : 'Too few drivers joined. Sending the prize home…';
   broadcast(race, stateOf(race));
   race.release = await takeRelayTurn();
   try {
     const fresh = await findMatch(client, race.matchId);
     if (!fresh) throw new Error('This match has already ended.');
-    if (racingSeats(fresh).length > 0) {
-      // Someone joined at the last moment: race after all.
+    if (playersOf(fresh).length >= 2) {
+      // Enough joined at the last moment: race after all.
       race.snapshot = fresh;
       giveBackTurn(race);
       race.note = undefined;
@@ -312,7 +315,7 @@ async function closeLobby(race: Race) {
     }
     race.txHash = await sendWithRelay(await closeMatchTx(client, fresh, await currentRelayCell()));
     race.phase = 'done';
-    race.note = 'Nobody joined, so the host’s entry went home.';
+    race.note = fresh.match.hostRaces ? 'Nobody joined, so the host’s entry went home.' : 'Too few drivers joined, so the prize went home. Anyone who joined gets their deposit back after the timeout.';
     broadcast(race, stateOf(race));
     console.log(`match ${race.matchId}: closed in ${race.txHash}`);
   } catch (cause) {
@@ -498,7 +501,7 @@ async function moves(body: MovesRequest) {
 async function close(body: CloseRequest) {
   const race = await openRace(body.matchId);
   if (race.phase !== 'lobby') throw new Error('This match is past its lobby.');
-  if (playersOf(race.snapshot).length > 1) throw new Error('Someone has joined this match.');
+  if (racingSeats(race.snapshot).length > 0) throw new Error('Someone has joined this match.');
   await closeLobby(race);
   // closeLobby moves the phase on; read it fresh.
   if ((race.phase as RallyPhase) === 'failed') throw new Error(race.note ?? 'The match could not be closed.');

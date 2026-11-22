@@ -4,14 +4,15 @@ import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ccc } from '@ckb-ccc/connector-react';
 import Link from 'next/link';
-import { ArrowLeft, Eye, Link2, Plus, Timer } from 'lucide-react';
+import { ArrowLeft, AtSign, Eye, Link2, Plus, Star, Timer } from 'lucide-react';
 import { CkbAmount, PlayerFace, usePlayerBook } from '@/components/crowns/Board';
 import { lobbyEnd } from '@/components/crowns/OpenRaces';
 import { ChainLoader } from '@/components/ui/ChainLoader';
 import { RallyLive } from '@/components/rally/RallyLive';
 import { RallyResults } from '@/components/rally/RallyResults';
-import { Button } from '@/components/ui/Button';
+import { Button, buttonClass } from '@/components/ui/Button';
 import { useMyLockHash } from '@/hooks/useMyLockHash';
+import { useUsername } from '@/hooks/useUsername';
 import { useWallet } from '@/hooks/useWallet';
 import { getCkbClient } from '@/lib/ckb/client';
 import { plainChainError } from '@/lib/ckb/errors';
@@ -20,7 +21,7 @@ import { useTick } from '@/hooks/useTick';
 import { CAR_COLORS } from '@/lib/rally/draw';
 import { loadRallyKey, pendingKeys, rememberPendingKey, saveRallyKey } from '@/lib/rally/keys';
 import { RallyLink } from '@/lib/rally/link';
-import { findMatch, findSeats, joinMatch, matchEnding, mayGoHome, racingSeats, sendHome, type Seat } from '@/lib/rally/chain';
+import { findMatch, findSeats, isSponsored, joinMatch, matchEnding, mayGoHome, needsPass, playersOf, potOf, racingSeats, seatDeposit, sendHome, type Seat } from '@/lib/rally/chain';
 import { mapName } from '@/lib/rally/rules';
 import { doorsOpen, LOBBY_MS } from '@/lib/rally/protocol';
 import { MAP_IMG } from '@/lib/crowns/art';
@@ -82,6 +83,7 @@ export function RallyView({ id }: { id: string }) {
   );
   const now = useTick(true, 1_000);
   const book = usePlayerBook();
+  const username = useUsername();
 
   // When the chain first said there's no such match.
   const [firstMiss, setFirstMiss] = useState<number | null>(null);
@@ -118,9 +120,16 @@ export function RallyView({ id }: { id: string }) {
   const snapshot = match.data ?? null;
   const cell = snapshot?.match;
   const racers = useMemo(() => (snapshot ? racingSeats(snapshot) : []), [snapshot]);
-  const players = useMemo(() => (cell ? [cell.host.toLowerCase(), ...racers.map((seat) => seat.owner.toLowerCase())] : []), [cell, racers]);
+  // Each car, the host first if they race: who it pays and which key drives it.
+  const cars = useMemo(() => (snapshot ? playersOf(snapshot, racers) : []), [snapshot, racers]);
+  const players = useMemo(() => cars.map((car) => car.owner.toLowerCase()), [cars]);
   const iAmHost = Boolean(myLockHash && cell && myLockHash === cell.host.toLowerCase());
   const iAmIn = Boolean(myLockHash && players.includes(myLockHash));
+  // A host who only sponsors watches their race.
+  const iAmSponsor = Boolean(iAmHost && cell && !cell.hostRaces);
+  const free = Boolean(cell && isSponsored(cell));
+  // A race open only to players with a username, and this wallet has none yet.
+  const needsName = Boolean(cell && needsPass(cell) && isConnected && username.registryReady && !username.isLoading && !username.username);
   const full = Boolean(cell && players.length >= cell.seats);
   const confirming = Boolean(snapshot?.seats.some((seat) => !seat.landed && seat.owner.toLowerCase() === myLockHash));
   const mySeats = (ended ? (leftover.data ?? []) : (snapshot?.seats ?? [])).filter((seat) => seat.owner.toLowerCase() === myLockHash);
@@ -156,7 +165,7 @@ export function RallyView({ id }: { id: string }) {
   // The wallet approved but the page never heard back (closed popup, reload): the play key is still
   // set aside here as pending. Find it by the key the match or our seat recorded, and keep it.
   const myKeys = useMemo(
-    () => (cell && iAmIn ? [...(iAmHost ? [cell.hostKey] : []), ...racers.filter((seat) => seat.owner.toLowerCase() === myLockHash).map((seat) => seat.key)].map((key) => key.toLowerCase()) : []),
+    () => (cell && iAmIn ? [...(iAmHost && cell.hostRaces ? [cell.hostKey] : []), ...racers.filter((seat) => seat.owner.toLowerCase() === myLockHash).map((seat) => seat.key)].map((key) => key.toLowerCase()) : []),
     [cell, iAmIn, iAmHost, racers, myLockHash],
   );
   useQuery({
@@ -177,12 +186,12 @@ export function RallyView({ id }: { id: string }) {
   const nameOf = useCallback(
     (key: string) => {
       if (!cell) return 'Car';
-      const car = [cell.hostKey, ...racers.map((seat) => seat.key)].findIndex((k) => k.toLowerCase() === key.toLowerCase());
+      const car = cars.findIndex((c) => c.key.toLowerCase() === key.toLowerCase());
       const owner = car >= 0 ? players[car] : null;
       if (owner && owner === myLockHash) return 'You';
-      return car === 0 ? 'Host' : car > 0 ? `Player ${car + 1}` : 'Car';
+      return car === 0 && cell.hostRaces ? 'Host' : car >= 0 ? `Player ${car + 1}` : 'Car';
     },
-    [cell, racers, players, myLockHash],
+    [cell, cars, players, myLockHash],
   );
 
   async function join() {
@@ -192,7 +201,7 @@ export function RallyView({ id }: { id: string }) {
       setBusy('Preparing your seat…');
       const key = await newSessionKey(getCkbClient());
       rememberPendingKey(key.secret);
-      setBusy('Confirm your entry fee…');
+      setBusy(free ? 'Confirm your seat…' : 'Confirm your entry fee…');
       await joinMatch(signer, snapshot, key);
       saveRallyKey(id, key.secret);
       setKeyVersion((v) => v + 1);
@@ -270,6 +279,8 @@ export function RallyView({ id }: { id: string }) {
     ) : null,
   );
   const ends = snapshot ? lobbyEnd(snapshot) : null;
+  const sponsor = cell ? book.get(cell.host.toLowerCase()) : undefined;
+  const sponsorName = cell && myLockHash === cell.host.toLowerCase() ? 'you' : sponsor ? `@${sponsor.username}` : cell ? short(cell.host) : '';
   const left = ends == null ? null : Math.max(0, ends - now);
 
   const backLink = (
@@ -347,6 +358,11 @@ export function RallyView({ id }: { id: string }) {
         <div className="mx-auto flex h-full max-w-[1440px] flex-col justify-between px-5 pb-6 pt-4 sm:px-8 sm:pb-10">
           {backLink}
           <div>
+            {free ? (
+              <p className="mb-2 inline-flex items-center gap-1.5 rounded-full bg-gold px-3 py-1 font-display text-sm font-black uppercase tracking-wider text-ink">
+                <Star className="h-4 w-4" aria-hidden="true" /> Free entry · sponsored by {sponsorName}
+              </p>
+            ) : null}
             <p className="font-display text-lg font-extrabold uppercase text-lime">{cell.seats} seats · 3 laps · live</p>
             <h1 className="font-display text-[56px] font-black uppercase leading-[0.85] sm:text-[96px]">{mapName(cell.map)}</h1>
           </div>
@@ -372,7 +388,10 @@ export function RallyView({ id }: { id: string }) {
                       <PlayerFace player={player} fallback={owner} size={52} tone={CAR_COLORS[car]} />
                       <div className="min-w-0">
                         <p className="truncate font-display text-2xl font-black leading-none">{owner === myLockHash ? 'You' : player ? `@${player.username}` : short(owner)}</p>
-                        <p className="mt-1 text-sm text-fog">{car === 0 ? 'Host · ' : ''}Entry in</p>
+                        <p className="mt-1 text-sm text-fog">
+                          {car === 0 && cell.hostRaces ? 'Host · ' : ''}
+                          {free ? 'Joined free' : 'Entry in'}
+                        </p>
                       </div>
                       <span className="ml-auto font-display text-lg font-black" style={{ color: CAR_COLORS[car] }}>
                         #{car + 1}
@@ -396,16 +415,14 @@ export function RallyView({ id }: { id: string }) {
           <div className="rounded-3xl border border-line bg-ink-2 p-6">
             <div className="flex items-end justify-between gap-4">
               <div>
-                <Label>Pot so far</Label>
+                <Label>{free ? 'Prize' : 'Pot so far'}</Label>
                 <p className="mt-1 font-display text-6xl font-black leading-none text-gold">
-                  <CkbAmount value={(Number(cell.entry) * players.length) / CKB} />
+                  <CkbAmount value={Number(potOf(cell, players.length)) / CKB} />
                 </p>
               </div>
               <div className="text-right">
                 <Label>Entry</Label>
-                <p className="mt-1 font-display text-3xl font-black leading-none">
-                  <CkbAmount value={Number(cell.entry) / CKB} />
-                </p>
+                <p className="mt-1 font-display text-3xl font-black leading-none">{free ? 'Free' : <CkbAmount value={Number(cell.entry) / CKB} />}</p>
               </div>
             </div>
 
@@ -435,6 +452,8 @@ export function RallyView({ id }: { id: string }) {
                     <p className="rounded-2xl bg-gold/10 p-4 text-gold">
                       This race was opened on an older version of the game, which has since been replaced, so it can’t be raced. Every entry can go home 10 minutes after the lobby’s wait.
                     </p>
+                  ) : iAmSponsor ? (
+                    <p className="rounded-2xl bg-gold/10 p-4 text-gold">You’re sponsoring this race. Share the link, then watch it live when the clock runs out.</p>
                   ) : iAmIn && session ? null : iAmIn ? (
                     <p className="rounded-2xl bg-gold/10 p-4 text-gold">
                       This browser doesn’t have this race’s play key, so it can’t drive here. Open the race in the browser you entered from, or close it below to take your entry back.
@@ -443,10 +462,24 @@ export function RallyView({ id }: { id: string }) {
                     <ChainLoader compact title="Saving your seat…" note="Your entry is locked in safely." />
                   ) : !full && ends != null && !doorsOpen(ends, now) ? (
                     <p className="text-fog">The doors have closed: this race starts within a minute. Watch it, or open your own.</p>
+                  ) : !full && needsName ? (
+                    <>
+                      <p className="text-fog">This race is open to players with a username.</p>
+                      <Link href={`/join?next=/rally/${id}`} className={buttonClass('lime', 'xl', true)}>
+                        <AtSign className="h-5 w-5" aria-hidden="true" /> Pick your name first
+                      </Link>
+                    </>
                   ) : !full ? (
-                    <Button variant="lime" size="xl" block onClick={() => void join()} disabled={Boolean(busy) || !isConnected}>
-                      {isConnected ? `Join – put ${Number(cell.entry) / CKB} CKB in the pot` : 'Sign in to join'}
-                    </Button>
+                    <>
+                      {free ? (
+                        <p className="text-sm text-fog">
+                          Free to join. You lock a <b className="text-chalk">{Math.ceil(Number(seatDeposit(snapshot.matchId)) / CKB)} CKB</b> deposit for your seat, and it all comes back after the race.
+                        </p>
+                      ) : null}
+                      <Button variant="lime" size="xl" block onClick={() => void join()} disabled={Boolean(busy) || !isConnected}>
+                        {!isConnected ? 'Sign in to join' : free ? 'Join free' : `Join – put ${Number(cell.entry) / CKB} CKB in the pot`}
+                      </Button>
+                    </>
                   ) : (
                     <p className="text-fog">This race is full.</p>
                   )}
@@ -460,9 +493,9 @@ export function RallyView({ id }: { id: string }) {
                       </Button>
                     )}
                   </div>
-                  {iAmHost && players.length === 1 && !hostCanGoHome ? (
+                  {iAmHost && racers.length === 0 && !hostCanGoHome ? (
                     <Button variant="ghost" block onClick={() => void closeLobby()} disabled={Boolean(busy)}>
-                      Nobody’s here: close and take my entry back
+                      {free ? 'Nobody’s here: close and take my prize back' : 'Nobody’s here: close and take my entry back'}
                     </Button>
                   ) : null}
                   {hostCanGoHome ? (
@@ -480,7 +513,11 @@ export function RallyView({ id }: { id: string }) {
               </p>
             ) : null}
           </div>
-          <p className="mt-4 px-2 text-sm text-fog">If nobody joins or nobody finishes, every entry goes back home.</p>
+          <p className="mt-4 px-2 text-sm text-fog">
+            {cell.prize > 0n
+              ? 'If too few join or nobody finishes, the prize goes back to the sponsor and every deposit comes home.'
+              : 'If nobody joins or nobody finishes, every entry goes back home.'}
+          </p>
         </aside>
       </div>
       {overlay}

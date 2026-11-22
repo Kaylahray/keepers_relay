@@ -10,6 +10,7 @@ import { EASE, Reveal, SectionTitle, useDrift, useSectionProgress } from '@/comp
 import { buttonClass } from '@/components/ui/Button';
 import { ckbWhole, useRallyStats } from '@/hooks/useRallyStats';
 import { IMG, ITEM_IMG, MAP_ACCENT, MAP_IMG } from '@/lib/crowns/art';
+import { playersOf } from '@/lib/rally/chain';
 import { ITEMS, MAPS, mapName } from '@/lib/rally/rules';
 
 /** The front page: the hero, how a race works, open races, the tracks, the items, trophies, the board and why it's fair. */
@@ -52,7 +53,7 @@ function Hero() {
   const imgScale = useTransform(scrollYProgress, [0, 1], reduce ? [1.05, 1.05] : [1.08, 1.22]);
   const wordY = useTransform(scrollYProgress, [0, 1], reduce ? ['0%', '0%'] : ['0%', '-40%']);
   const fade = useTransform(scrollYProgress, [0, 0.7], [1, 0]);
-  const waiting = open.reduce((sum, { item }) => sum + item.match.seats - 1 - item.seats.length, 0);
+  const waiting = open.reduce((sum, { item }) => sum + item.match.seats - playersOf(item).length, 0);
 
   return (
     <section ref={ref} className="relative isolate flex min-h-[760px] flex-col justify-end overflow-hidden sm:min-h-[860px] lg:min-h-[920px]">

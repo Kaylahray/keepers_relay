@@ -4,11 +4,11 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { Timer } from 'lucide-react';
+import { Star, Timer } from 'lucide-react';
 import { EASE } from '@/components/crowns/motion';
 import { getCkbClient } from '@/lib/ckb/client';
 import { MAP_IMG } from '@/lib/crowns/art';
-import { listMatches, racingSeats, type MatchSnapshot } from '@/lib/rally/chain';
+import { isSponsored, listMatches, playersOf, potOf, racingSeats, type MatchSnapshot } from '@/lib/rally/chain';
 import { lobbyEndsAt } from '@/lib/rally/protocol';
 import { mapName } from '@/lib/rally/rules';
 import { rallyConfigured } from '@/lib/registry/config';
@@ -49,21 +49,24 @@ export function useOpenRaces() {
   const now = useNow();
   const open = (matches.data ?? [])
     .map((item) => ({ item, ends: lobbyEnd(item) }))
-    .filter(({ item, ends }) => ends != null && ends > now && 1 + racingSeats(item).length < item.match.seats)
-    .sort((a, b) => a.ends! - b.ends!);
+    .filter(({ item, ends }) => ends != null && ends > now && playersOf(item).length < item.match.seats)
+    // Free races first, then the soonest to start.
+    .sort((a, b) => Number(isSponsored(b.item.match)) - Number(isSponsored(a.item.match)) || a.ends! - b.ends!);
   return { configured, matches, open, now };
 }
 
-/** One open race: the track, its countdown, the seats filling up, the entry and the pot so far. */
+/** One open race: the track, its countdown, the seats filling up, the entry or the prize, and the pot so far. */
 export function OpenRaceRow({ item, ends, now, index }: { item: MatchSnapshot; ends: number; now: number; index: number }) {
-  const filled = 1 + racingSeats(item).length;
+  const filled = playersOf(item).length;
   const left = ends - now;
   const entry = Number(item.match.entry / CKB);
+  const pot = Number(potOf(item.match, filled) / CKB);
+  const free = isSponsored(item.match);
   return (
     <motion.li initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25, ease: EASE, delay: index * 0.05 }}>
       <Link
         href={`/rally/${item.matchId}`}
-        className="group flex w-full items-stretch gap-4 overflow-hidden rounded-3xl border border-line bg-ink-2 p-2 pr-4 text-left transition-colors duration-150 hover:border-chalk/30"
+        className={`group flex w-full items-stretch gap-4 overflow-hidden rounded-3xl border bg-ink-2 p-2 pr-4 text-left transition-colors duration-150 hover:border-chalk/30 ${free ? 'border-gold/60' : 'border-line'}`}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={MAP_IMG[item.match.map]} alt="" className="w-24 shrink-0 rounded-2xl object-cover sm:w-28" />
@@ -82,12 +85,18 @@ export function OpenRaceRow({ item, ends, now, index }: { item: MatchSnapshot; e
               {filled}/{item.match.seats}
             </span>
           </div>
-          <div className="mt-2 flex items-center gap-4 text-sm text-fog">
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-fog">
+            {free ? (
+              <span className="flex items-center gap-1 rounded-full bg-gold px-2 py-0.5 text-xs font-black uppercase tracking-wider text-ink">
+                <Star className="h-3 w-3" aria-hidden="true" /> Free entry
+              </span>
+            ) : (
+              <span>
+                Entry <b className="font-semibold text-chalk">{entry} CKB</b>
+              </span>
+            )}
             <span>
-              Entry <b className="font-semibold text-chalk">{entry} CKB</b>
-            </span>
-            <span>
-              Pot <b className="font-semibold text-gold">{entry * filled} CKB</b>
+              {free ? 'Prize' : 'Pot'} <b className="font-semibold text-gold">{pot} CKB</b>
             </span>
           </div>
         </div>

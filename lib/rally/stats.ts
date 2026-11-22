@@ -1,5 +1,5 @@
 import { ccc } from '@ckb-ccc/core';
-import { decodeMatch, decodeSeat, FEE } from '@/lib/rally/chain';
+import { decodeMatch, decodeSeat, FEE, hostStake, potOf } from '@/lib/rally/chain';
 import { liveMatch } from '@/lib/registry/config';
 import { playsByTheseRules, recordOf, replayRecord } from '@/lib/rally/result';
 import type { RallyRunner } from '@/lib/rally/rules';
@@ -24,7 +24,11 @@ export type RaceResult = {
   game: string;
   entry: string;
   pot: string;
-  /** Each car's wallet lock hash, host first. */
+  /** What the host added to the pot; "0" for a race with none. */
+  prize: string;
+  /** The host's wallet lock hash, whether or not they raced. */
+  host: string;
+  /** Each car's wallet lock hash, the host first if they raced. */
   players: string[];
   /** Each winner's wallet lock hash and the share of the pot it took. Empty for a refund. */
   winners: { owner: string; share: string }[];
@@ -58,13 +62,16 @@ export async function raceOf(client: ccc.Client, txHash: string, runner?: RallyR
   const match = decodeMatch(ccc.bytesFrom(matchCell.outputData));
   if (!match) return null;
 
-  // The cars: the host, then each seat in the order it was spent.
-  const cars = [{ owner: match.host.toLowerCase(), key: match.hostKey.toLowerCase(), capacity: matchCell.cellOutput.capacity }];
+  // What each cell put in the pot (`stake`): the host's cell its entry if they raced and any prize,
+  // each seat its entry. The cars: the host if they raced, then each seat in the order it was spent.
+  const host = { owner: match.host.toLowerCase(), key: match.hostKey.toLowerCase(), capacity: matchCell.cellOutput.capacity, stake: hostStake(match) };
+  const cars = match.hostRaces ? [host] : [];
   for (const cell of inputs) {
     if (!cell || cell === matchCell || !isLiveMatch(cell.cellOutput.type)) continue;
     const seat = decodeSeat(ccc.bytesFrom(cell.outputData));
-    if (seat) cars.push({ owner: seat.owner.toLowerCase(), key: seat.key.toLowerCase(), capacity: cell.cellOutput.capacity });
+    if (seat) cars.push({ owner: seat.owner.toLowerCase(), key: seat.key.toLowerCase(), capacity: cell.cellOutput.capacity, stake: match.entry });
   }
+  const cells = match.hostRaces ? cars : [host, ...cars];
   const keyOwner = new Map(cars.map((car) => [car.key, car.owner]));
   const keyCells = new Map<string, bigint>();
   for (const cell of inputs) {
@@ -78,17 +85,19 @@ export async function raceOf(client: ccc.Client, txHash: string, runner?: RallyR
   const replayed = record ? replayRecord(runner!, record) : null;
 
   const header = found.blockHash ? await client.getHeaderByHash(found.blockHash) : undefined;
-  const pot = match.entry * BigInt(cars.length);
+  const pot = potOf(match, cars.length);
   const winners: RaceResult['winners'] = [];
   const paid = new Map<string, bigint>();
   for (const output of tx.outputs) paid.set(output.lock.hash().toLowerCase(), (paid.get(output.lock.hash().toLowerCase()) ?? 0n) + output.capacity);
   const owners = [...new Set(cars.map((car) => car.owner))];
   for (const owner of owners) {
-    const deposits = cars.filter((car) => car.owner === owner).reduce((sum, car) => sum + car.capacity - match.entry, 0n);
-    const fee = owner === cars[0]!.owner ? FEE : 0n;
+    const mine = cells.filter((cell) => cell.owner === owner);
+    const deposits = mine.reduce((sum, cell) => sum + cell.capacity - cell.stake, 0n);
+    const fee = owner === host.owner ? FEE : 0n;
     const share = (paid.get(owner) ?? 0n) - deposits - (keyCells.get(owner) ?? 0n) + fee;
-    const entries = match.entry * BigInt(cars.filter((car) => car.owner === owner).length);
-    if (share > entries) winners.push({ owner, share: share.toString() });
+    // A winner takes more than they put in; a refund gives back just that.
+    const staked = mine.reduce((sum, cell) => sum + cell.stake, 0n);
+    if (share > staked) winners.push({ owner, share: share.toString() });
   }
   return {
     txHash,
@@ -98,6 +107,8 @@ export async function raceOf(client: ccc.Client, txHash: string, runner?: RallyR
     game: match.game.toLowerCase(),
     entry: match.entry.toString(),
     pot: pot.toString(),
+    prize: match.prize.toString(),
+    host: host.owner,
     players: cars.map((car) => car.owner),
     winners,
     shards: replayed ? replayed.cars.map((car) => car.shards) : null,

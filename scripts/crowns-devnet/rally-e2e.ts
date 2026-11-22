@@ -17,6 +17,12 @@
  *         having moved, so nobody finished and every entry goes back.
  * Race 3: both cars sit on the line, so nobody finishes; every entry goes back.
  * Race 4: nobody joins; the host asks the relay to close the lobby and gets their entry back.
+ * Race 5: two of four seats, started by the clock.
+ * Race 6: a sponsored race the host only watches: two drivers join free, the winner takes the
+ *         prize, and everyone gets their seat's storage back.
+ * Race 7: a sponsored race open only to players with a name, which the host races too. A player
+ *         without one is refused. Devnet has no username script, so a Nervos DAO deposit stands in
+ *         for the name cell: any one type every name cell shares does.
  */
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { join } from 'node:path';
@@ -35,6 +41,7 @@ function check(ok: boolean, label: string, detail = '') {
 
 const CKB = 100_000_000n;
 const ENTRY = 100n * CKB;
+const PRIZE = 250n * CKB;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Whether `test` comes true within a few seconds: the indexer can lag a block behind a commit. */
@@ -315,12 +322,86 @@ async function main() {
     }
   }
 
+  /** A cell of the stand-in name type for `signer`: a Nervos DAO deposit. */
+  async function giveName(signer: ccc.SignerCkbPrivateKey) {
+    const lock = (await signer.getRecommendedAddressObj()).script;
+    const tx = ccc.Transaction.from({ outputs: [{ lock, type: nameType, capacity: 102n * CKB }], outputsData: ['0x0000000000000000'] });
+    await tx.addCellDepsOfKnownScripts(client, ccc.KnownScript.NervosDao);
+    await tx.completeInputsByCapacity(signer);
+    await tx.completeFeeBy(signer, 1000);
+    await waitCommitted(client, await signer.sendTransaction(tx), 'a name cell');
+  }
+
+  /**
+   * A sponsored race: the host puts up the prize and the seats join free. `drivers` take seats; the
+   * host races too if `hostRaces`. Every car drives.
+   */
+  async function sponsoredRace(label: string, map: number, drivers: ccc.SignerCkbPrivateKey[], options: { hostRaces: boolean; namesOnly: boolean; refused?: ccc.SignerCkbPrivateKey }) {
+    console.log(`\n${label}`);
+    const hostKey = options.hostRaces ? await session.newSessionKey(client) : null;
+    const seats = drivers.length + (options.hostRaces ? 1 : 0);
+    const opened = await chain.openMatch(host, { entry: 0n, prize: PRIZE, seats, map, session: hostKey, wait: 2 * 60, namesOnly: options.namesOnly });
+    await waitCommitted(client, opened.point.txHash, 'open');
+    let snapshot = null as Awaited<ReturnType<typeof chain.findMatch>>;
+    await soon(async () => (snapshot = await chain.findMatch(client, opened.matchId)) != null);
+    check(
+      snapshot != null && chain.isSponsored(snapshot.match) && snapshot.match.prize === PRIZE && snapshot.match.hostRaces === options.hostRaces && chain.needsPass(snapshot.match) === options.namesOnly,
+      `a sponsored ${seats}-seat race opens with a ${ccc.fixedPointToString(PRIZE)} CKB prize${options.hostRaces ? ', the host racing' : ', the host only watching'}`,
+    );
+    if (options.refused) {
+      const refused = await chain.joinMatch(options.refused, snapshot!, await session.newSessionKey(client)).then(() => false, () => true);
+      check(refused, 'a player without a name is refused');
+    }
+    const keys = await Promise.all(drivers.map(() => session.newSessionKey(client)));
+    const joins = await Promise.all(drivers.map((signer, i) => chain.joinMatch(signer, snapshot!, keys[i]!)));
+    for (const joined of joins) await waitCommitted(client, joined.txHash, 'join');
+    snapshot = await chain.findMatch(client, opened.matchId);
+    check(snapshot != null && chain.playersOf(snapshot).length === seats, `${drivers.length} driver(s) join free`);
+    const seatCapacity = (await client.getTransaction(joins[0]!.txHash))!.transaction.outputs[0]!.capacity;
+    check(seatCapacity === chain.seatDeposit(opened.matchId), 'a seat locks only its storage', `${ccc.fixedPointToString(seatCapacity)} CKB`);
+    const hostCell = snapshot!.cell.cellOutput.capacity;
+
+    const secrets = [...(hostKey ? [hostKey.secret] : []), ...keys.map((key) => key.secret)];
+    const phones = await Promise.all(secrets.map((secret) => phone(opened.matchId, secret, 'drive')));
+    console.log('  waiting for the lobby clock, then racing…');
+    const ends = await Promise.all(phones.map((p) => p.finished()));
+    const first = ends[0]!;
+    check(first.done?.phase === 'done', 'the relay sent the finish', first.done?.note ?? first.done?.txHash ?? 'no result');
+    if (!first.done?.txHash) return;
+    await waitCommitted(client, first.done.txHash, 'finish');
+    const paid = await paidBy(first.done.txHash);
+    const winners = rules.winnersOf(first.results);
+    check(winners.length > 0, 'someone finished');
+    const racers = [...(options.hostRaces ? [host] : []), ...drivers];
+    const lockOf = async (signer: ccc.SignerCkbPrivateKey) => (await signer.getRecommendedAddressObj()).script.hash();
+    const winner = racers[ends.findIndex((end) => end.car === winners[0])]!;
+    const winnerLock = await lockOf(winner);
+    const hostLock = await lockOf(host);
+    if (winner === host) {
+      check((paid.get(hostLock) ?? 0n) === hostCell - chain.FEE, 'the host won their own prize back', `paid ${ccc.fixedPointToString(paid.get(hostLock) ?? 0n)} CKB`);
+    } else {
+      check((paid.get(winnerLock) ?? 0n) === seatCapacity + PRIZE, 'the winner takes the prize and their storage', `paid ${ccc.fixedPointToString(paid.get(winnerLock) ?? 0n)} CKB`);
+      check((paid.get(hostLock) ?? 0n) === hostCell - PRIZE - chain.FEE, 'the sponsor gets their cell back less the prize and the fee');
+    }
+    const losers = drivers.filter((driver) => driver !== winner);
+    const back = await Promise.all(losers.map(async (driver) => paid.get(await lockOf(driver)) ?? 0n));
+    check(back.every((amount) => amount === seatCapacity), 'every other driver gets all their storage back', back.map((v) => ccc.fixedPointToString(v)).join(' / '));
+    check(await soon(async () => (await chain.findMatch(client, opened.matchId)) == null), 'the match cell is gone');
+  }
+
+  // The stand-in name type; the app reads names by the username script's settings.
+  const nameType = await ccc.Script.fromKnownScript(client, ccc.KnownScript.NervosDao, '0x');
+  Object.assign(config.usernameType, { codeHash: nameType.codeHash, hashType: nameType.hashType, args: nameType.args });
+
   try {
     await race('Race 1: three cars', 3, 0, [host, guest, third], ['drive', 'drive', 'drive']);
     await race('Race 2: the only car that finishes never signs its moves', 3, 2, [host, guest, third], ['park', 'park', 'unsigned']);
     await race('Race 3: nobody leaves the line', 2, 1, [host, guest], ['park', 'park']);
     await emptyLobby();
     await race('Race 5: two of four seats, started by the clock', 4, 1, [host, guest], ['drive', 'drive']);
+    await sponsoredRace('Race 6: sponsored, the host only watches', 0, [guest, third], { hostRaces: false, namesOnly: false });
+    await giveName(guest);
+    await sponsoredRace('Race 7: sponsored, names only, the host races too', 2, [guest], { hostRaces: true, namesOnly: true, refused: third });
   } finally {
     // The relay runs under a shell; on Windows only a tree kill stops it.
     if (process.platform === 'win32' && relay.pid) spawnSync('taskkill', ['/pid', String(relay.pid), '/T', '/F']);

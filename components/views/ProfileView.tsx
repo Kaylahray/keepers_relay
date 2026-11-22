@@ -68,7 +68,7 @@ function PlayerRaces({ races, me }: { races: RaceResult[]; me: string }) {
               <span
                 className={`w-24 text-right font-display text-xl font-black ${share ? "text-lime" : "text-fog"}`}
               >
-                {share ? `+${ckbWhole(share)}` : refunded ? "±0" : `−${ckbWhole(race.entry)}`}
+                {share ? `+${ckbWhole(share)}` : refunded || race.entry === "0" ? "±0" : `−${ckbWhole(race.entry)}`}
               </span>
             </Link>
           </li>

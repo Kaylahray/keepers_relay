@@ -1,6 +1,6 @@
 import { ccc } from '@ckb-ccc/core';
 import { type SessionKey } from '@/lib/chain/session';
-import { liveMatch, rallyGame, rallyRelay, REGISTRY_FEE_RATE, suddenDeathProxyLock, type ScriptConfig } from '@/lib/registry/config';
+import { liveMatch, rallyGame, rallyRelay, REGISTRY_FEE_RATE, suddenDeathProxyLock, usernameType, type ScriptConfig } from '@/lib/registry/config';
 import { SIGNATURE_LEN } from '@/lib/rally/moves';
 import { encodeMoves, winnersOf, type RallyEvent } from '@/lib/rally/rules';
 import { requestWalletRefresh } from '@/lib/wallet-refresh';
@@ -13,9 +13,10 @@ import { requestWalletRefresh } from '@/lib/wallet-refresh';
  * its owner once a whole match has passed.
  */
 
-/** Data lengths: version 1 had no wait; version 2 adds the lobby's wait. */
+/** Data lengths: version 1 had no wait; version 2 adds the lobby's wait; version 3 a prize, who races and a pass. */
 const MATCH_LEN_V1 = 139;
-export const MATCH_LEN = 143;
+const MATCH_LEN_V2 = 143;
+export const MATCH_LEN = 184;
 const SEAT_LEN_V1 = 65;
 export const SEAT_LEN = 69;
 const OFF_WAIT = 139;
@@ -28,6 +29,11 @@ const OFF_HOST = 11;
 const OFF_HOST_KEY = 43;
 const OFF_GAME = 75;
 const OFF_RELAY = 107;
+const OFF_PRIZE = 143;
+const OFF_FLAGS = 151;
+const OFF_PASS = 152;
+const HOST_RACES = 1;
+const ZERO_HASH = ccc.hexFrom(new Uint8Array(32));
 const OFF_OWNER = 1;
 const OFF_KEY = 33;
 const RECORD_VERSION = 2;
@@ -51,6 +57,14 @@ export type MatchCell = {
   relay: ccc.Hex;
   /** The longest the lobby waits, in seconds; 0 for a match from before hosts picked one. */
   wait: number;
+  /** What the host adds to the pot on top of the entries. A sponsored race has a prize and no entry. */
+  prize: bigint;
+  /** Whether the host drives a car. A host who only sponsors leaves every car to the seats. */
+  hostRaces: boolean;
+  /** Type hash of a cell each player must hold to take a seat (a username); zero for anyone. */
+  pass: ccc.Hex;
+  /** The data version: a seat copies it. */
+  version: number;
 };
 
 export type OutPointRef = { txHash: string; index: string };
@@ -119,9 +133,9 @@ function view(data: Uint8Array): DataView {
   return new DataView(data.buffer, data.byteOffset, data.byteLength);
 }
 
-export function encodeMatch(cell: MatchCell): Uint8Array {
+export function encodeMatch(cell: Omit<MatchCell, 'version'>): Uint8Array {
   const data = new Uint8Array(MATCH_LEN);
-  data[0] = 2;
+  data[0] = 3;
   data[OFF_SEATS] = cell.seats;
   data[OFF_MAP] = cell.map;
   view(data).setBigUint64(OFF_ENTRY, cell.entry, true);
@@ -130,13 +144,18 @@ export function encodeMatch(cell: MatchCell): Uint8Array {
   data.set(ccc.bytesFrom(cell.game), OFF_GAME);
   data.set(ccc.bytesFrom(cell.relay), OFF_RELAY);
   view(data).setUint32(OFF_WAIT, cell.wait, true);
+  view(data).setBigUint64(OFF_PRIZE, cell.prize, true);
+  data[OFF_FLAGS] = cell.hostRaces ? HOST_RACES : 0;
+  data.set(ccc.bytesFrom(cell.pass), OFF_PASS);
   return data;
 }
 
 export function decodeMatch(raw: Uint8Array): MatchCell | null {
   const v1 = raw.length === MATCH_LEN_V1 && raw[0] === 1;
-  if (!v1 && !(raw.length === MATCH_LEN && raw[0] === 2)) return null;
+  const v3 = raw.length === MATCH_LEN && raw[0] === 3;
+  if (!v1 && !v3 && !(raw.length === MATCH_LEN_V2 && raw[0] === 2)) return null;
   return {
+    version: raw[0]!,
     seats: raw[OFF_SEATS]!,
     map: raw[OFF_MAP]!,
     entry: view(raw).getBigUint64(OFF_ENTRY, true),
@@ -145,22 +164,46 @@ export function decodeMatch(raw: Uint8Array): MatchCell | null {
     game: hexOf(raw.slice(OFF_GAME, OFF_GAME + 32)),
     relay: hexOf(raw.slice(OFF_RELAY, OFF_RELAY + 32)),
     wait: v1 ? 0 : view(raw).getUint32(OFF_WAIT, true),
+    prize: v3 ? view(raw).getBigUint64(OFF_PRIZE, true) : 0n,
+    hostRaces: v3 ? (raw[OFF_FLAGS]! & HOST_RACES) !== 0 : true,
+    pass: v3 ? hexOf(raw.slice(OFF_PASS, OFF_PASS + 32)) : ZERO_HASH,
   };
 }
 
-/** A seat has its match's version: with the match's wait, or none for a match from before. */
-function encodeSeat(owner: ccc.Hex, key: ccc.Hex, wait: number): Uint8Array {
-  const data = new Uint8Array(wait > 0 ? SEAT_LEN : SEAT_LEN_V1);
-  data[0] = wait > 0 ? 2 : 1;
+/** A race the host sponsors: free to join, raced for the host's prize. */
+export function isSponsored(match: MatchCell): boolean {
+  return match.prize > 0n && match.entry === 0n;
+}
+
+/** Whether only players holding the pass (a username) may take a seat. */
+export function needsPass(match: MatchCell): boolean {
+  return match.pass !== ZERO_HASH;
+}
+
+/** What the host's cell puts in the pot: their entry if they race, and the prize. */
+export function hostStake(match: Pick<MatchCell, 'entry' | 'prize' | 'hostRaces'>): bigint {
+  return (match.hostRaces ? match.entry : 0n) + match.prize;
+}
+
+/** Everything the winner takes from a race of this many cars. */
+export function potOf(match: MatchCell, cars: number): bigint {
+  return match.entry * BigInt(cars) + match.prize;
+}
+
+/** A seat has its match's version: with the match's wait from version 2 on, or none for a match from before. */
+function encodeSeat(owner: ccc.Hex, key: ccc.Hex, match: MatchCell): Uint8Array {
+  const v1 = match.version === 1;
+  const data = new Uint8Array(v1 ? SEAT_LEN_V1 : SEAT_LEN);
+  data[0] = match.version;
   data.set(ccc.bytesFrom(owner), OFF_OWNER);
   data.set(ccc.bytesFrom(key), OFF_KEY);
-  if (wait > 0) view(data).setUint32(OFF_SEAT_WAIT, wait, true);
+  if (!v1) view(data).setUint32(OFF_SEAT_WAIT, match.wait, true);
   return data;
 }
 
 export function decodeSeat(raw: Uint8Array): { owner: ccc.Hex; key: ccc.Hex; wait: number } | null {
   const v1 = raw.length === SEAT_LEN_V1 && raw[0] === 1;
-  if (!v1 && !(raw.length === SEAT_LEN && raw[0] === 2)) return null;
+  if (!v1 && !(raw.length === SEAT_LEN && (raw[0] === 2 || raw[0] === 3))) return null;
   return { owner: hexOf(raw.slice(OFF_OWNER, OFF_OWNER + 32)), key: hexOf(raw.slice(OFF_KEY, OFF_KEY + 32)), wait: v1 ? 0 : view(raw).getUint32(OFF_SEAT_WAIT, true) };
 }
 
@@ -176,6 +219,12 @@ export function matchCellDeps(): ccc.CellDep[] {
 function minCapacity(lock: ccc.Script, type: ccc.Script | undefined, dataLength: number): bigint {
   const output = ccc.CellOutput.from({ capacity: 0n, lock, type });
   return (BigInt(output.occupiedSize) + BigInt(dataLength)) * SHANNONS_PER_CKB;
+}
+
+/** The storage a seat cell of this match locks on top of its entry, in shannons. It comes back after the race. */
+export function seatDeposit(matchId: ccc.HexLike): bigint {
+  const type = seatScript(matchId);
+  return minCapacity(proxyLock(type.hash()), type, SEAT_LEN);
 }
 
 async function landedOf(client: ccc.Client, txHash: string): Promise<Landed | null> {
@@ -216,14 +265,33 @@ async function snapshotOf(client: ccc.Client, cell: ccc.Cell): Promise<MatchSnap
   };
 }
 
-/** The seats that race: landed ones, in order, as many as the host left room for. */
-export function racingSeats(snapshot: MatchSnapshot): Seat[] {
-  return snapshot.seats.filter((seat) => seat.landed).slice(0, snapshot.match.seats - 1);
+/** How many seat cells can race: every car but the host's, if they race. */
+export function seatRoom(match: MatchCell): number {
+  return match.seats - (match.hostRaces ? 1 : 0);
 }
 
-/** Every car of the match as it stands: the host, then each racing seat. */
+/**
+ * The seats that race: landed ones, in order, as many as the host left room for. With a prize, each
+ * owner races once (live-match checks it), so a later seat of an owner already racing is left to go
+ * home after the timeout.
+ */
+export function racingSeats(snapshot: MatchSnapshot): Seat[] {
+  const { match } = snapshot;
+  const taken = new Set<string>(match.hostRaces ? [match.host.toLowerCase()] : []);
+  const seats: Seat[] = [];
+  for (const seat of snapshot.seats) {
+    if (!seat.landed || seats.length >= seatRoom(match)) continue;
+    if (match.prize > 0n && taken.has(seat.owner.toLowerCase())) continue;
+    taken.add(seat.owner.toLowerCase());
+    seats.push(seat);
+  }
+  return seats;
+}
+
+/** Every car of the match as it stands: the host if they race, then each racing seat. */
 export function playersOf(snapshot: MatchSnapshot, seats = racingSeats(snapshot)): Player[] {
-  return [{ owner: snapshot.match.host, key: snapshot.match.hostKey }, ...seats.map((seat) => ({ owner: seat.owner, key: seat.key }))];
+  const host = snapshot.match.hostRaces ? [{ owner: snapshot.match.host, key: snapshot.match.hostKey }] : [];
+  return [...host, ...seats.map((seat) => ({ owner: seat.owner, key: seat.key }))];
 }
 
 /** The live match cell of a match, by its id. Null once it has ended. */
@@ -260,28 +328,46 @@ export async function matchEnding(client: ccc.Client, matchId: string): Promise<
   return null;
 }
 
-/** Opens a match: the host's entry, naming the session key that drives their car and signs its moves. */
+/**
+ * Opens a match: the host's entry and any prize. A host who races names the session key that drives
+ * their car and signs its moves; one who only sponsors names none.
+ */
 export async function openMatch(
   signer: ccc.Signer,
-  input: { entry: bigint; seats: number; map: number; session: SessionKey; /** In seconds, 60 to 3600. */ wait: number },
+  input: {
+    entry: bigint;
+    seats: number;
+    map: number;
+    /** Null for a host who only sponsors. */
+    session: SessionKey | null;
+    /** In seconds, 60 to 3600. */
+    wait: number;
+    prize?: bigint;
+    /** Only players with a username may join. */
+    namesOnly?: boolean;
+  },
 ): Promise<{ matchId: ccc.Hex; point: OutPointRef }> {
   const owner = (await signer.getRecommendedAddressObj()).script;
-  const data = encodeMatch({
+  const match = {
     seats: input.seats,
     map: input.map,
     entry: input.entry,
     host: owner.hash(),
-    hostKey: input.session.lock.hash(),
+    hostKey: input.session ? input.session.lock.hash() : ZERO_HASH,
     game: ccc.hexFrom(rallyGame.codeHash),
     relay: ccc.hexFrom(rallyRelay.lockHash),
     wait: input.wait,
-  });
+    prize: input.prize ?? 0n,
+    hostRaces: input.session != null,
+    pass: input.namesOnly ? usernameScript().hash() : ZERO_HASH,
+  };
+  const data = encodeMatch(match);
   // The type id comes from the first input, known only once the wallet funds the transaction.
   const placeholder = matchScript(new Uint8Array(32));
   const placeholderGuard = proxyLock(new Uint8Array(32));
   const tx = ccc.Transaction.from({
     outputs: [
-      ccc.CellOutput.from({ capacity: input.entry + minCapacity(placeholderGuard, placeholder, MATCH_LEN), lock: placeholderGuard, type: placeholder }),
+      ccc.CellOutput.from({ capacity: hostStake(match) + minCapacity(placeholderGuard, placeholder, MATCH_LEN), lock: placeholderGuard, type: placeholder }),
     ],
     outputsData: [ccc.hexFrom(data)],
     cellDeps: matchCellDeps(),
@@ -297,22 +383,48 @@ export async function openMatch(
   return { matchId, point: { txHash, index: '0x0' } };
 }
 
-/** Takes a seat: the player's entry in a seat cell of their own, naming their session key. */
+/** The username cells' type script: a race open only to players with a name names its hash as the pass. */
+export function usernameScript(): ccc.Script {
+  return ccc.Script.from({ codeHash: usernameType.codeHash, hashType: usernameType.hashType, args: usernameType.args });
+}
+
+/** The live cell of the pass's type (a username) that this lock holds, if any. */
+export async function passCellOf(client: ccc.Client, match: MatchCell, owner: ccc.Script): Promise<ccc.Cell | null> {
+  const type = usernameScript();
+  if (type.hash() !== match.pass) return null;
+  for await (const cell of client.findCellsOnChain({ script: owner, scriptType: 'lock', scriptSearchMode: 'exact', filter: { script: type } }, 'asc', 1)) {
+    return cell;
+  }
+  return null;
+}
+
+/**
+ * Takes a seat: the player's entry (none in a sponsored race) in a seat cell of their own, naming
+ * their session key, and their username cell if the match asks for one.
+ */
 export async function joinMatch(signer: ccc.Signer, snapshot: MatchSnapshot, session: SessionKey): Promise<OutPointRef> {
   const owner = (await signer.getRecommendedAddressObj()).script;
   const players = playersOf(snapshot);
-  if (players.some((player) => player.owner.toLowerCase() === owner.hash().toLowerCase())) throw new Error('You are already in this match.');
+  const mine = owner.hash().toLowerCase();
+  if (players.some((player) => player.owner.toLowerCase() === mine)) throw new Error('You are already in this match.');
+  if (snapshot.match.prize > 0n && snapshot.match.host.toLowerCase() === mine && snapshot.match.hostRaces) throw new Error('You are already in this match.');
   if (players.length >= snapshot.match.seats) throw new Error('This match is full.');
+  const pass = needsPass(snapshot.match) ? await passCellOf(signer.client, snapshot.match, owner) : null;
+  if (needsPass(snapshot.match) && !pass) throw new Error('This race needs a username. Pick your name first.');
   const type = seatScript(snapshot.matchId);
   const guard = proxyLock(type.hash());
-  const data = encodeSeat(owner.hash(), session.lock.hash(), snapshot.match.wait);
+  const data = encodeSeat(owner.hash(), session.lock.hash(), snapshot.match);
   const tx = ccc.Transaction.from({
     outputs: [
       ccc.CellOutput.from({ capacity: snapshot.match.entry + minCapacity(guard, type, data.length), lock: guard, type }),
     ],
     outputsData: [ccc.hexFrom(data)],
     // The seat names its match without spending it, so players never queue behind each other.
-    cellDeps: [...matchCellDeps(), ccc.CellDep.from({ outPoint: snapshot.cell.outPoint, depType: 'code' })],
+    cellDeps: [
+      ...matchCellDeps(),
+      ccc.CellDep.from({ outPoint: snapshot.cell.outPoint, depType: 'code' }),
+      ...(pass ? [ccc.CellDep.from({ outPoint: pass.outPoint, depType: 'code' })] : []),
+    ],
   });
   await tx.completeInputsByCapacity(signer);
   await tx.completeFeeBy(signer, REGISTRY_FEE_RATE);
@@ -373,19 +485,25 @@ export async function closeMatchTx(client: ccc.Client, snapshot: MatchSnapshot, 
   return tx;
 }
 
-/** What each player's wallet is owed by a race's results, mirroring live-match. Host first. */
-export function payouts(entry: bigint, capacities: bigint[], owners: ccc.Hex[], results: number[]): Map<string, bigint> {
+/**
+ * What each wallet is owed by a race's results, mirroring live-match. The host's cell comes back
+ * less what it staked (all of it with no winner), each seat less its entry (all of it with no
+ * winner), and the winners split the pot. `seats` are the seat cells that raced, in car order.
+ */
+export function payouts(match: MatchCell, hostCapacity: bigint, seats: { owner: ccc.Hex; capacity: bigint }[], results: number[]): Map<string, bigint> {
   const winners = winnersOf(results);
   const owed = new Map<string, bigint>();
   const add = (owner: ccc.Hex, amount: bigint) => owed.set(owner.toLowerCase(), (owed.get(owner.toLowerCase()) ?? 0n) + amount);
-  capacities.forEach((capacity, car) => add(owners[car]!, winners.length === 0 ? capacity : capacity - entry));
+  add(match.host, winners.length === 0 ? hostCapacity : hostCapacity - hostStake(match));
+  for (const seat of seats) add(seat.owner, winners.length === 0 ? seat.capacity : seat.capacity - match.entry);
   if (winners.length > 0) {
-    const pot = entry * BigInt(capacities.length);
+    const cars = [...(match.hostRaces ? [match.host] : []), ...seats.map((seat) => seat.owner)];
+    const pot = potOf(match, cars.length);
     const share = pot / BigInt(winners.length);
-    winners.forEach((car, n) => add(owners[car]!, share + (n === 0 ? pot % BigInt(winners.length) : 0n)));
+    winners.forEach((car, n) => add(cars[car]!, share + (n === 0 ? pot % BigInt(winners.length) : 0n)));
   }
   // The host's storage pays the fee.
-  add(owners[0]!, -FEE);
+  add(match.host, -FEE);
   return owed;
 }
 
@@ -416,16 +534,17 @@ export async function matchFinishTx(
   const { cell, match } = snapshot;
   const seats = finish.seats.map((seatCell) => decodeSeat(ccc.bytesFrom(seatCell.outputData)));
   if (seats.some((seat) => !seat)) throw new Error('A seat in the finish is not a seat.');
-  const players: Player[] = [{ owner: match.host, key: match.hostKey }, ...seats.map((seat) => seat!)];
+  // Every wallet paid: the host's, raced or not, and each seat's.
   const cells = [cell, ...finish.seats];
+  const owners = [match.host, ...seats.map((seat) => seat!.owner)];
   const locks = new Map<string, ccc.Script>();
-  for (const [car, player] of players.entries()) {
-    if (!locks.has(player.owner.toLowerCase())) locks.set(player.owner.toLowerCase(), await lockFromHistory(client, cells[car]!, player.owner));
+  for (const [at, owner] of owners.entries()) {
+    if (!locks.has(owner.toLowerCase())) locks.set(owner.toLowerCase(), await lockFromHistory(client, cells[at]!, owner));
   }
   const owed = payouts(
-    match.entry,
-    cells.map((c) => BigInt(c.cellOutput.capacity)),
-    players.map((player) => player.owner),
+    match,
+    BigInt(cell.cellOutput.capacity),
+    finish.seats.map((seatCell, at) => ({ owner: seats[at]!.owner, capacity: BigInt(seatCell.cellOutput.capacity) })),
     finish.results,
   );
   const paid = [...owed].map(([owner, capacity]) => ({ capacity, lock: locks.get(owner)! }));

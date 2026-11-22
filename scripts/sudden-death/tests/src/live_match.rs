@@ -86,6 +86,7 @@ struct Lobby {
     relay: Script,
     stranger: Script,
     match_id: [u8; 32],
+    always_out: OutPoint,
 }
 
 impl Lobby {
@@ -121,6 +122,7 @@ impl Lobby {
             deps,
             game,
             match_id: [0x6d; 32],
+            always_out: always_out.clone(),
         }
     }
 
@@ -181,9 +183,19 @@ impl Lobby {
     }
 
     fn place_match(&self, context: &mut Context, data: &[u8]) -> OutPoint {
+        self.place_match_with(context, data, STORAGE + ENTRY)
+    }
+
+    fn place_match_with(&self, context: &mut Context, data: &[u8], cap: u64) -> OutPoint {
         let type_script = self.match_type(context);
         let guard = self.guard(context, &type_script);
-        context.create_cell(cell(STORAGE + ENTRY, guard, Some(type_script)), Bytes::from(data.to_vec()))
+        context.create_cell(cell(cap, guard, Some(type_script)), Bytes::from(data.to_vec()))
+    }
+
+    fn place_seat_cap(&self, context: &mut Context, data: Vec<u8>, cap: u64) -> OutPoint {
+        let type_script = self.seat_type(context);
+        let guard = self.guard(context, &type_script);
+        context.create_cell(cell(cap, guard, Some(type_script)), Bytes::from(data))
     }
 
     fn place_seat(&self, context: &mut Context, player: usize) -> OutPoint {
@@ -768,6 +780,295 @@ fn leave_seats(context: &mut Context, lobby: &Lobby, seats: [OutPoint; 2], since
         .output(cell(STORAGE + ENTRY - MAX_TX_FEE, lobby.players[2].clone(), None))
         .output_data(Bytes::new().pack());
     lobby.finish(context, tx)
+}
+
+// ---------------------------------------------------------------- sponsored races (version 3)
+
+const PRIZE: u64 = 250 * CKB;
+/// A version 3 match cell holds 184 bytes of data, more than `STORAGE` has room for.
+const HOST_STORAGE: u64 = 340 * CKB;
+
+/// A version 3 match: what each car puts in, what the host adds, whether they race, and the pass.
+#[derive(Clone)]
+struct Terms {
+    entry: u64,
+    prize: u64,
+    host_races: bool,
+    pass: [u8; 32],
+}
+
+/// Free to join, the host sponsors and watches, and anyone may join.
+fn sponsored() -> Terms {
+    Terms { entry: 0, prize: PRIZE, host_races: false, pass: [0; 32] }
+}
+
+impl Lobby {
+    fn v3_data(&self, seats: u8, terms: &Terms) -> Vec<u8> {
+        let mut raw = self.match_data(seats, HARBOUR);
+        raw[0] = 3;
+        raw[3..11].copy_from_slice(&terms.entry.to_le_bytes());
+        if !terms.host_races {
+            raw[43..75].copy_from_slice(&[0; 32]);
+        }
+        raw.extend_from_slice(&terms.prize.to_le_bytes());
+        raw.push(terms.host_races as u8);
+        raw.extend_from_slice(&terms.pass);
+        raw
+    }
+
+    /// A seat of a version 3 match, owned by one player and driven by another's key.
+    fn v3_seat(&self, owner: usize, key: usize) -> Vec<u8> {
+        let mut raw = vec![3u8];
+        raw.extend_from_slice(&hash_of(&self.players[owner]));
+        raw.extend_from_slice(&hash_of(&self.keys[key]));
+        raw.extend_from_slice(&WAIT_S.to_le_bytes());
+        raw
+    }
+
+    fn host_cap(terms: &Terms) -> u64 {
+        HOST_STORAGE + terms.prize + if terms.host_races { terms.entry } else { 0 }
+    }
+
+    /// The type of the cells a pass names (a username, say), and one such cell held by `player`.
+    fn name_type(&self, context: &mut Context) -> Script {
+        context.build_script(&self.always_out, Bytes::from(vec![0x77])).expect("name type")
+    }
+
+    fn name_cell(&self, context: &mut Context, player: usize) -> OutPoint {
+        let type_script = self.name_type(context);
+        context.create_cell(cell(200 * CKB, self.players[player].clone(), Some(type_script)), Bytes::from(b"chi".to_vec()))
+    }
+}
+
+#[test]
+fn a_sponsor_opens_a_free_race_with_a_prize() {
+    let mut context = Context::default();
+    let lobby = Lobby::new(&mut context);
+    let terms = sponsored();
+    let tx = open_tx(&mut context, &lobby, Lobby::host_cap(&terms), lobby.v3_data(4, &terms));
+    verify_and_dump_failed_tx(&context, &tx, MAX_CYCLES).expect("sponsored open");
+    // A paid race with a prize on top, the host racing too.
+    let boosted = Terms { entry: ENTRY, host_races: true, ..sponsored() };
+    let tx = open_tx(&mut context, &lobby, Lobby::host_cap(&boosted), lobby.v3_data(4, &boosted));
+    verify_and_dump_failed_tx(&context, &tx, MAX_CYCLES).expect("boosted open");
+}
+
+#[test]
+fn a_race_with_no_entry_and_no_prize_is_rejected() {
+    let mut context = Context::default();
+    let lobby = Lobby::new(&mut context);
+    let terms = Terms { prize: 0, ..sponsored() };
+    let tx = open_tx(&mut context, &lobby, STORAGE, lobby.v3_data(4, &terms));
+    rejects_with(&context, &tx, -17);
+}
+
+#[test]
+fn a_sponsor_short_of_the_prize_is_rejected() {
+    let mut context = Context::default();
+    let lobby = Lobby::new(&mut context);
+    let terms = sponsored();
+    // The cell's own 322 bytes and the prize need 572 CKB.
+    let tx = open_tx(&mut context, &lobby, 571 * CKB, lobby.v3_data(4, &terms));
+    rejects_with(&context, &tx, -3);
+    let tx = open_tx(&mut context, &lobby, 572 * CKB, lobby.v3_data(4, &terms));
+    verify_and_dump_failed_tx(&context, &tx, MAX_CYCLES).expect("exactly enough");
+}
+
+#[test]
+fn a_host_who_races_needs_a_key() {
+    let mut context = Context::default();
+    let lobby = Lobby::new(&mut context);
+    let terms = Terms { host_races: true, ..sponsored() };
+    let mut data = lobby.v3_data(4, &terms);
+    data[43..75].copy_from_slice(&[0; 32]);
+    let tx = open_tx(&mut context, &lobby, Lobby::host_cap(&terms), data);
+    rejects_with(&context, &tx, -17);
+}
+
+/// A player takes a seat in a version 3 match, naming these extra cell deps.
+fn v3_join(context: &mut Context, lobby: &Lobby, terms: &Terms, player: usize, extra: &[OutPoint]) -> TransactionView {
+    let live = lobby.place_match_with(context, &lobby.v3_data(5, terms), Lobby::host_cap(terms));
+    let fund = lobby.wallet(context, &lobby.players[player], STORAGE + terms.entry + 100 * CKB);
+    let type_script = lobby.seat_type(context);
+    let guard = lobby.guard(context, &type_script);
+    let mut tx = TransactionBuilder::default()
+        .input(input(fund, 0))
+        .output(cell(STORAGE + terms.entry, guard, Some(type_script)))
+        .output_data(Bytes::from(lobby.v3_seat(player, player)).pack())
+        .cell_dep(CellDep::new_builder().out_point(live).build());
+    for out in extra {
+        tx = tx.cell_dep(CellDep::new_builder().out_point(out.clone()).build());
+    }
+    lobby.finish(context, tx)
+}
+
+#[test]
+fn anyone_joins_a_free_race_for_just_their_seats_storage() {
+    let mut context = Context::default();
+    let lobby = Lobby::new(&mut context);
+    let tx = v3_join(&mut context, &lobby, &sponsored(), 1, &[]);
+    verify_and_dump_failed_tx(&context, &tx, MAX_CYCLES).expect("free join");
+}
+
+#[test]
+fn a_race_with_a_pass_takes_only_players_who_hold_one() {
+    let mut context = Context::default();
+    let lobby = Lobby::new(&mut context);
+    let name_type = lobby.name_type(&mut context);
+    let terms = Terms { pass: hash_of(&name_type), ..sponsored() };
+    // Their own name: in.
+    let mine = lobby.name_cell(&mut context, 1);
+    let tx = v3_join(&mut context, &lobby, &terms, 1, &[mine]);
+    verify_and_dump_failed_tx(&context, &tx, MAX_CYCLES).expect("join with a name");
+    // No name, or someone else's: out.
+    let tx = v3_join(&mut context, &lobby, &terms, 1, &[]);
+    rejects_with(&context, &tx, ERR_AUTH);
+    let theirs = lobby.name_cell(&mut context, 2);
+    let tx = v3_join(&mut context, &lobby, &terms, 1, &[theirs]);
+    rejects_with(&context, &tx, ERR_AUTH);
+}
+
+#[test]
+fn a_seat_of_a_sponsored_race_must_say_version_3() {
+    let mut context = Context::default();
+    let lobby = Lobby::new(&mut context);
+    let terms = sponsored();
+    let live = lobby.place_match_with(&mut context, &lobby.v3_data(5, &terms), Lobby::host_cap(&terms));
+    let fund = lobby.wallet(&mut context, &lobby.players[1], STORAGE + 100 * CKB);
+    let type_script = lobby.seat_type(&mut context);
+    let guard = lobby.guard(&mut context, &type_script);
+    let tx = TransactionBuilder::default()
+        .input(input(fund, 0))
+        .output(cell(STORAGE, guard, Some(type_script)))
+        .output_data(Bytes::from(lobby.seat_data(1)).pack())
+        .cell_dep(CellDep::new_builder().out_point(live).build());
+    let tx = lobby.finish(&mut context, tx);
+    rejects_with(&context, &tx, -17);
+}
+
+/// The finish of a version 3 race: `seats` holds each seat's (owner, key) player, in car order.
+/// Bots drive, every car signs, and the relay sends it. Returns the transaction and the results.
+fn v3_finish(context: &mut Context, lobby: &Lobby, terms: &Terms, seats: &[(usize, usize)], parked: &[bool]) -> (TransactionView, Vec<u8>) {
+    let live = lobby.place_match_with(context, &lobby.v3_data(5, terms), Lobby::host_cap(terms));
+    // Each car: who it pays and whose key drives it.
+    let mut cars: Vec<(usize, usize)> = if terms.host_races { vec![(0, 0)] } else { vec![] };
+    cars.extend_from_slice(seats);
+    let (moves, results) = race(HARBOUR, &parked[..cars.len()]);
+    let results = results[..cars.len()].to_vec();
+    let signatures: Vec<_> = cars.iter().zip(&moves).map(|((_, key), moves)| sign(lobby, *key, moves)).collect();
+    let witness = WitnessArgs::new_builder().input_type(Some(Bytes::from(record(&moves, &signatures))).pack()).build().as_bytes();
+    let mut tx = TransactionBuilder::default().input(input(live, 0)).witness(witness.pack());
+    for (owner, key) in seats {
+        let seat = lobby.place_seat_cap(context, lobby.v3_seat(*owner, *key), STORAGE + terms.entry);
+        tx = tx.input(input(seat, 0));
+    }
+    let key = lobby.wallet(context, &lobby.relay, KEY_CAP);
+    tx = tx.input(input(key, 0)).output(cell(KEY_CAP, lobby.relay.clone(), None)).output_data(Bytes::new().pack());
+    for (lock, cap) in v3_pays(lobby, terms, &cars, &results) {
+        tx = tx.output(cell(cap, lock, None)).output_data(Bytes::new().pack());
+    }
+    (lobby.finish(context, tx), results)
+}
+
+/// What a version 3 finish pays each wallet: the host their cell less what it staked (or all of it
+/// with no winner), each seat its storage (or all of it), the winners the entries and the prize.
+fn v3_pays(lobby: &Lobby, terms: &Terms, cars: &[(usize, usize)], results: &[u8]) -> Vec<(Script, u64)> {
+    let winners: Vec<usize> = (0..results.len()).filter(|car| results[*car] == FINISHED).collect();
+    let mut owed: Vec<(usize, u64)> = Vec::new();
+    let mut add = |player: usize, amount: u64| match owed.iter_mut().find(|(who, _)| *who == player) {
+        Some((_, due)) => *due += amount,
+        None => owed.push((player, amount)),
+    };
+    let host_cap = Lobby::host_cap(terms);
+    add(0, if winners.is_empty() { host_cap } else { HOST_STORAGE });
+    let seats = if terms.host_races { &cars[1..] } else { cars };
+    for (owner, _) in seats {
+        add(*owner, if winners.is_empty() { STORAGE + terms.entry } else { STORAGE });
+    }
+    let pot = terms.entry * cars.len() as u64 + terms.prize;
+    for (n, car) in winners.iter().enumerate() {
+        add(cars[*car].0, pot / winners.len() as u64 + if n == 0 { pot % winners.len() as u64 } else { 0 });
+    }
+    owed.iter().map(|(player, due)| (lobby.players[*player].clone(), if *player == 0 { due - MAX_TX_FEE } else { *due })).collect()
+}
+
+#[test]
+fn the_winner_of_a_free_race_takes_the_prize_and_everyone_keeps_their_storage() {
+    for seats in [vec![(1, 1), (2, 2)], vec![(1, 1), (2, 2), (3, 3), (4, 4)]] {
+        let mut context = Context::default();
+        let lobby = Lobby::new(&mut context);
+        let (tx, results) = v3_finish(&mut context, &lobby, &sponsored(), &seats, &[false; 5]);
+        assert!(results.contains(&FINISHED));
+        let cycles = verify_and_dump_failed_tx(&context, &tx, MAX_CYCLES).expect("sponsored finish");
+        println!("finish a sponsored {}-car race: {cycles} cycles", seats.len());
+    }
+}
+
+#[test]
+fn with_no_winner_the_prize_goes_back_to_the_sponsor() {
+    let mut context = Context::default();
+    let lobby = Lobby::new(&mut context);
+    let (tx, results) = v3_finish(&mut context, &lobby, &sponsored(), &[(1, 1), (2, 2), (3, 3)], &[true; 5]);
+    assert!(!results.contains(&FINISHED));
+    verify_and_dump_failed_tx(&context, &tx, MAX_CYCLES).expect("prize home");
+}
+
+#[test]
+fn a_sponsor_who_races_can_win_the_entries_and_the_prize() {
+    let mut context = Context::default();
+    let lobby = Lobby::new(&mut context);
+    let terms = Terms { entry: ENTRY, host_races: true, ..sponsored() };
+    let (tx, _) = v3_finish(&mut context, &lobby, &terms, &[(1, 1), (2, 2)], &[false; 5]);
+    verify_and_dump_failed_tx(&context, &tx, MAX_CYCLES).expect("boosted finish");
+}
+
+#[test]
+fn one_owner_cannot_take_two_seats_in_a_prize_race() {
+    let mut context = Context::default();
+    let lobby = Lobby::new(&mut context);
+    // Player 1 owns both seats, each driven by its own key.
+    let (tx, _) = v3_finish(&mut context, &lobby, &sponsored(), &[(1, 1), (1, 2)], &[false; 5]);
+    rejects_with(&context, &tx, -17);
+    // Nor can a host who races take a seat too.
+    let terms = Terms { entry: ENTRY, host_races: true, ..sponsored() };
+    let (tx, _) = v3_finish(&mut context, &lobby, &terms, &[(0, 1)], &[false; 5]);
+    rejects_with(&context, &tx, -17);
+}
+
+#[test]
+fn a_finish_that_keeps_the_prize_from_the_winner_is_rejected() {
+    let mut context = Context::default();
+    let lobby = Lobby::new(&mut context);
+    let terms = sponsored();
+    // Pay the winner as if there were no prize: the sponsor keeps it.
+    let cheap = Terms { prize: 0, ..terms.clone() };
+    let (honest, results) = v3_finish(&mut context, &lobby, &terms, &[(1, 1), (2, 2)], &[false; 5]);
+    let mut outputs: Vec<CellOutput> = honest.outputs().into_iter().collect();
+    let winner = results.iter().position(|r| *r == FINISHED).unwrap();
+    let paid = v3_pays(&lobby, &cheap, &[(1, 1), (2, 2)], &results);
+    let winner_lock = lobby.players[[1, 2][winner]].clone();
+    let short = paid.iter().find(|(lock, _)| *lock == winner_lock).unwrap().1;
+    for output in outputs.iter_mut() {
+        if output.lock() == winner_lock {
+            *output = output.clone().as_builder().capacity(short).build();
+        }
+    }
+    let tx = honest.as_advanced_builder().set_outputs(outputs).build();
+    rejects_with(&context, &tx, -3);
+}
+
+#[test]
+fn a_sponsor_goes_home_with_the_prize_if_the_race_never_happens() {
+    let mut context = Context::default();
+    let lobby = Lobby::new(&mut context);
+    let terms = sponsored();
+    let live = lobby.place_match_with(&mut context, &lobby.v3_data(4, &terms), Lobby::host_cap(&terms));
+    let tx = TransactionBuilder::default()
+        .input(input(live, waited(HOLD_MS)))
+        .output(cell(Lobby::host_cap(&terms) - MAX_TX_FEE, lobby.players[0].clone(), None))
+        .output_data(Bytes::new().pack());
+    let tx = lobby.finish(&mut context, tx);
+    verify_and_dump_failed_tx(&context, &tx, MAX_CYCLES).expect("sponsor home");
 }
 
 #[test]
