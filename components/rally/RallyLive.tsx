@@ -124,7 +124,6 @@ export function RallyLive({ snapshot, session, nameOf, onLeave, onEnded }: Props
           setRelay({ phase: message.phase, lobbyEndsAt: message.lobbyEndsAt, startAt: message.startAt, cars: message.cars, joined: message.joined, note: message.note, txHash: message.txHash });
           if (message.phase === 'done' || message.phase === 'failed') endedRef.current(message.phase === 'done');
         } else if (message.type === 'tick') {
-          let mineMoved = false;
           for (const [car, tick, bits] of message.ev) {
             const events = tapes.current[car];
             if (!events) continue;
@@ -133,12 +132,14 @@ export function RallyLive({ snapshot, session, nameOf, onLeave, onEnded }: Props
             else if (!last || tick > last.tick) events.push({ tick, bits });
             if (link.key != null && cars.current[car] === link.key) {
               pending.current = pending.current.filter((mine) => mine.tick > tick);
-              mineMoved = true;
             }
           }
-          // Sign this car's moves as the relay has them, so the finish needs nobody online.
+          // Sign this car's moves as the relay has them, so the finish needs nobody online. Only moves
+          // before the played tick: the relay may still change a move on a tick it hasn't played.
           const mine = link.key != null ? cars.current.indexOf(link.key) : -1;
-          const signed = mineMoved && mine >= 0 ? own.current?.sign(tapes.current[mine]!) : null;
+          const played = mine >= 0 ? tapes.current[mine]!.filter((event) => event.tick < message.t) : [];
+          // Every tick, since a move becomes final a tick or two after it arrives. sign() skips a repeat.
+          const signed = mine >= 0 ? own.current?.sign(played) : null;
           if (signed) link.moves(signed.count, signed.signature);
           confirmed.current = message.t;
           if (cars.current.length > 0) while (runner.tick(0) < message.t && !runner.over(0)) stepConfirmed(runner, tapes.current, held, next);

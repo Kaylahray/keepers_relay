@@ -141,6 +141,11 @@ async function main() {
     let offset = 0;
     let token = '';
     let sent = -1;
+    let seq = 0;
+    let ready = false;
+    let turnedDown = 0;
+    let play: WebSocket | null = null;
+    const say = (message: import('@/lib/rally/protocol').PlayMessage) => play?.send(JSON.stringify(message));
     let done: { phase: string; txHash?: string; note?: string } | null = null;
     // The lobby's clock as the relay last told it, and when the relay started the countdown.
     let lobbyEnds: number | null = null;
@@ -164,23 +169,40 @@ async function main() {
         if (message.phase === 'countdown' && countdownAt == null) countdownAt = message.now;
       } else if (message.type === 'tick') {
         const mine = cars.indexOf(me);
-        let mineMoved = false;
         for (const [car, tick, bits] of message.ev) {
           const events = tapes[car]!;
           const last = events.at(-1);
           if (last && last.tick === tick) last.bits = bits;
           else events.push({ tick, bits });
-          if (car === mine) mineMoved = true;
         }
         if (cars.length > 0) rules.playTo(runner, 0, tapes, message.t, held, next);
-        const signed = mineMoved && mode !== 'unsigned' && token ? own.sign(tapes[mine]!) : null;
-        if (signed) void post('/moves', { matchId, token, ...signed }).catch((cause) => console.log(`  moves not taken: ${cause instanceof Error ? cause.message : cause}`));
+        // As a phone does: only moves on ticks already played, which the relay can no longer change.
+        const played = mine >= 0 ? tapes[mine]!.filter((event) => event.tick < message.t) : [];
+        const signed = mine >= 0 && mode !== 'unsigned' && ready ? own.sign(played) : null;
+        if (signed) say({ type: 'moves', ...signed });
       }
     });
 
     const nonce = Date.now();
     const signature = await new ccc.SignerCkbPrivateKey(client, secret).signMessage(protocol.joinMessage(matchId, nonce));
     token = ((await post('/join', { matchId, nonce, signature })) as { token: string }).token;
+
+    // Inputs and signatures go over the phone's own WebSocket, in order, as the app sends them.
+    const socket = new WebSocket(`${relayUrl.replace(/^http/, 'ws')}${protocol.PLAY_PATH}`);
+    play = socket;
+    socket.onmessage = (event) => {
+      const reply = JSON.parse(String(event.data)) as import('@/lib/rally/protocol').PlayReply;
+      if (reply.type === 'ready') ready = true;
+      else if (reply.type === 'moves' && !reply.ok) {
+        turnedDown += 1;
+        console.log(`  moves not taken: ${reply.error}`);
+      }
+    };
+    await new Promise<void>((resolve, reject) => {
+      socket.onopen = () => resolve();
+      socket.onerror = () => reject(new Error('The relay’s WebSocket did not open.'));
+    });
+    say({ type: 'hello', matchId, token });
 
     // Drive: steer by the race as the relay has confirmed it, and send each change a few ticks ahead.
     const drive = setInterval(() => {
@@ -193,7 +215,8 @@ async function main() {
         sent = bits;
         const tick = estimated + protocol.INPUT_DELAY_TICKS;
         own.press(tick, bits);
-        void post('/input', { matchId, token, tick, bits });
+        seq += 1;
+        say({ type: 'input', seq, tick, bits });
       }
     }, rules.RALLY.TICK_MS);
 
@@ -202,6 +225,7 @@ async function main() {
         for (let waited = 0; !done && waited < 600; waited += 1) await sleep(1_000);
         clearInterval(drive);
         stop();
+        play?.close();
         const views = cars.map((_, i) => runner.car(0, i));
         return {
           done,
@@ -213,6 +237,7 @@ async function main() {
           shards: views.reduce((sum, view) => sum + view.shards, 0),
           fired: tapes.filter((events) => events.some((event) => (event.bits & rules.USE) !== 0)).length,
           hurt: views.filter((view) => view.hp < rules.RALLY.MAX_HP).length,
+          turnedDown,
         };
       },
     };
@@ -276,6 +301,7 @@ async function main() {
     );
     check(first.done?.phase === 'done', 'the relay sent the finish', first.done?.note ?? first.done?.txHash ?? 'no result');
     check(ends.every((end) => JSON.stringify(end.results) === JSON.stringify(first.results)), 'every phone saw the same race', `results ${first.results.map((r) => r.toString(16)).join(',')}`);
+    check(ends.every((end) => end.turnedDown === 0), 'the relay took every signature', ends.map((end) => end.turnedDown).join(' / '));
     if (first.done?.txHash) {
       await waitCommitted(client, first.done.txHash, 'finish');
       const paid = await paidBy(first.done.txHash);

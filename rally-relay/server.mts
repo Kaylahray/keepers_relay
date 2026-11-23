@@ -15,6 +15,7 @@ import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { ccc } from '@ckb-ccc/core';
+import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 import { getServerCkbClient } from '@/lib/ckb/server-client';
 import { closeMatchTx, findMatch, matchFinishTx, plainCellOf, playersOf, racingSeats, signedRecord, type MatchSnapshot, type Player } from '@/lib/rally/chain';
 import { movesSigner } from '@/lib/rally/moves';
@@ -23,10 +24,13 @@ import {
   joinMessage,
   lobbyEndsAt,
   MAX_AHEAD_TICKS,
+  PLAY_PATH,
   type CloseRequest,
   type InputRequest,
   type JoinRequest,
   type MovesRequest,
+  type PlayMessage,
+  type PlayReply,
   type RallyPhase,
   type RelayMessage,
   type WireEvent,
@@ -76,6 +80,8 @@ type Race = {
   seats: ccc.Cell[];
   /** Token to session key lock hash. */
   tokens: Map<string, string>;
+  /** Each token's last input `seq` taken: an input at or below it came late or out of order. */
+  seqs: Map<string, number>;
   joined: Set<string>;
   phase: RallyPhase;
   lobbyEndsAt: number | null;
@@ -165,6 +171,7 @@ async function openRace(matchId: string): Promise<Race> {
       cars: [],
       seats: [],
       tokens: new Map(),
+      seqs: new Map(),
       joined: new Set(),
       phase: 'lobby',
       lobbyEndsAt: lobbyOf(snapshot),
@@ -336,7 +343,10 @@ function sameEvents(a: RallyEvent[] | undefined, b: RallyEvent[]): boolean {
 }
 
 function settledRace(race: Race): { tapes: RallyEvent[][]; signatures: (ccc.Hex | null)[]; results: number[]; cut: number[] } {
-  const tapes = race.tapes.map((events) => events.map((event) => ({ ...event })));
+  // Only moves on ticks the race played: a move pressed as it ended was never raced, and phones sign
+  // only played ticks, which can't change any more.
+  const played = race.runner.tick(0);
+  const tapes = race.tapes.map((events) => events.filter((event) => event.tick < played).map((event) => ({ ...event })));
   const signedAll = (car: number) => sameEvents(race.signed[car]?.events, tapes[car]!);
   const cut: number[] = [];
   for (;;) {
@@ -482,6 +492,21 @@ async function join(body: JoinRequest) {
   return { token };
 }
 
+/**
+ * One input from a joined phone. An input older than one already taken from the same token is
+ * dropped: taking it would put the relay's copy out of the order the phone pressed, and the phone
+ * would refuse to sign it. Dropping an input is something a phone allows; reordering is not.
+ */
+function input(race: Race, token: string, seq: number | undefined, tick: number, bits: number) {
+  const car = carOf(race, keyOf(race, token));
+  if (seq != null) {
+    if (!Number.isSafeInteger(seq) || seq <= (race.seqs.get(token) ?? 0)) return;
+    race.seqs.set(token, seq);
+  }
+  take(race, car, tick, bits & (LEFT | RIGHT | BOOST | BRAKE | USE));
+  race.touchedAt = Date.now();
+}
+
 /** Keeps a phone's signature over its car's moves, if it is that car's key over the events the relay has. */
 async function moves(body: MovesRequest) {
   const race = await openRace(body.matchId);
@@ -534,9 +559,7 @@ const server = http.createServer(async (request, response) => {
       reply(response, 200, await join(await readJson<JoinRequest>(request)));
     } else if (request.method === 'POST' && url.pathname === '/input') {
       const body = await readJson<InputRequest>(request);
-      const race = await openRace(body.matchId);
-      take(race, carOf(race, keyOf(race, body.token)), body.tick, body.bits & (LEFT | RIGHT | BOOST | BRAKE | USE));
-      race.touchedAt = Date.now();
+      input(await openRace(body.matchId), body.token, body.seq, body.tick, body.bits);
       response.writeHead(204).end();
     } else if (request.method === 'POST' && url.pathname === '/moves') {
       reply(response, 200, await moves(await readJson<MovesRequest>(request)));
@@ -549,5 +572,75 @@ const server = http.createServer(async (request, response) => {
     if (!response.headersSent) reply(response, 400, { error: cause instanceof Error ? cause.message : 'Bad request.' });
   }
 });
+
+// ---------------------------------------------------------------- a driving phone's WebSocket
+
+/** Phones on `/play`. A message bigger than this is not a phone's. */
+const plays = new WebSocketServer({ noServer: true, maxPayload: 4_096 });
+/** Proxies and hosts drop a quiet connection; a phone that misses a ping is gone. */
+const PING_MS = 20_000;
+const alive = new WeakSet<WebSocket>();
+
+function answer(socket: WebSocket, reply: PlayReply) {
+  if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(reply));
+}
+
+/** One phone's connection: `hello` with its token, then inputs and signatures, each handled in turn. */
+function play(socket: WebSocket) {
+  alive.add(socket);
+  socket.on('pong', () => alive.add(socket));
+  let race: Race | null = null;
+  let token = '';
+  // Every message waits for the one before it, so inputs reach `take` in the order they were sent.
+  let turn: Promise<void> = Promise.resolve();
+  socket.on('message', (data: RawData) => {
+    turn = turn.then(async () => {
+      let message: PlayMessage;
+      try {
+        message = JSON.parse(data.toString()) as PlayMessage;
+      } catch {
+        return answer(socket, { type: 'error', error: 'Bad message.' });
+      }
+      try {
+        if (message.type === 'hello') {
+          const opened = await openRace(message.matchId);
+          keyOf(opened, message.token);
+          race = opened;
+          token = message.token;
+          answer(socket, { type: 'ready' });
+        } else if (!race) {
+          answer(socket, { type: 'error', error: 'Say hello first.' });
+        } else if (message.type === 'input') {
+          input(race, token, message.seq, message.tick, message.bits);
+        } else if (message.type === 'moves') {
+          await moves({ matchId: race.matchId, token, count: message.count, signature: message.signature });
+          answer(socket, { type: 'moves', ok: true });
+        }
+      } catch (cause) {
+        const error = cause instanceof Error ? cause.message : 'Bad request.';
+        answer(socket, message.type === 'moves' ? { type: 'moves', ok: false, error } : { type: 'error', error });
+      }
+    });
+  });
+}
+
+server.on('upgrade', (request, socket, head) => {
+  if (new URL(request.url ?? '/', 'http://relay').pathname !== PLAY_PATH) {
+    socket.destroy();
+    return;
+  }
+  plays.handleUpgrade(request, socket, head, (ws) => play(ws));
+});
+
+setInterval(() => {
+  for (const socket of plays.clients) {
+    if (!alive.has(socket)) {
+      socket.terminate();
+      continue;
+    }
+    alive.delete(socket);
+    socket.ping();
+  }
+}, PING_MS);
 
 server.listen(PORT, () => console.log(`Crowns relay on :${PORT}, signing as ${relayLockHash}`));

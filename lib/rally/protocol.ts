@@ -1,6 +1,7 @@
 /**
- * What phones and the rally relay say to each other. Phones post to the relay (join, input, moves)
- * and listen on one event stream per match, which anyone may open to watch.
+ * What phones and the rally relay say to each other. A phone posts to join, then sends its inputs and
+ * signatures over its own WebSocket (or posts them while that is down), and listens on one event
+ * stream per match, which anyone may open to watch.
  *
  * The lobby is on chain: the host's match cell and a seat cell per player. It waits as long as the
  * host picked from the match landing, less a cut for each player who joins (see `lobbyEndsAt`). The
@@ -12,7 +13,7 @@
  * late. Every tick the relay has played is final: phones and the chain replay the same events.
  *
  * Each phone signs its own car's moves as the relay passes them back, once it has checked they are
- * only what it pressed, and posts the signature. When the race ends the relay sends the finish
+ * only what it pressed, and sends the signature. When the race ends the relay sends the finish
  * alone: nobody has to be online for it, and the chain pays only a winner whose moves are signed.
  */
 
@@ -30,13 +31,31 @@ export type JoinRequest = {
 
 export type JoinReply = { token: string };
 
-export type InputRequest = { matchId: string; token: string; tick: number; bits: number };
+/**
+ * One input. `seq` counts up from 1 for each token: the relay takes an input only if its `seq` is
+ * above the last one it took, so the relay's copy of a car is always in the order its phone pressed.
+ */
+export type InputRequest = { matchId: string; token: string; seq?: number; tick: number; bits: number };
 
 /** This phone's signature over its car's first `count` events, as the relay passed them back. */
 export type MovesRequest = { matchId: string; token: string; count: number; signature: string };
 
 /** Asks the relay to close a lobby nobody joined, so the host's entry goes home now. */
 export type CloseRequest = { matchId: string };
+
+/**
+ * A driving phone's own line to the relay: a WebSocket at `/play`. One connection keeps a phone's
+ * inputs in the order it pressed them, which separate posts can't. `hello` comes first, with the token
+ * from `/join`; the relay handles each message only after the one before it.
+ */
+export const PLAY_PATH = '/play';
+
+export type PlayMessage =
+  | { type: 'hello'; matchId: string; token: string }
+  | { type: 'input'; seq: number; tick: number; bits: number }
+  | { type: 'moves'; count: number; signature: string };
+
+export type PlayReply = { type: 'ready' } | { type: 'moves'; ok: true } | { type: 'moves'; ok: false; error: string } | { type: 'error'; error: string };
 
 /** `settling`: the race is over and the relay is sending the finish. */
 export type RallyPhase = 'lobby' | 'countdown' | 'racing' | 'settling' | 'done' | 'failed';
