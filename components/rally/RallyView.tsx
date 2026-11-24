@@ -305,7 +305,8 @@ export function RallyView({ id }: { id: string }) {
         {backLink}
         {awaitingResult ? (
           <ChainLoader title="Loading the result…" note="The chain paid out. The result shows here in a moment." />
-        ) : match.isPending ? (
+        ) : match.isPending || (landing && (ending.isPending || leftover.isPending)) ? (
+          // A finished race has no match cell either: until we know how it ended, it may not be new at all.
           <ChainLoader title="Loading the race…" />
         ) : sentHome ? (
           <ChainLoader title="Getting your money back…" note="It’s back in your account within a minute." />
